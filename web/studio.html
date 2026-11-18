@@ -41,6 +41,11 @@ main{max-width:1320px;margin:0 auto;padding:30px 34px 80px}
 .vrow{display:grid;grid-template-columns:150px 1fr auto;gap:12px;align-items:center;padding:10px 0;border-top:1px solid var(--line);font-size:14px}.vrow b{font-family:Kufi}
 .tabs button{border-radius:10px 10px 0 0;transition:.15s}.tabs button:hover{color:var(--deep);background:#FBF6EA}
 @media(max-width:900px){.split{grid-template-columns:1fr!important}header{flex-wrap:wrap;padding:12px 16px;gap:10px}main{padding:18px 14px 60px}.hero{flex-direction:column;align-items:stretch}#evName{width:100%!important;font-size:24px!important}.tabs{overflow-x:auto}.tabs button{padding:10px 14px;white-space:nowrap}.types{grid-template-columns:repeat(2,1fr)}.grid2,.tpls{grid-template-columns:1fr}.row{grid-template-columns:1fr!important}.link{grid-template-columns:1fr auto}.stp{min-width:46%}}
+
+/* the light dress: paper and white, charcoal ink, gold for what matters */
+header{background:#fff;color:var(--deep);border-bottom:1px solid var(--line);box-shadow:0 2px 16px rgba(14,17,20,.05)}.wm{color:var(--deep)}.wm:before{background-image:url(brand/mark.png)}.wm span{color:#8E6626}
+header .org{color:#8E6626}header a{color:#8E6626}header a:hover{color:var(--deep)}#saved{color:var(--mute)!important}header>span[style*="gold2"]{color:#8E6626!important}
+#pv{background:#F1EAD8;border-bottom:1px solid var(--line)}#pv .scr{box-shadow:0 10px 26px rgba(14,17,20,.2)}#pv .bar{color:var(--mute)}#pv .bar button{border:1px solid var(--line);background:#fff;color:var(--deep)}#pv .bar button.on{background:var(--gold);color:#fff;border-color:var(--gold)}
 </style></head><body>
 <header><div class="wm">بصيرة<i></i><span>BASSERH</span></div><span style="font:600 14px Plex;color:var(--gold2);margin-inline-start:6px">استوديو اللقاءات</span><span class="org" id="orgName"></span><span class="sp"></span><span id="saved" style="font-size:13px;color:var(--gold2)"></span><a href="#" id="pwSet" style="color:var(--gold2);font:600 13px Plex;text-decoration:none;margin-inline-end:14px;display:none">كلمة المرور</a><a href="#" id="pk" title="الدخول لاحقاً ببصمة هذا الجهاز أو رمزه، بلا رابط دعوة">إضافة مفتاح مرور</a><a href="#" id="home">لقاءاتي</a><a href="/api/logout">خروج</a></header>
 <main id="app"></main><div id="toast"></div><script src="vendor/qrcode.js"></script>
