@@ -171,7 +171,7 @@ export default {
         return new Response(JSON.stringify({ ok: true, to: '/' + (first ? first.slug : 'login') }), { headers: { 'Content-Type': 'application/json', 'Set-Cookie': await session(env, u.id) } }); }
       if (p === '/api/password' && M === 'POST') {   // a signed in member sets a password of their own
         const w = await me(req, env); if (!w || !w.user || w.user.id === 'platform') return err('ادخل أولاً', 401); const b = await req.json().catch(() => ({})), pw = String(b.password || ''); if (pw.length < 8) return err('كلمة المرور ثمانية أحرف على الأقل');
-        await env.DB.prepare('UPDATE users SET pw = ? WHERE id = ?').bind(await pwHash(pw), w.user.id).run(); return J({ ok: true }); }
+        await env.DB.batch([env.DB.prepare('UPDATE users SET pw = ? WHERE id = ?').bind(await pwHash(pw), w.user.id), env.DB.prepare('DELETE FROM sessions WHERE user_id = ? AND token_hash != ?').bind(w.user.id, await sha(cookies(req).sid))]); return J({ ok: true }); }   // the other devices are signed out
       if (p.startsWith('/join/')) {
         const h = await sha(p.slice(6)), c = await env.DB.prepare('SELECT email FROM login_codes WHERE code_hash = ? AND used_at IS NULL AND expires_at > ?').bind(h, now()).first();
         if (!c) return new Response('الرابط منتهٍ أو مستعمل. اطلب رابطاً جديداً من مالك الحساب.', { status: 410, headers: { 'Content-Type': 'text/plain; charset=utf-8' } });
@@ -280,6 +280,11 @@ export default {
       if (p === '/api/members' && M === 'POST') {   // the owner adds a person: returns the link to hand to them
         if (!can('owner')) return err('للمالك فقط', 403); const b = await req.json(); if (!(b.role in ROLES)) return err('دور غير معروف');
         const u = await userFor(env, b.email, b.name); if (!u) return err('بريد غير صالح');
+        // a password for the member, typed by the owner: it opens the organisation's address as this member, so it must differ from the others'
+        if (b.password) { const pw = String(b.password); if (pw.length < 8) return err('كلمة المرور ثمانية أحرف على الأقل');
+          const { results } = await env.DB.prepare('SELECT u.id, u.pw FROM users u JOIN members m ON m.user_id = u.id WHERE m.org_id = ? AND u.pw IS NOT NULL AND u.id != ?').bind(org.id, u.id).all();
+          for (const x of results) if (await pwOk(pw, x.pw)) return err('كلمة المرور مستعملة لعضو آخر. اختر غيرها.');
+          await env.DB.batch([env.DB.prepare('UPDATE users SET pw = ? WHERE id = ?').bind(await pwHash(pw), u.id), env.DB.prepare('DELETE FROM sessions WHERE user_id = ?').bind(u.id)]); }
         if (b.role !== 'owner') { const ow = (await env.DB.prepare('SELECT user_id FROM members WHERE org_id = ? AND role = ?').bind(org.id, 'owner').all()).results; if (ow.length === 1 && ow[0].user_id === u.id) return err('لا تبقى الجهة بلا مالك'); }
         await env.DB.prepare('INSERT INTO members (org_id, user_id, role) VALUES (?,?,?) ON CONFLICT (org_id, user_id) DO UPDATE SET role = excluded.role').bind(org.id, u.id, b.role).run();
         await audit(env, org.id, null, who.user.id, 'member', `${u.email} ${b.role}`); const join = await invite(env, u.email); return J({ join, mailed: await mailJoin(env, url.origin, u.email, join, org.name) });

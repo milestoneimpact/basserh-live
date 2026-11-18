@@ -58,6 +58,7 @@ export function reduce(ev, s, cmd, now = Date.now(), trusted = false) {
   else if (cmd.type === 'resume') o = s.paused ? { ...s, cueAt: s.cueAt + (now - s.paused), paused: null } : s;
   else if (cmd.type === 'seek') o = pausable(ev, s.cue) ? { ...s, cueAt: Math.min(s.paused || now, s.cueAt - (+cmd.d || 0) * 1000) } : s;
   else if (cmd.type === 'black') o = { ...s, black: !!cmd.on };
+  else if (cmd.type === 'note') { const t = String(cmd.text || '').trim().slice(0, 120); o = t ? { ...s, note: { text: t, at: now } } : (s.note ? { ...s, note: null } : s); }   // a word from the operator to the moderator's page
   else if (cmd.type === 'start') o = { ...s, startAt: cmd.at || null };
   else if (cmd.type === 'reset') o = { ...initial(ev), order: s.order, orderAt: s.orderAt, off: s.off, hide: s.hide };
   return o === s ? s : { ...o, ver: (s.ver || 0) + 1 };

@@ -40,6 +40,11 @@ const adm = (p, m = 'GET', b) => fetch(B + '/api/admin/' + p, { method: m, heade
   await tall.screenshot({ path: OUT + 'sc_tall_slide.jpg', type: 'jpeg', quality: 70 }); await ph.screenshot({ path: OUT + 'sc_clicker.jpg', type: 'jpeg', quality: 70 });
   await con.waitForFunction(() => document.querySelectorAll('#devs .dev').length >= 4 && /طولية/.test(document.querySelector('#devs').textContent) && /شاشة شعار ثابتة/.test(document.querySelector('#devs').textContent)); ok(true, 'the console lists every screen: ' + (await con.$$eval('#devs .dev', l => l.map(e => e.textContent.replace(/\s+/g, ' ').trim()))).join(' | '));
   await con.waitForFunction(() => /كل الملفات محفوظة/.test(document.querySelector('#hall').textContent), null, { timeout: 30000 }); ok(true, 'every screen saved its files: ' + await con.textContent('#hall'));
+  // the operator sees the big screen live, the time of the cue, and sends a word to the moderator
+  const lf = con.frames().find(f => /\/run\/stage/.test(f.url())); ok(!!lf && await lf.waitForSelector('#slides.on', { timeout: 15000 }).then(() => true, () => false), 'the console shows the big screen live (the slide on show)');
+  ok(/^\d+:\d\d$/.test((await con.textContent('#cueT')).trim()), 'and the time spent in the cue: ' + await con.textContent('#cueT'));
+  const scr = await open('script.html', 900, 1000, 'script'); await scr.waitForFunction(() => document.querySelector('#t').textContent); await con.click('[data-note="اختصر"]'); await scr.waitForSelector('#word.on'); ok((await scr.textContent('#word')) === 'اختصر', 'a word from the operator crosses the moderator\'s page');
+  await con.fill('#noteT', 'بقي دقيقتان'); await con.press('#noteT', 'Enter'); await scr.waitForFunction(() => document.querySelector('#word').textContent === 'بقي دقيقتان'); await con.click('#noteX'); await scr.waitForFunction(() => !document.querySelector('#word.on')); ok(await scene(wide) === 'slides', 'a typed word arrives too, is cleared, and the screens were not touched');
   await con.screenshot({ path: OUT + 'sc_console.jpg', type: 'jpeg', quality: 70 });
   // the launch by two hands
   const t1 = await open('tablet.html', 800, 600, 'tablet1'), t2 = await open('tablet.html', 800, 600, 'tablet2'); await send({ type: 'go', id: 'c3' }); await t1.waitForSelector('body.arm'); await t2.waitForSelector('body.arm');

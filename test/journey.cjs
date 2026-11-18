@@ -20,6 +20,11 @@ const adm = (p, m = 'GET', b) => fetch(B + '/api/admin/' + p, { method: m, heade
   ans = ['my-own-pass-2026']; await o.click('#pwSet'); await o.waitForFunction(() => /حُفظت كلمة المرور/.test(document.querySelector('#toast').textContent)); ok(true, 'the owner of the organisation set a password of their own');
   const o2 = await (await b.newContext()).newPage(); const tryIn = async p => (await o2.request.post(B + '/api/login', { data: { slug, password: p } })).status();
   ok(await tryIn(pw) === 403 && await tryIn('my-own-pass-2026') === 200, 'the first password stopped working, the new one opens');
+  // the owner of the organisation gives a member a password of his own
+  await o.click('#team'); await o.waitForSelector('#mAdd'); const mm = `member${t}@t.test`; await o.fill('#mEmail', mm); await o.fill('#mPw', 'operator-pass-77'); await o.click('#mAdd'); await o.waitForSelector('#mOut .okb');
+  const mctx = await b.newContext(), mp = await mctx.newPage(); await mp.goto(url); await mp.fill('#lP', 'operator-pass-77'); await mp.click('#lf2 button'); await mp.waitForSelector('#new');
+  ok((await (await mp.request.get(B + '/api/me')).json()).user.email === mm, 'a member enters the same address with the password the owner gave him, as himself');
+  await o.fill('#mEmail', `second${t}@t.test`); await o.fill('#mPw', 'operator-pass-77'); await o.click('#mAdd'); await o.waitForFunction(() => /مستعملة/.test(document.querySelector('#toast').textContent)); ok(true, 'two members cannot share one password');
   // the platform owner renews it
   const org = (await (await adm('orgs')).json()).orgs.find(x => x.slug === slug), r = await (await adm('password', 'POST', { org: org.id, email: mail })).json();
   ok(await tryIn('my-own-pass-2026') === 403 && await tryIn(r.password) === 200, 'renewed by the platform owner: the old one is refused, the new one opens');
