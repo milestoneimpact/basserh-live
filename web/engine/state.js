@@ -1,7 +1,7 @@
 // The live state of one event and the rules that change it, driven by the event document (engine/config.js).
 // The same rules as the first ceremony (show/state.js), without a single cue number in the code: any number of cues, any order,
 // with or without a launch. Runs in the event's Durable Object (authority) and in the pages (rehearsal without a server).
-import { SCENES, cueOf, armOf, launchOf, orderProblem } from './config.js';
+import { SCENES, cueOf, armOf, launchOf, orderProblem, launchTimes } from './config.js';
 
 const ids = ev => ev.cues.map(c => c.id);
 export const order = (ev, s) => (s.orderAt && Array.isArray(s.order) && s.order.length === ev.cues.length && ids(ev).every(i => s.order.includes(i)) ? s.order : ids(ev));
@@ -34,7 +34,7 @@ function setCue(ev, s, n, now, { restart = false } = {}) {
     if (n === l) { o.armed = false; const fromBefore = pos(ev, s, s.cue) < pL;
       if (restart || (fromBefore && !(s.launchedAt && now - s.launchedAt < 8000)) || !s.launchedAt) o.launchedAt = now; }
     // going past the launch without playing it counts as launched: the new identity shows everywhere
-    if (p > pL && !o.launchedAt) { const m = media(ev, cueOf(ev, l)); o.launchedAt = now - ((m && m.length) || 25) * 1000; o.armed = false; }
+    if (p > pL && !o.launchedAt) { o.launchedAt = now - launchTimes(ev).end * 1000; o.armed = false; }
   }
   const r = slidesOf(ev, n); if (r && s.cue !== n) o.slide = r.min === 0 ? 0 : step(ev, { ...o, slide: 0 }, 1);
   return o;
@@ -63,4 +63,5 @@ export function reduce(ev, s, cmd, now = Date.now(), trusted = false) {
   return o === s ? s : { ...o, ver: (s.ver || 0) + 1 };
 }
 // which identity a screen shows now: the one revealed by the launch once it has happened
-export const identityNow = (ev, s) => (s.launchedAt && ev.identity && ev.identity.after ? 'after' : 'before');
+// (with «now»: from the moment of the reveal itself, so no screen shows the new logo while the countdown still runs)
+export const identityNow = (ev, s, now) => (s.launchedAt && ev.identity && ev.identity.after && (now == null || now >= s.launchedAt + launchTimes(ev).reveal * 1000) ? 'after' : 'before');

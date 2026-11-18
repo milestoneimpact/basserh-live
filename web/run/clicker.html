@@ -1,0 +1,23 @@
+<!doctype html>
+<!-- The presenter's phone: his slides, one tap forward, one tap back. It moves the slides only, never the cues of the event. -->
+<html lang="ar" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no"><title>مقلّب الشرائح</title><link rel="icon" href="../brand/icon.png"><link rel="stylesheet" href="../app.css">
+<style>html,body{height:100%}body{background:var(--night);color:var(--cream);display:grid;grid-template-rows:auto 1fr auto auto;gap:12px;padding:14px;user-select:none;-webkit-user-select:none;overflow:hidden}
+h1{font:800 16px Kufi;color:var(--gold2);display:flex;justify-content:space-between;gap:10px}h1 span{font:600 15px Plex;color:#A9B2B4}
+#now{min-height:0;display:grid;place-items:center;background:#171D21;border-radius:14px;overflow:hidden;border:1px solid rgba(228,204,151,.2)}#now img{max-width:100%;max-height:100%;display:block}#now p{color:#8C979A;font:400 17px Plex;padding:20px;text-align:center}
+#strip{display:flex;gap:8px;overflow-x:auto;padding-bottom:4px;scrollbar-width:none}#strip img{height:54px;border-radius:6px;border:2px solid transparent;opacity:.6;flex:none}#strip img.on{border-color:var(--gold);opacity:1}#strip img.hid{opacity:.2}
+.nav{display:grid;grid-template-columns:1fr 2fr;gap:12px}.nav button{border:0;border-radius:18px;padding:26px 10px;font:900 24px Kufi;cursor:pointer;touch-action:manipulation}#fw{background:linear-gradient(180deg,#CFA255,#B88A3D);color:#0E1114}#bk{background:#1F2A2E;color:var(--cream);border:1px solid rgba(228,204,151,.25)}
+@media(orientation:landscape){body{grid-template-columns:1fr 240px;grid-template-rows:auto 1fr auto}h1,#strip{grid-column:1/-1}.nav{grid-template-columns:1fr;grid-row:2;grid-column:2}#now{grid-row:2}}</style></head><body>
+<h1><b id="t"></b><span id="n"></span></h1><div id="now"><p>ليس لهذه الفقرة شرائح. تظهر شرائحك هنا عند فقرتك.</p></div><div id="strip"></div>
+<div class="nav"><button id="bk">السابقة</button><button id="fw">التالية</button></div>
+<script type="module">
+import { connect, $, cueOf, slidesOf } from './run.js'; const link = await connect(), D = link.doc; let key = '', S = null;
+const step = d => { navigator.vibrate?.(18); link.send({ type: 'step', d }); }; $('#fw').onclick = () => step(1); $('#bk').onclick = () => step(-1);
+addEventListener('keydown', e => { if (['PageDown', 'ArrowLeft', 'ArrowDown', ' '].includes(e.key)) step(1); if (['PageUp', 'ArrowRight', 'ArrowUp'].includes(e.key)) step(-1); });
+link.on(s => { S = s; const c = cueOf(D, s.cue), r = slidesOf(D, s.cue), m = r ? D.media[c.media] : null; $('#t').textContent = c.title; document.querySelector('.nav').style.visibility = r ? '' : 'hidden';
+  if (!r) { key = ''; $('#n').textContent = ''; $('#strip').innerHTML = ''; $('#now').innerHTML = '<p>ليس لهذه الفقرة شرائح. تظهر شرائحك هنا عند فقرتك.</p>'; return; }
+  const u = n => `${link.base + m.src}s-${n}.jpg`, hid = (s.hide || {})[s.cue] || [];
+  if (key !== s.cue) { key = s.cue; $('#strip').innerHTML = Array.from({ length: r.max }, (_, k) => `<img data-s="${k + 1}" src="${u(k + 1)}" loading="lazy">`).join(''); $('#strip').querySelectorAll('img').forEach(i => i.onclick = () => link.send({ type: 'slide', n: +i.dataset.s })); }
+  $('#n').textContent = s.slide ? `${s.slide} من ${r.max}` : 'اسمك على الشاشة'; $('#fw').textContent = s.slide ? (s.slide >= r.max ? 'آخر شريحة' : 'التالية') : 'بدء العرض'; $('#bk').textContent = s.slide <= r.min ? '·' : 'السابقة';
+  $('#now').innerHTML = s.slide ? `<img src="${u(s.slide)}">` : '<p>اسمك على الشاشة الآن. اضغط «بدء العرض» لتظهر أول شريحة.</p>';
+  $('#strip').querySelectorAll('img').forEach(i => { const n = +i.dataset.s; i.classList.toggle('on', n === s.slide); i.classList.toggle('hid', hid.includes(n)); if (n === s.slide) i.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' }); }); });
+</script></body></html>

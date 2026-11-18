@@ -33,7 +33,7 @@ main{max-width:1320px;margin:0 auto;padding:30px 34px 80px}
 <header><div class="wm">بصيرة<i></i><span>BASSERH</span></div><span style="font:600 14px Plex;color:var(--gold2);margin-inline-start:6px">استوديو اللقاءات</span><span class="org" id="orgName"></span><span class="sp"></span><span id="saved" style="font-size:13px;color:var(--gold2)"></span><a href="#" id="pk" title="الدخول لاحقاً ببصمة هذا الجهاز أو رمزه، بلا رابط دعوة">إضافة مفتاح مرور</a><a href="#" id="home">لقاءاتي</a><a href="/api/logout">خروج</a></header>
 <main id="app"></main><div id="toast"></div>
 <script type="module">
-import { SCENES, problems } from './engine/config.js';
+import { SCENES, problems, LAUNCH, TRANSITIONS, launchStyle } from './engine/config.js';
 const $ = (s, r = document) => r.querySelector(s), app = $('#app'), esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
 const toast = t => { const e = $('#toast'); e.textContent = t; e.classList.add('on'); clearTimeout(toast.t); toast.t = setTimeout(() => e.classList.remove('on'), 2600); };
 // each organisation works under its own address (/<slug>); the slug goes with every request
@@ -76,7 +76,7 @@ function draw() {
   <div class="tabs">${[['cues', 'الفقرات'], ['people', 'الأشخاص'], ['media', 'الملفات'], ['identity', 'الهوية'], ['run', 'الاعتماد والشاشات']].map(([k, t]) => `<button data-t="${k}" class="${k === tab ? 'on' : ''}">${t}${k === 'run' ? `<span class="n" style="${probs.length ? '' : 'display:none'}">${probs.length}</span>` : ''}</button>`).join('')}</div><div id="body"></div>`;
   app.querySelectorAll('.tabs button').forEach(b => b.onclick = () => { tab = b.dataset.t; draw(); });
   $('#evName').oninput = e => { doc.name = e.target.value; save(); };
-  $('#reh').onclick = () => { window.open(`/run/console.html?e=${E.id}&draft`, '_blank'); window.open(`/run/stage.html?e=${E.id}&draft`, '_blank'); };
+  $('#reh').onclick = () => window.open(`/run/preview.html?e=${E.id}`, '_blank');   // every screen and the console in one page, on the draft
   $('#pub').onclick = publish; ({ cues, people, media, identity, run })[tab]();
 }
 async function publish() { clearTimeout(st); await api('/api/events/' + E.id, { method: 'PUT', body: JSON.stringify(doc) }); const r = await api('/api/events/' + E.id + '/publish', { method: 'POST', soft: true });
@@ -103,14 +103,20 @@ function cues() { const body = $('#body'), c = doc.cues.find(x => x.id === sel) 
     <div class="grid2"><div><label>تبدأ عند (آخر ما يقوله مدير الجلسة قبلها)</label><input type="text" data-k="at" value="${esc(c.at)}"></div><div><label>المدة بالدقائق (للمشغّل فقط)</label><input type="number" data-k="dur" min="0" value="${c.dur ?? ''}"></div></div>
     ${sc.fields.includes('person') ? `<label>${FIELD.person}</label><select data-k="person">${opt(doc.people, c.person, 'بلا')}</select>` : ''}
     ${sc.fields.includes('media') ? `<label>${c.type === 'speaker' ? 'شرائح المتحدث (اختياري)' : FIELD.media}</label><select data-k="media">${opt(files, c.media, 'اختر من ملفات اللقاء')}</select>` : ''}
+    ${c.type === 'launch' ? `<label>طريقة الكشف على الشاشات</label><select data-k="style">${Object.entries(LAUNCH).map(([k, v]) => `<option value="${k}" ${k === launchStyle(c) ? 'selected' : ''}>${v}</option>`).join('')}</select>
+      ${launchStyle(c) === 'video' ? `<label>فيديو الكشف</label><select data-k="media">${opt(files, c.media, 'اختر من ملفات اللقاء')}</select>` : `<p style="color:var(--mute);font-size:14px;margin:6px 0 0">ترسمه الشاشات نفسها بهوية اللقاء وعلى أي مقاس، بلا فيديو.</p>`}
+      <div class="grid2">${launchStyle(c) === 'countdown' ? `<div><label>ثواني العدّ التنازلي</label><input type="number" data-k="count" min="3" max="30" value="${c.count || 10}"></div>` : ''}<div><label>عدد من يضغطون معاً (لكل ضيف جهازه)</label><input type="number" data-k="hands" min="1" max="6" value="${c.hands || 1}"></div></div>
+      <label>اسم يُكشف مع الشعار (اختياري: مبادرة، منصة، برنامج)</label><input type="text" data-k="text" value="${esc(c.text)}">
+      <label style="display:flex;gap:8px;align-items:center;color:var(--ink);font-size:15px"><input type="checkbox" id="newId" ${doc.identity.after ? 'checked' : ''}> التدشين يكشف هوية جديدة (شعار وألوان تظهر بعده)</label>` : ''}
     ${sc.fields.includes('text') ? `<label>${FIELD.text}</label><input type="text" data-k="text" value="${esc(c.text)}">` : ''}
     ${sc.fields.includes('url') ? `<label>${FIELD.url}</label><input type="text" data-k="url" dir="ltr" value="${esc(c.url)}">` : ''}
-    ${hasLaunch && !['arm', 'launch', 'loop'].includes(c.type) ? `<label style="display:flex;gap:8px;align-items:center;color:var(--ink);font-size:15px"><input type="checkbox" id="after" ${c.after ? 'checked' : ''}> تُعرض بالهوية الجديدة (بعد التدشين فقط)</label>` : ''}
+    ${hasLaunch && doc.identity.after && !['arm', 'launch', 'loop'].includes(c.type) ? `<label style="display:flex;gap:8px;align-items:center;color:var(--ink);font-size:15px"><input type="checkbox" id="after" ${c.after ? 'checked' : ''}> تُعرض بالهوية الجديدة (بعد التدشين فقط)</label>` : ''}
     <label>ما يقوله مدير الجلسة في هذه الفقرة (كل سطر جملة، وما بين [ ] ملاحظة لا تُقرأ)</label><textarea id="mod" rows="5">${esc((c.moderator || []).join('\n'))}</textarea>`;
-  f.querySelectorAll('[data-k]').forEach(i => i.oninput = () => { const k = i.dataset.k; c[k] = k === 'dur' ? +i.value || 0 : i.value; if (!c[k] && k !== 'dur') delete c[k]; save(); if (k === 'title') $(`.cue[data-id="${c.id}"] b`).textContent = c.title; });
+  f.querySelectorAll('[data-k]').forEach(i => i.oninput = () => { const k = i.dataset.k; c[k] = ['dur', 'count', 'hands'].includes(k) ? +i.value || 0 : i.value; if (k === 'style') { if (c.style !== 'video') delete c.media; save(); return cues(); } if (!c[k] && k !== 'dur') delete c[k]; save(); if (k === 'title') $(`.cue[data-id="${c.id}"] b`).textContent = c.title; });
   $('#mod').oninput = e => { c.moderator = e.target.value.split('\n').map(s => s.trim()).filter(Boolean); save(); };
   $('#off').onclick = () => { if (['arm', 'launch'].includes(c.type) || c.fixed) return toast('هذه الفقرة لا تُخفى'); c.off = !c.off; if (!c.off) delete c.off; save(); cues(); };
   $('#del').onclick = () => { if (!confirm(`حذف «${c.title}»؟`)) return; doc.cues = doc.cues.filter(x => x !== c && !(['arm', 'launch'].includes(c.type) && ['arm', 'launch'].includes(x.type))); sel = doc.cues[0]?.id; save(); cues(); };
+  const ni = $('#newId'); if (ni) ni.onchange = () => { if (ni.checked) doc.identity.after = { logo: '', colors: { ...doc.identity.before.colors } }; else { if (doc.cues.some(x => x.after)) { ni.checked = true; return toast('فقرات معلَّمة بالهوية الجديدة: أزل علامتها أولاً'); } doc.identity.after = null; } save(); toast(ni.checked ? 'أضف الشعار الجديد من تبويب الهوية' : 'التدشين بلا تغيير هوية'); };
   const a = $('#after'); if (a) a.onchange = () => { a.checked ? c.after = true : delete c.after; const bad = problems(doc).find(p => /الهوية الجديدة، فلا/.test(p)); if (bad) { delete c.after; toast('انقلها بعد لحظة التدشين أولاً'); } save(); cues(); };
 }
 
@@ -154,25 +160,26 @@ function media() { const b = $('#body'), used = k => doc.cues.some(c => c.media 
 }
 
 // ---------- identity: the organisation's own logo and colours on every screen; a second identity when the event has a launch
-function identity() { const b = $('#body'), has = doc.cues.some(c => c.type === 'launch'), C = { bg: 'الخلفية', ink: 'النص', accent: 'اللون الرئيسي', gold: 'لون الزخرفة' };
+function identity() { const b = $('#body'), has = !!doc.identity.after, C = { bg: 'الخلفية', ink: 'النص', accent: 'اللون الرئيسي', gold: 'لون الزخرفة' };
   const block = (k, title) => { const I = doc.identity[k]; return `<div class="panel"><h3 style="font-size:19px;color:var(--deep)">${title}</h3><label>الشعار (PNG أو SVG بخلفية شفافة)</label><div class="sw"><div class="logo">${I.logo ? `<img src="${src(I.logo)}">` : 'لا شعار'}</div><button class="btn" data-logo="${k}">رفع شعار</button></div>
     <div class="grid2">${Object.entries(C).map(([c, t]) => `<div><label>${t}</label><div class="sw"><input type="color" data-i="${k}" data-c="${c}" value="${I.colors[c] || '#000000'}"><code dir="ltr">${I.colors[c] || ''}</code></div></div>`).join('')}</div>
     <div style="margin-top:18px;border-radius:14px;padding:26px;text-align:center;background:${I.colors.bg};color:${I.colors.ink};border:1px solid var(--line)"><div style="font:400 13px Plex;color:${I.colors.gold}">الصفة</div><div style="font:900 30px Kufi;color:${I.colors.accent}">اسم المتحدث</div></div></div>`; };
-  b.innerHTML = `<div style="display:grid;grid-template-columns:1fr 1fr;gap:20px">${block('before', has ? 'الهوية قبل التدشين' : 'هوية اللقاء')}${has ? block('after', 'الهوية الجديدة (تظهر بعد التدشين)') : '<div class="panel" style="color:var(--mute)">أضف «دعوة التدشين» إلى الفقرات إن كان في اللقاء كشف عن هوية أو شعار جديد، فتظهر هنا الهوية الثانية.</div>'}</div><input type="file" id="lf" hidden accept="image/*">`;
+  b.innerHTML = `<div style="display:grid;grid-template-columns:1fr 1fr;gap:20px">${block('before', has ? 'الهوية قبل التدشين' : 'هوية اللقاء')}${has ? block('after', 'الهوية الجديدة (تظهر بعد التدشين)') : '<div class="panel" style="color:var(--mute)">أضف «دعوة التدشين» إلى الفقرات إن كان في اللقاء كشف عن هوية أو شعار جديد، فتظهر هنا الهوية الثانية.</div>'}</div><div class="panel" style="margin-top:20px;max-width:560px"><label style="margin-top:0">حركة الانتقال بين المشاهد على الشاشات</label><select id="trn">${Object.entries(TRANSITIONS).map(([k, v]) => `<option value="${k}" ${k === (doc.transition || 'fade') ? 'selected' : ''}>${v}</option>`).join('')}</select></div><input type="file" id="lf" hidden accept="image/*">`;
+  $('#trn').onchange = e => { doc.transition = e.target.value; save(); };
   b.querySelectorAll('[data-i]').forEach(i => i.onchange = () => { doc.identity[i.dataset.i].colors[i.dataset.c] = i.value; save(); identity(); });
   let target; b.querySelectorAll('[data-logo]').forEach(x => x.onclick = () => { target = x.dataset.logo; $('#lf').click(); });
   $('#lf').onchange = async e => { const f = e.target.files[0]; if (!f) return; const r = await put({ kind: 'image', name: f.name }, f, f.type); doc.identity[target].logo = r.src; save(); identity(); };
 }
 
 // ---------- approval and the links of the screens
-async function run() { const b = $('#body'), L = { stage: 'الشاشة الكبرى', side: 'شاشة جانبية', tablet: 'جهاز ضيف الشرف', console: 'لوحة المشغّل', script: 'صفحة مدير الجلسة' }; probs = problems(doc);
+async function run() { const b = $('#body'), L = { stage: 'الشاشة الكبرى', side: 'شاشة جانبية (أسماء وعناوين)', logo: 'شاشة شعار ثابتة', tablet: 'جهاز ضيف الشرف', console: 'لوحة المشغّل', script: 'صفحة مدير الجلسة', clicker: 'مقلّب الشرائح (جوال المتحدث)' }; probs = problems(doc);
   const { links } = await api(`/api/events/${E.id}/links`);
   b.innerHTML = `<div class="split" style="grid-template-columns:1fr 1fr"><div class="panel"><h3 style="font-size:19px;color:var(--deep);margin-bottom:12px">جاهزية اللقاء</h3>${probs.length ? probs.map(p => `<div class="prob">${esc(p)}</div>`).join('') : '<div class="okb">اللقاء مكتمل ويمكن اعتماده.</div>'}
     <p style="color:var(--mute);font-size:14px">«بروفة» تشغّل المسودة في غرفة مستقلة لا يراها أحد. «اعتماد النسخة» يجمّد المسودة، وتقرؤها شاشات القاعة فوراً، وتبقى المسودة قابلة للتعديل بجانبها.</p>
     <h3 style="font-size:19px;color:var(--deep);margin:22px 0 8px">تفعيل يوم اللقاء</h3>
     ${E.active_until && new Date(E.active_until) > new Date() ? `<div class="okb">مفعّل: شاشات القاعة تفتح من ${new Date(E.active_from).toLocaleString('ar', { weekday: 'long', day: 'numeric', month: 'long', hour: 'numeric', minute: '2-digit' })} حتى ${new Date(E.active_until).toLocaleString('ar', { weekday: 'long', day: 'numeric', month: 'long', hour: 'numeric', minute: '2-digit' })}</div>`
       : `<p style="color:var(--mute);font-size:14px;margin:0 0 10px">شاشات القاعة تفتح في يوم التفعيل فقط (من مساء اليوم السابق للتجهيز حتى نهاية اليوم). في رصيدكم <b style="color:var(--gold)">${E.credits}</b> يوم.</p><div class="row" style="grid-template-columns:220px auto 1fr"><input type="date" id="actDay" style="border:1px solid var(--line);border-radius:10px;padding:8px 12px"><button class="btn gold" id="act" ${E.published_version && E.credits ? '' : 'disabled'}>تفعيل هذا اليوم</button><span></span></div>`}</div>
-    <div class="panel"><h3 style="font-size:19px;color:var(--deep)">روابط الشاشات</h3><p style="color:var(--mute);font-size:14px;margin:4px 0 10px">لكل شاشة أو شخص رابط خاص بلا حساب. يظهر الرابط مرة واحدة عند إنشائه، ويُلغى بضغطة.</p>
+    <div class="panel"><h3 style="font-size:19px;color:var(--deep)">روابط الشاشات</h3><p style="color:var(--mute);font-size:14px;margin:4px 0 10px">لكل شاشة أو شخص رابط خاص بلا حساب، وأي عدد من الشاشات بأي مقاس، طولية أو عرضية. افتحوا كل رابط على جهازه قبل اللقاء فيحفظ ملفاته ويعمل بلا اعتماد على الشبكة. يظهر الرابط مرة واحدة عند إنشائه، ويُلغى بضغطة.</p>
     <div class="row" style="grid-template-columns:200px 1fr auto"><select id="lr">${Object.entries(L).map(([k, v]) => `<option value="${k}">${v}</option>`).join('')}</select><input type="text" id="ll" placeholder="وصف (مثل: جهاز القاعة)"><button class="btn pri" id="la" ${E.published_version ? '' : 'disabled'}>إنشاء رابط</button></div>
     ${E.published_version ? '' : '<p style="color:var(--bad);font-size:14px">اعتمد نسخة أولاً لتعمل الروابط.</p>'}<div id="lo"></div>
     ${links.map(l => `<div class="link"><b style="font-family:Kufi">${L[l.role]}</b><span>${esc(l.label)}</span><button class="btn sm bad" data-rv="${l.id}">إلغاء</button></div>`).join('')}</div></div>`;

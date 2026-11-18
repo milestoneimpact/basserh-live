@@ -1,0 +1,71 @@
+// The screens of the hall, whatever their shape, and the launches the screens draw themselves:
+//   node test/screens.cjs   (BASE, ADMIN_KEY as in e2e.cjs; images in the folder A)
+// wide, tall and small screens show every scene inside their edges; the fixed logo screen stays on the logo until the launch;
+// the presenter's phone turns the slides; two guests launch together; the countdown reveals the new identity at its end;
+// a screen opened before the day of the event saves its files and waits.
+const { chromium } = require('playwright'); const fs = require('fs');
+const A = '/tmp/claude-0/sx/', B = process.env.BASE || 'http://localhost:8790', AK = process.env.ADMIN_KEY || 'dev', OUT = process.env.OUT || A;
+const ok = (c, m) => { console.log((c ? '✓ ' : '✗ ') + m); if (!c) process.exitCode = 1; };
+const adm = (p, m = 'GET', b) => fetch(B + '/api/admin/' + p, { method: m, headers: { 'x-admin-key': AK, 'content-type': 'application/json' }, body: b ? JSON.stringify(b) : undefined });
+(async () => {
+  const t = Date.now(), org = await (await adm('org', 'POST', { name: 'اختبار الشاشات', slug: 's' + t, email: `s${t}@t.test`, events_limit: 2, credits: 1 })).json();
+  const sid = ((await fetch(B + org.join, { redirect: 'manual' })).headers.get('set-cookie') || '').split(';')[0], H = { cookie: sid, 'x-org-slug': org.slug };
+  const api = (p, m = 'GET', b) => fetch(B + p, { method: m, headers: { ...H, 'content-type': 'application/json' }, body: b ? JSON.stringify(b) : undefined }).then(async r => ({ status: r.status, ...(await r.json().catch(() => ({}))) }));
+  const ev = (await api('/api/events')).events[0], put = async (q, file, type) => (await fetch(`${B}/api/events/${ev.id}/media?${q}`, { method: 'PUT', headers: { ...H, 'content-type': type }, body: fs.readFileSync(A + file) })).json();
+  const la = await put('kind=image&name=a.png', 'logo_a.png', 'image/png'), lb = await put('kind=image&name=b.png', 'logo_b.png', 'image/png');
+  const deck = await put('kind=slides&name=deck.pdf&n=1', 's1.jpg', 'image/jpeg'); for (const n of [2, 3]) await put(`kind=slides&name=deck.pdf&slides=${deck.id}&n=${n}`, `s${n}.jpg`, 'image/jpeg');
+  const doc = { name: 'ملتقى الشركاء السنوي', lang: 'ar', date: '', transition: 'rise', identity: { before: { logo: la.src, colors: { bg: '#F6F1E6', ink: '#14211E', accent: '#0F5A4E', gold: '#C2A063' } }, after: { logo: lb.src, colors: { bg: '#0E1114', ink: '#F6F2E8', accent: '#E8D9BD', gold: '#B88A3D' } } },
+    people: { p1: { name: 'د. عبدالرحمن بن عبدالعزيز الفلاني', honorific: 'المدير العام للمؤسسة' } }, media: { deck: { kind: 'slides', src: deck.src, count: 3, name: 'deck' } },
+    cues: [{ id: 'c1', type: 'title', title: 'الافتتاح', text: 'الملتقى السنوي الخامس عشر لشركاء التنمية المستدامة', moderator: [] }, { id: 'c2', type: 'speaker', title: 'كلمة المدير العام', person: 'p1', media: 'deck', moderator: [] },
+      { id: 'c3', type: 'arm', title: 'دعوة التدشين', moderator: [] }, { id: 'c4', type: 'launch', title: 'لحظة التدشين', style: 'countdown', count: 3, hands: 2, text: 'منصة أثر', moderator: [] }, { id: 'c5', type: 'logo', title: 'الهوية الجديدة', after: true, moderator: [] }] };
+  ok((await api(`/api/events/${ev.id}`, 'PUT', doc)).status === 200, 'the event is saved: a countdown launch by two hands, no reveal video');
+  const pub = await api(`/api/events/${ev.id}/publish`, 'POST'); ok(pub.version === 1, 'it can be published without a video for the launch' + (pub.problems ? ': ' + pub.problems.join(' | ') : ''));
+
+  const b = await chromium.launch(), errs = [], ctx = await b.newContext(); await ctx.addCookies([{ name: sid.split('=')[0], value: sid.split('=')[1], url: B }]);
+  const open = async (path, w, h, name) => { const p = await ctx.newPage(); await p.setViewportSize({ width: w, height: h }); p.on('pageerror', e => errs.push(name + ': ' + e.message)); await p.goto(`${B}/run/${path}${path.includes('?') ? '&' : '?'}e=${ev.id}&draft`); return p; };
+  const wide = await open('stage.html', 1920, 1080, 'wide'), tall = await open('stage.html', 1080, 1920, 'tall'), small = await open('stage.html', 1024, 768, 'small'), logo = await open('stage.html?logo', 1080, 1920, 'logo'), con = await open('console.html', 1440, 1000, 'console');
+  for (const p of [wide, tall, small, logo]) { await p.waitForFunction(() => window.stageReady); await p.click('#go'); }
+  const send = c => con.evaluate(c => fetch(`/api/run/${new URLSearchParams(location.search).get('e')}/cmd?draft`, { method: 'POST', body: JSON.stringify(c) }), c), scene = p => p.evaluate(() => document.querySelector('.sc.on')?.id);
+  // the content of the scene on show stays inside the screen, with a margin
+  const inside = p => p.evaluate(() => { const s = document.querySelector('.sc.on'), els = [...s.querySelectorAll('.big,.nm,.hon,.sub,.lg,.sl.on,canvas')].filter(e => e.offsetParent && (e.tagName !== 'IMG' || e.naturalWidth)); return els.length > 0 && els.every(e => { const r = e.getBoundingClientRect(); const g = e.classList.contains('sl') ? -1 : 8; return r.left >= g && r.right <= innerWidth - g && r.top >= g && r.bottom <= innerHeight - g && r.width > 20; }); });
+  await send({ type: 'reset' }); await wide.waitForTimeout(1600);
+  ok(await scene(wide) === 'title' && await inside(wide) && await inside(tall) && await inside(small), 'the title fits a wide, a tall and a small screen'); ok(await scene(logo) === 'idle', 'the fixed screen shows the logo');
+  await tall.screenshot({ path: OUT + 'sc_tall_title.jpg', type: 'jpeg', quality: 70 });
+  await send({ type: 'next' }); await wide.waitForTimeout(1500); ok(await scene(tall) === 'card' && await inside(wide) && await inside(tall) && await inside(small), 'a long name fits the three screens'); ok(await scene(logo) === 'idle', 'the fixed screen did not follow the cue');
+  await tall.screenshot({ path: OUT + 'sc_tall_card.jpg', type: 'jpeg', quality: 70 });
+  // the presenter's phone
+  const ph = await ctx.newPage(); await ph.setViewportSize({ width: 390, height: 780 }); ph.on('pageerror', e => errs.push('clicker: ' + e.message)); await ph.goto(`${B}/run/clicker.html?e=${ev.id}&draft`); await ph.waitForSelector('#strip img');
+  await ph.click('#fw'); await wide.waitForFunction(() => document.querySelector('#slides.on .sl.on')?.naturalWidth > 0); ok(true, 'the phone starts the slides'); await ph.click('#fw'); await ph.waitForFunction(() => /2 من 3/.test(document.querySelector('#n').textContent)); await ph.click('#bk'); await ph.waitForFunction(() => /1 من 3/.test(document.querySelector('#n').textContent)); ok(true, 'forward and back from the phone');
+  await ph.click('#strip img[data-s="3"]'); await ph.waitForFunction(() => /3 من 3/.test(document.querySelector('#n').textContent)); await tall.waitForTimeout(900); ok(await inside(tall) && await inside(wide), 'a tap on a thumbnail goes to that slide; the slide is whole on the tall screen'); ok(await scene(logo) === 'idle', 'the fixed screen stays on the logo during the slides');
+  await tall.screenshot({ path: OUT + 'sc_tall_slide.jpg', type: 'jpeg', quality: 70 }); await ph.screenshot({ path: OUT + 'sc_clicker.jpg', type: 'jpeg', quality: 70 });
+  await con.waitForFunction(() => document.querySelectorAll('#devs .dev').length >= 4 && /طولية/.test(document.querySelector('#devs').textContent) && /شاشة شعار ثابتة/.test(document.querySelector('#devs').textContent)); ok(true, 'the console lists every screen: ' + (await con.$$eval('#devs .dev', l => l.map(e => e.textContent.replace(/\s+/g, ' ').trim()))).join(' | '));
+  await con.waitForFunction(() => /كل الملفات محفوظة/.test(document.querySelector('#hall').textContent), null, { timeout: 30000 }); ok(true, 'every screen saved its files: ' + await con.textContent('#hall'));
+  await con.screenshot({ path: OUT + 'sc_console.jpg', type: 'jpeg', quality: 70 });
+  // the launch by two hands
+  const t1 = await open('tablet.html', 800, 600, 'tablet1'), t2 = await open('tablet.html', 800, 600, 'tablet2'); await send({ type: 'go', id: 'c3' }); await t1.waitForSelector('body.arm'); await t2.waitForSelector('body.arm');
+  ok(await wide.$$eval('#hands b', l => l.length) === 2, 'the big screen shows two hands to wait for');
+  const at = async p => { const r = await p.locator('#btn').boundingBox(); await p.mouse.move(r.x + r.width / 2, r.y + r.height / 2); await p.mouse.down(); };
+  await at(t1); await t1.waitForTimeout(2600); ok(await scene(wide) === 'arm' && await wide.$$eval('#hands b.on', l => l.length) === 1, 'one hand alone does not launch, and the screen counts it');
+  await at(t2); await wide.waitForFunction(() => document.querySelector('#rev.on'), null, { timeout: 8000 }); ok(true, 'both hands held for two seconds: the launch starts on the big screen');
+  ok(await scene(logo) === 'rev' && await scene(tall) === 'rev', 'the fixed logo screen joins the launch');
+  const bg = p => p.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--bg').trim());
+  ok(await bg(t1) === '#F6F1E6', 'the new identity is not shown while the countdown runs'); await tall.waitForTimeout(700); await tall.screenshot({ path: OUT + 'sc_tall_count.jpg', type: 'jpeg', quality: 70 });
+  await wide.waitForFunction(() => getComputedStyle(document.documentElement).getPropertyValue('--bg').trim() === '#0E1114', null, { timeout: 8000 }); await wide.waitForTimeout(3200);
+  const seen = p => p.evaluate(() => { const e = document.querySelector('#rev .in'), r = e.getBoundingClientRect(); return +getComputedStyle(e).opacity > .95 && r.left >= 0 && r.right <= innerWidth && document.querySelector('#rev .big').textContent === 'منصة أثر' && document.querySelector('#rev img').naturalWidth > 0; });
+  ok(await seen(wide) && await seen(tall) && await seen(logo), 'at zero the new logo and the revealed name stand on every screen'); ok(await bg(t1) === '#0E1114', 'and the guests\' devices take the new identity');
+  await wide.screenshot({ path: OUT + 'sc_wide_reveal.jpg', type: 'jpeg', quality: 70 }); await tall.screenshot({ path: OUT + 'sc_tall_reveal.jpg', type: 'jpeg', quality: 70 });
+  // a screen joining late lands on the same frame; and the screen changes shape with its window
+  const late = await open('stage.html', 600, 1000, 'late'); await late.waitForFunction(() => window.stageReady); await late.waitForTimeout(900); ok(await seen(late), 'a screen that joins late lands on the same final frame'); await late.setViewportSize({ width: 1000, height: 600 }); await late.waitForTimeout(500); ok(await seen(late), 'a window turned on its side keeps the scene inside its edges');
+  // the other reveals, played by the operator
+  for (const style of ['light', 'curtain']) { doc.cues[3] = { ...doc.cues[3], style, hands: 1 }; await api(`/api/events/${ev.id}`, 'PUT', doc); await wide.reload(); await wide.waitForFunction(() => window.stageReady); await wide.click('#go'); await send({ type: 'go', id: 'c3' }); await send({ type: 'launch' });
+    await wide.waitForFunction(() => document.querySelector('#rev.on')); await wide.waitForTimeout(style === 'light' ? 2000 : 2400); await wide.screenshot({ path: `${OUT}sc_${style}_mid.jpg`, type: 'jpeg', quality: 70 }); await wide.waitForTimeout(5200); ok(await seen(wide), `the «${style}» reveal ends on the logo`); await wide.screenshot({ path: `${OUT}sc_${style}_end.jpg`, type: 'jpeg', quality: 70 }); }
+  // the rehearsal page
+  const pv = await ctx.newPage(); await pv.setViewportSize({ width: 1600, height: 1000 }); pv.on('pageerror', e => errs.push('preview: ' + e.message)); await pv.goto(`${B}/run/preview.html?e=${ev.id}`); await pv.waitForTimeout(4000);
+  const fr = pv.frames().filter(f => /\/run\/stage/.test(f.url())); ok(fr.length === 4 && (await Promise.all(fr.map(f => f.evaluate(() => !!document.querySelector('.sc.on'))))).every(Boolean), 'the rehearsal page shows four screens at once, each drawing its scene (' + fr.length + ')'); await pv.screenshot({ path: OUT + 'sc_preview.jpg', type: 'jpeg', quality: 72 });
+  // before the day: a hall screen opened by its link saves its files and waits
+  const L = await api(`/api/events/${ev.id}/links`, 'POST', { role: 'logo', label: 'شاشة المدخل' }), hall = await (await b.newContext({ viewport: { width: 1080, height: 1920 } })).newPage(); hall.on('pageerror', e => errs.push('hall: ' + e.message));
+  await hall.goto(B + L.url); await hall.waitForSelector('#prep .ok', { timeout: 30000 }); ok(/2 من 2/.test(await hall.textContent('#pn')), 'not activated yet: the logo screen saved its files (' + (await hall.textContent('#pn')) + ') and waits: «' + (await hall.textContent('#pw')) + '»'); await hall.screenshot({ path: OUT + 'sc_prep.jpg', type: 'jpeg', quality: 70 });
+  await api(`/api/events/${ev.id}/publish`, 'POST'); const act = await api(`/api/events/${ev.id}/activate`, 'POST', { from: new Date().toISOString() }); await hall.reload(); await hall.waitForSelector('#idle.on', { timeout: 15000 }); ok(!!act.active_until, 'on the day the same link opens the screen, on the logo' + (act.error ? ' · ' + act.error : ''));
+  ok(!errs.length, 'page errors: ' + (errs.join(' | ') || 'none'));
+  await b.close(); await adm('org', 'DELETE', { id: org.org, confirm: org.slug });
+})().catch(e => { console.log('✗ ' + (e.stack || e)); process.exitCode = 1; });

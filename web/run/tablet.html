@@ -6,8 +6,15 @@ img{max-width:60vw;max-height:40vh}#btn{display:none;width:min(52vw,52vh);aspect
 #btn:after{content:'';position:absolute;inset:-18px;border-radius:50%;border:6px solid var(--accent);clip-path:inset(0 0 calc(100% - var(--p,0%)) 0)}body.arm{background:#120E09}body.arm #btn{display:block}body.arm #idle{display:none}p{font:400 clamp(16px,2.4vw,26px) Plex;color:var(--gold);margin-top:28px}</style></head><body>
 <div id="idle"><img id="lg"><p id="nm"></p></div><div><button id="btn">تدشين</button><p id="hint" style="display:none">اضغط مطوّلاً ثانيتين</p></div>
 <script type="module">
-import { connect, paint, $ } from './run.js'; const link = await connect(); let t0 = 0, raf;
-link.on(s => { const I = paint(link, s), arm = !!s.armed && !s.launchedAt; document.body.classList.toggle('arm', arm); $('#hint').style.display = arm ? '' : 'none'; $('#lg').src = I.logo; $('#lg').style.display = I.logo ? '' : 'none'; $('#nm').textContent = I.logo ? '' : link.doc.name; });
-const b = $('#btn'), stop = () => { cancelAnimationFrame(raf); t0 = 0; b.style.setProperty('--p', '0%'); }, tick = () => { const p = Math.min(1, (performance.now() - t0) / 2000); b.style.setProperty('--p', p * 100 + '%'); if (p >= 1) { link.send({ type: 'press' }); stop(); } else raf = requestAnimationFrame(tick); };
-b.onpointerdown = e => { e.preventDefault(); t0 = performance.now(); tick(); }; b.onpointerup = b.onpointerleave = b.onpointercancel = stop;
+import { connect, paint, $, handsOf } from './run.js'; const link = await connect(), need = handsOf(link.doc); let t0 = 0, raf, H = null, holding = false, sent = 0;
+link.on((s, info) => { const I = paint(link, s), arm = !!s.armed && !s.launchedAt; H = info.hands; document.body.classList.toggle('arm', arm); $('#hint').style.display = arm ? '' : 'none'; $('#lg').src = I.logo; $('#lg').style.display = I.logo ? '' : 'none'; $('#nm').textContent = I.logo ? '' : link.doc.name;
+  if (need > 1) $('#hint').textContent = H && H.held >= need ? 'أبقوا أيديكم' : `اضغطوا معاً وأبقوا أيديكم · ${(H ? H.held : 0).toLocaleString('ar-EG')} من ${need.toLocaleString('ar-EG')}`; if (!arm && holding) { up(); b.style.outline = ''; } });
+const b = $('#btn'), stop = () => { cancelAnimationFrame(raf); t0 = 0; b.style.setProperty('--p', '0%'); };
+// one guest: a press held for two seconds. Several guests: each holds on a device of their own, and the ring fills once all hands are down
+const tick = () => { const from = need > 1 ? (H && H.allAt ? H.allAt : null) : t0, now = need > 1 ? link.now() : performance.now(), p = from ? Math.min(1, (now - from) / 2000) : 0; b.style.setProperty('--p', p * 100 + '%');
+  if (p >= 1 && Date.now() - sent > 1500) { sent = Date.now(); link.send({ type: 'press' }); if (need === 1) return stop(); } raf = requestAnimationFrame(tick); };
+const up = () => { if (need > 1 && holding) link.raw({ hold: false }); holding = false; stop(); };
+const LATCH = need > 1 && new URLSearchParams(location.search).has('mute');   // in the studio's preview one person plays every guest: a click holds, a second click lets go
+if (LATCH) b.onclick = () => { holding = !holding; link.raw({ hold: holding }); b.style.outline = holding ? '6px solid #6FE0A6' : ''; cancelAnimationFrame(raf); if (holding) tick(); else stop(); };
+else b.onpointerdown = e => { e.preventDefault(); try { b.setPointerCapture(e.pointerId); } catch {} holding = true; t0 = performance.now(); if (need > 1) link.raw({ hold: true }); cancelAnimationFrame(raf); tick(); }; if (!LATCH) { b.onpointerup = b.onpointercancel = up; if (need === 1) b.onpointerleave = up; }
 </script></body></html>

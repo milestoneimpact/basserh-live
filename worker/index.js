@@ -15,7 +15,7 @@ const sha = async t => [...new Uint8Array(await crypto.subtle.digest('SHA-256', 
 const cookies = req => Object.fromEntries((req.headers.get('Cookie') || '').split(/;\s*/).filter(Boolean).map(c => { const i = c.indexOf('='); return [c.slice(0, i), c.slice(i + 1)]; }));
 const setCookie = (k, v, days) => `${k}=${v}; Path=/; HttpOnly; SameSite=Lax; Secure; Max-Age=${days * 86400}`;
 const ROLES = { owner: 3, editor: 2, operator: 1, viewer: 0 };
-const LINK_ROLES = ['stage', 'side', 'tablet', 'console', 'script'];   // console: operator commands; tablet: the launch press only
+const LINK_ROLES = ['stage', 'side', 'logo', 'tablet', 'console', 'script', 'clicker'];   // console: operator commands; tablet: the launch press only
 const slug = s => String(s || '').trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 40);
 
 async function me(req, env) {
@@ -186,7 +186,7 @@ export default {
       if (p.startsWith('/go/')) {
         const tok = p.slice(4), l = /^[a-z0-9]{12}\.[a-z0-9]+$/.test(tok) ? await tdb(env, 'o_' + tok.slice(0, 12)).prepare('SELECT event_id, role FROM links WHERE token_hash = ? AND revoked_at IS NULL').bind(await sha(tok)).first() : null;
         if (!l) return new Response('هذا الرابط أُلغي. اطلب رابطاً جديداً من منظّم اللقاء.', { status: 410, headers: { 'Content-Type': 'text/plain; charset=utf-8' } });
-        return new Response(null, { status: 302, headers: { Location: `/run/${l.role === 'side' ? 'stage' : l.role}.html?e=${l.event_id}${l.role === 'side' ? '&side' : ''}`, 'Set-Cookie': setCookie('lk_' + l.event_id, tok, 30) } });
+        return new Response(null, { status: 302, headers: { Location: `/run/${['side', 'logo'].includes(l.role) ? 'stage' : l.role}.html?e=${l.event_id}${['side', 'logo'].includes(l.role) ? '&' + l.role : ''}`, 'Set-Cookie': setCookie('lk_' + l.event_id, tok, 30) } });
       }
       // ----- the running event (screens): who is asking, the document, the files, the room
       if (p.startsWith('/api/run/') || p.startsWith('/m/')) {
@@ -209,13 +209,19 @@ export default {
         const rehearse = url.searchParams.has('draft') && mem, ver = rehearse ? 0 : ev.published_version;
         if (!rehearse && !ver) return err('اللقاء لم يُعتمد بعد', 409);
         // the hall's screens open on the activation day only; building and rehearsing need no activation
-        if (!rehearse && !(ev.active_from && ev.active_from <= now() && now() < ev.active_until)) return err(ev.active_from && ev.active_from > now() ? 'يُفتح اللقاء في موعد تفعيله: ' + ev.active_from.slice(0, 10) : 'اللقاء غير مفعّل. فعّلوا يوم اللقاء من الاستوديو.', 402);
+        if (!rehearse && !(ev.active_from && ev.active_from <= now() && now() < ev.active_until)) { const why = ev.active_from && ev.active_from > now() ? 'يُفتح اللقاء في موعد تفعيله: ' + ev.active_from.slice(0, 10) : 'اللقاء غير مفعّل. فعّلوا يوم اللقاء من الاستوديو.';
+          // a screen opened before the day still takes its files, so the hall's devices are ready before anyone arrives
+          if (seg[4] === 'config' && ['stage', 'side', 'logo', 'console'].includes(role)) { const d = JSON.parse((await T.prepare('SELECT doc FROM event_versions WHERE event_id = ? AND version = ?').bind(evId, ver).first()).doc), base = `/m/${ev.org_id}/${ev.id}/`, L = (d.cues || []).find(c => c.type === 'launch'), all = role !== 'side' && role !== 'logo', files = [];
+            for (const [k, m] of Object.entries(d.media || {})) { if (!all && !(L && L.media === k)) continue; if (m.kind === 'slides') for (let i = 1; i <= (m.count || 0); i++) files.push(base + m.src + 's-' + i + '.jpg'); else files.push(base + m.src); }
+            for (const k of ['before', 'after']) { const I = (d.identity || {})[k]; if (I && I.logo) files.push(base + I.logo); }
+            return J({ error: why, prep: { name: d.name, files } }, 402); }
+          return err(why, 402); }
         const doc = rehearse ? JSON.parse(ev.draft) : JSON.parse((await T.prepare('SELECT doc FROM event_versions WHERE event_id = ? AND version = ?').bind(evId, ver).first()).doc);
         if (seg[4] === 'config') return J({ doc: { ...doc, id: evId }, role, version: ver, base: `/m/${ev.org_id}/${ev.id}/` });
         if (seg[4] === 'ws' || seg[4] === 'state' || seg[4] === 'cmd') {
           const room = env.ROOM.get(env.ROOM.idFromName(evId + (rehearse ? ':draft' : ':live'))), h = new Headers(req.headers);
           h.set('x-role', role); h.set('x-ver', String(ver)); // the room needs the rules only, not the texts
-          h.set('x-doc', encodeURIComponent(JSON.stringify({ cues: doc.cues.map(c => ({ id: c.id, type: c.type, media: c.media, after: c.after, fixed: c.fixed, off: c.off })),
+          h.set('x-doc', encodeURIComponent(JSON.stringify({ cues: doc.cues.map(c => ({ id: c.id, type: c.type, media: c.media, after: c.after, fixed: c.fixed, off: c.off, style: c.style, count: c.count, hands: c.hands })),
             media: Object.fromEntries(Object.entries(doc.media || {}).map(([k, v]) => [k, { kind: v.kind, count: v.count, length: v.length }])), identity: { after: !!(doc.identity && doc.identity.after) } })));
           return room.fetch(new Request(req.url, { method: M, headers: h, body: M === 'POST' ? await req.text() : undefined }));
         }

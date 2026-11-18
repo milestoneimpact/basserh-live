@@ -7,6 +7,9 @@
 //   people: { <id>: { name, honorific, role?, photo? } },
 //   media:  { <id>: { kind: 'video' | 'image' | 'slides', src, preview?, length?, count? } },
 //   cues:   [ { id, type, title, at, moderator: [..], dur, person?, media?, after?, fixed?, off? } ],
+//   transition: 'fade' | 'rise' | 'zoom' | 'wipe'   (how a scene replaces another on the screens)
+//   the launch cue: style ('video' | 'countdown' | 'light' | 'curtain'), count (seconds of the countdown), text (a name revealed),
+//                   hands (how many guests press together, each on a device of their own)
 // }
 // «after» marks a cue that carries the identity revealed by the launch: it can never be played before the launch.
 export const SCENES = {
@@ -17,11 +20,20 @@ export const SCENES = {
   slides:  { label: 'عرض شرائح',        needs: ['media'],   fields: ['media', 'person'] },
   web:     { label: 'صفحة حية',         needs: ['url'],     fields: ['url'] },
   arm:     { label: 'دعوة التدشين',     needs: [],          fields: ['person'], once: true },
-  launch:  { label: 'لحظة التدشين',     needs: ['media'],   fields: ['media'], once: true },
+  launch:  { label: 'لحظة التدشين',     needs: [],          fields: [], once: true },
   logo:    { label: 'الشعار ثابتاً',    needs: [],          fields: [] },
   qr:      { label: 'رمز QR',           needs: ['url'],     fields: ['url', 'text'] },
   exit:    { label: 'الختام',           needs: [],          fields: [] },
 };
+// the ways a launch is shown: a video the organisation uploads, or a reveal the screens draw themselves in the organisation's identity
+export const LAUNCH = { video: 'فيديو كشف مرفوع', countdown: 'عدّ تنازلي ثم كشف', light: 'انبثاق الضوء', curtain: 'انفتاح الستار' };
+export const TRANSITIONS = { fade: 'تلاشٍ هادئ', rise: 'صعود', zoom: 'اقتراب', wipe: 'ستار ذهبي' };
+export const launchStyle = c => (c && LAUNCH[c.style] ? c.style : 'video');
+export const handsOf = ev => { const c = (ev.cues || []).find(c => c.type === 'launch'); return Math.max(1, Math.min(6, Math.round(+(c && c.hands) || 1))); };
+// seconds from the press to the moment the new identity is seen, and to the end of the launch
+export function launchTimes(ev) { const c = (ev.cues || []).find(c => c.type === 'launch'), st = launchStyle(c), n = Math.max(3, Math.min(30, Math.round(+(c && c.count) || 10)));
+  if (st === 'video') { const m = c && c.media && ev.media ? ev.media[c.media] : null; return { reveal: 0, end: (m && m.length) || 25 }; }
+  return st === 'countdown' ? { reveal: n, end: n + 7, count: n } : st === 'light' ? { reveal: 3, end: 10 } : { reveal: 1, end: 9 }; }
 const ID = /^[a-z0-9][a-z0-9_-]{0,39}$/;
 
 // problems of an event document, as sentences for the studio ([] when it can be published)
@@ -36,16 +48,18 @@ export function problems(ev) {
     const sc = SCENES[c.type]; if (!sc) { out.push(`نوع المشهد غير معروف في ${where}`); continue; }
     if (!c.title) out.push('فقرة بلا عنوان');
     for (const f of sc.needs) if (!c[f]) out.push(`${where}: ينقصها ${({ person: 'المتحدث', media: 'الملف', text: 'النص', url: 'الرابط' })[f]}`);
+    if (c.type === 'launch' && launchStyle(c) === 'video' && !c.media) out.push(`${where}: ينقصها فيديو الكشف، أو اختر كشفاً ترسمه الشاشات`);
     if (c.person && !(ev.people || {})[c.person]) out.push(`${where}: المتحدث غير موجود في قائمة الأشخاص`);
     if (c.media && !(ev.media || {})[c.media]) out.push(`${where}: الملف غير موجود في مكتبة اللقاء`);
     if (c.media && (ev.media || {})[c.media]) { const m = ev.media[c.media], want = c.type === 'slides' ? 'slides' : c.type === 'speaker' ? 'slides' : c.type === 'loop' || c.type === 'video' || c.type === 'launch' ? 'video' : null;
+      if (c.type === 'launch' && launchStyle(c) !== 'video') continue;
       if (want && m.kind !== want) out.push(`${where}: نوع الملف لا يناسب المشهد`); }
   }
   for (const t of ['arm', 'launch']) if (cues.filter(c => c.type === t).length > 1) out.push(`لا يتكرر مشهد «${SCENES[t].label}»`);
   const hasArm = cues.some(c => c.type === 'arm'), hasLaunch = cues.some(c => c.type === 'launch');
   if (hasArm !== hasLaunch) out.push('دعوة التدشين ولحظة التدشين تأتيان معاً');
   if (!hasLaunch && cues.some(c => c.after)) out.push('لا توجد لحظة تدشين، فلا تُعلَّم فقرة بالهوية الجديدة');
-  if (hasLaunch && !(ev.identity && ev.identity.after)) out.push('لقاء فيه تدشين يحتاج الهوية الجديدة');
+  if (cues.some(c => c.after) && !(ev.identity && ev.identity.after)) out.push('فقرة معلَّمة بالهوية الجديدة، ولا هوية جديدة في اللقاء');
   const why = orderProblem(ev, cues.map(c => c.id)); if (why) out.push(why);
   return out;
 }
