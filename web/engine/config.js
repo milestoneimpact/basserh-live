@@ -56,6 +56,7 @@ export function problems(ev) {
     if (!c.title) out.push('فقرة بلا عنوان');
     for (const f of sc.needs) if (!c[f]) out.push(`${where}: ينقصها ${({ person: 'المتحدث', media: 'الملف', text: 'النص', url: 'الرابط' })[f]}`);
     if (c.type === 'launch' && launchStyle(c) === 'video' && !c.media) out.push(`${where}: ينقصها فيديو الكشف، أو اختر كشفاً ترسمه الشاشات`);
+    if (c.mediaTall && (!(ev.media || {})[c.mediaTall] || ev.media[c.mediaTall].kind !== 'video')) out.push(`${where}: نسخة الشاشات الطولية غير موجودة في مكتبة اللقاء`);
     if (c.person && !(ev.people || {})[c.person]) out.push(`${where}: المتحدث غير موجود في قائمة الأشخاص`);
     if (c.media && !(ev.media || {})[c.media]) out.push(`${where}: الملف غير موجود في مكتبة اللقاء`);
     if (c.media && (ev.media || {})[c.media]) { const m = ev.media[c.media], want = c.type === 'slides' ? 'slides' : c.type === 'speaker' ? 'slides' : c.type === 'loop' || c.type === 'video' || c.type === 'launch' ? 'video' : null;

@@ -98,14 +98,14 @@ const WORDS = D.textIn === 'words', setText = (el, t) => { t = t || ''; if (el.d
 const fresh = sec => sec.querySelectorAll('[data-t]').forEach(e => { const t = e.dataset.t; e.dataset.t = '\u0000'; setText(e, t); });   // a scene coming back on show: its words arrive again
 const fit = () => { const a = innerWidth / innerHeight, port = a < 1, W = port ? 1080 : Math.round(1080 * a), H = port ? Math.round(1080 / a) : 1080;
   st.style.width = W + 'px'; st.style.height = H + 'px'; st.style.setProperty('--W', W + 'px'); st.style.setProperty('--H', H + 'px'); st.style.setProperty('--k', port ? .8 : Math.max(.7, Math.min(1, W / 1920)).toFixed(3));
-  st.style.transform = `translate(-50%,-50%) scale(${innerWidth / W})`; st.classList.toggle('port', port); }; addEventListener('resize', () => { fit(); tellRep(); }); fit();
+  st.style.transform = `translate(-50%,-50%) scale(${innerWidth / W})`; st.classList.toggle('port', port); }; addEventListener('resize', () => { fit(); if (link.state) apply(link.state); tellRep(); }); fit();
 if (MUTE) { $('#go').remove(); v.muted = true; } else $('#go').onclick = () => { $('#go').remove(); audio(); v.muted = false; v.play().catch(() => {}); document.documentElement.requestFullscreen?.().catch(() => {}); };
 // sound (sfx.js): the organisation's family of sound, at the moments it chose. Only the big screen sounds, and only once someone
 // has clicked it (the browser's rule), so the hall hears one source.
 let AC = null; const audio = () => { if ((MUTE && !SOLO) || kind !== 'main') return null; try { AC = AC || new (window.AudioContext || window.webkitAudioContext)(); AC.resume(); } catch {} return AC; };
 const SND = SFX.soundOf(D), sfx = (k, c) => { if (SND.pack !== 'none' && SND.on[k] && !(c && c.sfx === 'off')) SFX.play(audio(), SND.pack, k); };
 const show = id => document.querySelectorAll('.sc').forEach(s => { const on = s.id === id; if (on && !s.classList.contains('on') && WORDS) fresh(s); s.classList.toggle('on', on); });
-const M = c => (c && c.media ? D.media[c.media] : null);
+const M = c => { if (!c) return null; const tall = innerHeight > innerWidth && c.mediaTall && D.media[c.mediaTall]; return tall || (c.media ? D.media[c.media] : null); };   // a tall screen takes the video's tall copy when the cue has one
 let cur = null, slideEl = 0, lastSlide = '';
 async function slide(m, n) { const u = link.base + m.src + 's-' + n + '.jpg'; if (u === lastSlide) return; lastSlide = u; const els = document.querySelectorAll('.sl'); slideEl ^= 1; const el = els[slideEl], other = els[slideEl ^ 1]; el.onload = () => { if (lastSlide !== u) return; el.classList.add('on'); other.classList.remove('on'); }; el.src = await store.url(u);
   const r = slidesOf(D, cur?.s.cue || ''); if (r && n < r.max) store.url(link.base + m.src + 's-' + (n + 1) + '.jpg').then(x => { new Image().src = x; }); }   // the next slide is decoded ahead
@@ -127,7 +127,9 @@ function reveal(c, s) { const R = $('#rev'), style = launchStyle(c), T = launchT
 let prev = null;
 function apply(s, info) {
   // off: a black screen, whoever opens it and whatever the cue. The device still keeps its files and reports, so the hall is ready
-  document.body.classList.toggle('dark', !s.live); if (!s.live) { if (!v.paused) v.pause(); v.muted = true; cur = null; prev = null; if (info && info.online && !wasOn) tellRep(); wasOn = !!(info && info.online); return; } if (!MUTE && !document.querySelector('#go')) v.muted = false;
+  const out = !s.live || (s.dim || []).includes(kind);   // off for everyone, or this kind of screen put out by the operator
+  if (prev && prev.cue !== s.cue) fault = '';
+  document.body.classList.toggle('dark', out); if (out) { if (!v.paused) v.pause(); v.muted = true; cur = null; prev = null; if (info && info.online && !wasOn) tellRep(); wasOn = !!(info && info.online); return; } if (!MUTE && !document.querySelector('#go')) v.muted = false;
   { const c0 = cueOf(D, s.cue); document.body.className = document.body.className.replace(/\btr-\w+/g, '').trim() + ' tr-' + (c0.fx || D.transition || 'fade');
     if (prev && prev.cue !== s.cue && c0.type !== 'launch') sfx(c0.type === 'speaker' ? 'card' : c0.type === 'arm' ? 'arm' : 'cue', c0); else if (prev && prev.cue === s.cue && prev.slide !== s.slide && s.slide > 0) sfx(prev.slide === 0 ? 'cue' : 'slide', c0); prev = { cue: s.cue, slide: s.slide }; }
   const c = cueOf(D, s.cue), I = paint(link, s), m = M(c), P = c.person ? D.people[c.person] : null; $('#black').classList.toggle('on', !!s.black);
@@ -145,7 +147,7 @@ function apply(s, info) {
     else if (c.type === 'qr' || c.type === 'web') { const cv = $('#qr canvas'); if (cv.dataset.u !== c.url) { cv.dataset.u = c.url; try { const q = qrcode(0, 'M'); q.addData(c.url); q.make(); const n = q.getModuleCount(), g = cv.getContext('2d'), z = 600 / n; g.fillStyle = '#fff'; g.fillRect(0, 0, 600, 600); g.fillStyle = '#14211E'; for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) if (q.isDark(y, x)) g.fillRect(x * z, y * z, z + .5, z + .5); } catch {} } $('#qr .sub').textContent = c.text || c.title; show('qr'); }
     else logoScene(I, c.type === 'exit' ? '' : (c.type === 'logo' || SIDE ? '' : c.type === 'launch' ? (c.text || '') : D.name), c.type === 'loop' ? D.date : ''); }
   if (!drawn) $('#rev').dataset.k = '';
-  cur = { s, c, isVideo, m }; if (info && info.online && !wasOn) tellRep(); wasOn = !!(info && info.online);
+  cur = { s, c, isVideo, m }; if (info && info.online && !wasOn) tellRep(true); wasOn = !!(info && info.online); setTimeout(tellRep, 60);
 }
 // a video follows the server clock: the same frame on every screen, held while paused, held on its last frame at the end
 setInterval(() => { if (!cur || !cur.isVideo || !v.src) return; const { s, c, m } = cur; let t = ((s.paused || link.now()) - s.cueAt) / 1000; if (c.type === 'launch' && s.launchedAt) t = ((s.paused || link.now()) - s.launchedAt) / 1000;
@@ -155,7 +157,13 @@ setInterval(() => { if (!cur || !cur.isVideo || !v.src) return; const { s, c, m 
   if (Math.abs(v.currentTime - t) > .45) v.currentTime = Math.max(0, t); if (v.paused) v.play().catch(() => { v.muted = true; v.play().catch(() => {}); }); }, 250);
 // this device keeps the files it will show (the big screen all of them, a side or logo screen the logos and the launch video),
 // and tells the operator who it is and how far it is
-let rep = null, wasOn = false; function tellRep() { if (rep && !MUTE) link.raw({ report: { id: deviceId(), kind, w: innerWidth, h: innerHeight, ...rep } }); }
+let rep = null, wasOn = false, fault = '', lastTold = '';
+function tellRep(force) { if (!rep || MUTE) return; const sc = document.body.classList.contains('dark') ? 'off' : (document.querySelector('.sc.on')?.id || ''), r = { id: deviceId(), kind, label: link.label, w: innerWidth, h: innerHeight, ...rep, scene: sc, cue: link.state ? link.state.cue : '', lag: link.lag, err: fault, ver: link.version, t: cur && cur.isVideo && !v.paused ? Math.round(v.currentTime * 10) / 10 : 0 };
+  const key = JSON.stringify({ ...r, lag: Math.round(r.lag / 50), t: 0 }); if (!force && key === lastTold) return; lastTold = key; link.raw({ report: r }); }
+// a fault on this screen is told to the operator, never shown to the hall
+const fail = m => { if (fault === m) return; fault = m; tellRep(true); }; addEventListener('error', e => { if (e.target === window || !e.target) fail('خطأ في صفحة الشاشة'); }); addEventListener('unhandledrejection', () => fail('خطأ في صفحة الشاشة'));
+v.addEventListener('error', () => fail('تعذّر تشغيل الفيديو')); document.querySelectorAll('.sl').forEach(i => i.addEventListener('error', () => { if (i.getAttribute('src')) fail('تعذّر عرض شريحة'); }));
+setInterval(() => tellRep(), 2500);   // and every few seconds, when anything changed: the scene on show, the distance of the clock, a video's position
 link.on(apply); if (SOLO) { const c = cueOf(D, link.state.cue); if (c.type !== 'launch') setTimeout(() => sfx(c.type === 'speaker' ? 'card' : c.type === 'arm' ? 'arm' : 'cue', c), 250); }
 // the presenter's clicker is plugged into this computer
 addEventListener('keydown', e => { if (!link.state || !link.state.live || !slidesOf(D, link.state.cue)) return; const go = d => link.online ? link.send({ type: 'step', d }) : link.local({ type: 'step', d }); if (['PageDown', 'ArrowLeft', 'ArrowDown', ' '].includes(e.key)) { e.preventDefault(); go(1); } if (['PageUp', 'ArrowRight', 'ArrowUp'].includes(e.key)) { e.preventDefault(); go(-1); } });
@@ -164,5 +172,5 @@ if (!MUTE) { const files = filesOf(D, link.base, kind === 'main'); let t = 0;
   store.keep(files, st => { if (Date.now() - t > 700 || Object.values(st).every(x => x.done || x.err)) { t = Date.now(); tell(st); } }).then(tell); }
 // network down: N next, P previous, K pause, B black, L launch, O screens on or off, from this keyboard
 addEventListener('keydown', e => { if (link.online) return; const k = e.key.toLowerCase(), c = { n: { type: 'next' }, p: { type: 'prev' }, b: { type: 'black', on: !link.state.black }, l: { type: 'launch' }, o: { type: 'live', on: !link.state.live }, k: { type: link.state.paused ? 'resume' : 'pause' } }[k]; if (c) link.local(c); });
-window.stageReady = true;
+window.clockNow = () => link.now(); window.stageReady = true;
 </script></body></html>

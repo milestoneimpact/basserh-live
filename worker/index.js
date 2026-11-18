@@ -152,10 +152,12 @@ const main = {
         await audit(env, o.id, null, null, 'plan', JSON.stringify(b)); await padd(env, 'org_changed', `${o.name} /${o.slug} ${JSON.stringify({ ...b, id: undefined })}`); return J({ ok: true });
       }
       if (p === '/api/admin/invite' && M === 'POST') { const b = await req.json(), u = await userFor(env, b.email); if (!u) return err('بريد غير صالح'); await env.DB.prepare('INSERT INTO members (org_id, user_id, role) VALUES (?,?,?) ON CONFLICT (org_id, user_id) DO NOTHING').bind(b.org, u.id, 'owner').run(); return J({ join: await invite(env, u.email) }); }
+      if (p === '/api/admin/unlock' && M === 'POST') { const b = await req.json(), slug2 = String(b.slug || ''); if (!slug2) return err('أي جهة؟'); const r = await env.DB.prepare("DELETE FROM login_fail WHERE ip LIKE ?").bind('%|' + slug2).run(); await padd(env, 'door_unlocked', '/' + slug2); return J({ ok: true, cleared: r.meta ? r.meta.changes : 0 }); }
       if (p === '/api/admin/orgs' && M === 'GET') {
         const { results } = await env.DB.prepare('SELECT o.*, (SELECT GROUP_CONCAT(u.email) FROM members m JOIN users u ON u.id = m.user_id WHERE m.org_id = o.id AND m.role = ?) AS owners FROM orgs o ORDER BY created_at DESC').bind('owner').all();
         // usage comes from each organisation's own database
-        return J({ orgs: await Promise.all(results.map(async o => { const [[c], [b], active] = await tdb(env, o.id).batch([{ sql: 'SELECT COUNT(*) AS n FROM events WHERE status != ?', params: ['archived'] }, { sql: 'SELECT COALESCE(SUM(bytes),0) AS b FROM media', params: [] }, { sql: 'SELECT name, active_from, active_until FROM events WHERE active_until > ? ORDER BY active_from', params: [now()] }]); return { ...o, events: c.n, bytes: b.b, active }; })) });
+        const fails = (await env.DB.prepare("SELECT ip, n, until FROM login_fail WHERE ip LIKE '%|%'").all()).results, lockOf = sl => { const f = fails.filter(x => x.ip.endsWith('|' + sl)); return { locked: f.some(x => x.until && x.until > now()), until: f.map(x => x.until).filter(x => x && x > now()).sort().pop() || null, wrong: f.reduce((a, x) => Math.max(a, x.n), 0) }; };
+        return J({ orgs: (await Promise.all(results.map(async o => { const [[c], [b], active] = await tdb(env, o.id).batch([{ sql: 'SELECT COUNT(*) AS n FROM events WHERE status != ?', params: ['archived'] }, { sql: 'SELECT COALESCE(SUM(bytes),0) AS b FROM media', params: [] }, { sql: 'SELECT name, active_from, active_until FROM events WHERE active_until > ? ORDER BY active_from', params: [now()] }]); return { ...o, events: c.n, bytes: b.b, active }; }))).map(o => ({ ...o, door: lockOf(o.slug) })) });
       }
       // ----- signing in by a link (no password): the link is used once and opens a session of 30 days
       if (p === '/api/login' && M === 'POST') {   // the studio's gate: email and password
@@ -229,7 +231,7 @@ const main = {
         if (!/^e_[a-z0-9]{20}$/.test(evId)) return err('لا يوجد', 404); const T = tdb(env, orgOfEvent(evId));
         const ev = await T.prepare('SELECT id, org_id, draft, published_version, active_from, active_until FROM events WHERE id = ?').bind(evId).first(); if (!ev) return err('لا يوجد', 404);
         let role = null; const tok = cookies(req)['lk_' + evId];
-        if (tok) { const l = await T.prepare('SELECT role FROM links WHERE token_hash = ? AND event_id = ? AND revoked_at IS NULL').bind(await sha(tok), evId).first(); if (l) role = l.role; }
+        let label = ''; if (tok) { const l = await T.prepare('SELECT role, label FROM links WHERE token_hash = ? AND event_id = ? AND revoked_at IS NULL').bind(await sha(tok), evId).first(); if (l) { role = l.role; label = l.label || ''; } }
         const who = await me(req, env), mem = who && who.orgs.find(o => o.id === ev.org_id); if (mem) role = ROLES[mem.role] >= 1 ? 'console' : (role || 'stage');
         if (!role) return err('افتح الشاشة من رابطها', 401);
         if (p.startsWith('/m/')) {   // /m/<org>/<event>/<file>: the files of the event, in its own folder of the bucket
@@ -253,7 +255,7 @@ const main = {
             return J({ error: why, prep: { name: d.name, files } }, 402); }
           return err(why, 402); }
         const doc = rehearse ? JSON.parse(ev.draft) : JSON.parse((await T.prepare('SELECT doc FROM event_versions WHERE event_id = ? AND version = ?').bind(evId, ver).first()).doc);
-        if (seg[4] === 'config') return J({ doc: { ...doc, id: evId }, role, version: ver, base: `/m/${ev.org_id}/${ev.id}/` });
+        if (seg[4] === 'config') return J({ doc: { ...doc, id: evId }, role, label, version: ver, base: `/m/${ev.org_id}/${ev.id}/` });   // label: the name the organisation gave this screen's link
         if (seg[4] === 'ws' || seg[4] === 'state' || seg[4] === 'cmd') {
           const room = env.ROOM.get(env.ROOM.idFromName(evId + (rehearse ? ':draft' : ':live'))), h = new Headers(req.headers);
           h.set('x-role', role); h.set('x-ver', String(ver)); // the room needs the rules only, not the texts

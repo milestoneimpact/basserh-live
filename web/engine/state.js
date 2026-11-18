@@ -58,10 +58,11 @@ export function reduce(ev, s, cmd, now = Date.now(), trusted = false) {
   else if (cmd.type === 'resume') o = s.paused ? { ...s, cueAt: s.cueAt + (now - s.paused), paused: null } : s;
   else if (cmd.type === 'seek') o = pausable(ev, s.cue) ? { ...s, cueAt: Math.min(s.paused || now, s.cueAt - (+cmd.d || 0) * 1000) } : s;
   else if (cmd.type === 'black') o = { ...s, black: !!cmd.on };
+  else if (cmd.type === 'dim') { const set = new Set(s.dim || []); if (['main', 'side', 'logo'].includes(cmd.kind)) { cmd.on ? set.add(cmd.kind) : set.delete(cmd.kind); o = { ...s, dim: [...set] }; } }   // the operator puts out one kind of screen (the logo screens, the side ones) and leaves the others
   else if (cmd.type === 'live') o = !!cmd.on === !!s.live ? s : { ...s, live: !!cmd.on, cueAt: cmd.on ? now : s.cueAt, paused: null };   // turning on starts the cue on show from its beginning
   else if (cmd.type === 'note') { const t = String(cmd.text || '').trim().slice(0, 120); o = t ? { ...s, note: { text: t, at: now } } : (s.note ? { ...s, note: null } : s); }   // a word from the operator to the moderator's page
   else if (cmd.type === 'start') o = { ...s, startAt: cmd.at || null };
-  else if (cmd.type === 'reset') o = { ...initial(ev), order: s.order, orderAt: s.orderAt, off: s.off, hide: s.hide, live: s.live };
+  else if (cmd.type === 'reset') o = { ...initial(ev), order: s.order, orderAt: s.orderAt, off: s.off, hide: s.hide, live: s.live, dim: s.dim };
   return o === s ? s : { ...o, ver: (s.ver || 0) + 1 };
 }
 // which identity a screen shows now: the one revealed by the launch once it has happened

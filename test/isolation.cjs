@@ -74,6 +74,9 @@ const NAMES = [['شركة الأفق', '#0B3D91', 'ملتقى الأفق الس�
   // five wrong passwords at one door close that door for a while, not the others
   const tryDoor = (slug, pw) => st('/api/login', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ slug, password: pw }) }); const codes = []; for (let i = 0; i < 22 && codes[codes.length - 1] !== 429; i++) codes.push(await tryDoor(X.slug, 'wrong-' + i));   // five from one address; twenty from any number of addresses
   ok(codes[codes.length - 1] === 429 && codes.slice(0, -1).every(c => c === 403) && codes.length >= 6 && codes.length <= 21 && await tryDoor(Y.slug, 'wrong') === 403, `wrong passwords lock that organisation's door (429 after ${codes.length - 1}), and the door of another stays open to try`);
+  // the platform owner sees the locked door and opens it
+  const seenLock = (await (await adm('orgs')).json()).orgs.find(o => o.slug === X.slug).door; await adm('unlock', 'POST', { slug: X.slug });
+  ok(seenLock.locked && !!seenLock.until && await tryDoor(X.slug, 'wrong-again') === 403 && !(await (await adm('orgs')).json()).orgs.find(o => o.slug === X.slug).door.locked, 'the platform owner sees the locked door on his page and opens it: the door answers again');
   // a password added by an owner cannot take over an account of another organisation
   const steal = await X.api('/api/members', 'POST', { email: `i1${t}@t.test`, role: 'editor', password: 'stolen-pass-123' }); ok(steal.status === 400, 'an owner cannot set a password for someone who already has an account elsewhere');
   ok(!errs.length, 'page errors: ' + (errs.join(' | ') || 'none')); await b.close(); for (const o of orgs) await adm('org', 'DELETE', { id: o.org, confirm: o.slug });
