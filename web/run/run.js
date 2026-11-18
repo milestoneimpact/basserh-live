@@ -1,11 +1,17 @@
 // What every screen of a running event shares: the event document, the live state from the event's room, the server clock.
 import { identityNow, shown, slidesOf, pausable, reduce } from '../engine/state.js';
-import { cueOf, launchTimes, launchStyle, handsOf } from '../engine/config.js';
-export { identityNow, shown, slidesOf, pausable, cueOf, launchTimes, launchStyle, handsOf };
+import { cueOf, launchTimes, launchStyle, handsOf, gestureOf, launchOf } from '../engine/config.js';
+export { identityNow, shown, slidesOf, pausable, cueOf, launchTimes, launchStyle, handsOf, gestureOf };
 export const $ = (s, r = document) => r.querySelector(s);
 export const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
 export async function connect() {
   const Q = new URLSearchParams(location.search), e = Q.get('e'), draft = Q.has('draft') ? '?draft' : '';
+  // ?solo=<cue>: the studio's preview of one moment. The draft is read, nothing is connected, the cue plays from its start
+  if (Q.has('solo')) { const cfg = await (await fetch(`/api/run/${e}/config?draft`)).json(); if (!cfg.doc) { document.body.innerHTML = ''; await new Promise(() => {}); } const d = cfg.doc, c = cueOf(d, Q.get('solo')) || d.cues[0], L = launchOf(d), sl = slidesOf(d, c.id), t = Date.now();
+    const after = L && d.cues.findIndex(x => x.id === c.id) > d.cues.findIndex(x => x.id === L);
+    let state = { cue: c.id, cueAt: t, armed: c.type === 'arm', launchedAt: c.type === 'launch' ? t + 700 : after ? t - 6e5 : null, slide: sl ? Math.max(1, sl.min) : 0, black: false, paused: null, hide: {}, live: true, ver: 1 }; const subs = [], info = () => ({ peers: {}, online: true, hall: {}, hands: { held: 0, need: handsOf(d), allAt: null } });
+    return { doc: d, base: cfg.base, role: 'console', draft: true, solo: true, get state() { return state; }, now: () => Date.now(), on: f => { subs.push(f); f(state, info()); }, poke: () => subs.forEach(f => f(state, info())), raw: () => {}, local: () => {}, online: true,
+      send: cmd => { if (cmd.type === 'step' && sl) { state = { ...state, slide: Math.max(1, Math.min(sl.max, state.slide + (cmd.d < 0 ? -1 : 1))) }; subs.forEach(f => f(state, info())); } } }; }
   // the event document is kept on this device: a screen reloaded while the network is down still opens
   const K = 'ev:' + e + draft; let cfg;
   try { const r = await fetch(`/api/run/${e}/config${draft}`); cfg = await r.json(); if (!r.ok && cfg.prep && window.prepScreen) { await window.prepScreen(cfg); await new Promise(() => {}); }   // the page waits here; it reloads itself when the day comes

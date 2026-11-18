@@ -26,14 +26,21 @@ export const SCENES = {
   exit:    { label: 'الختام',           needs: [],          fields: [] },
 };
 // the ways a launch is shown: a video the organisation uploads, or a reveal the screens draw themselves in the organisation's identity
-export const LAUNCH = { video: 'فيديو كشف مرفوع', countdown: 'عدّ تنازلي ثم كشف', light: 'انبثاق الضوء', curtain: 'انفتاح الستار' };
+export const LAUNCH = { video: 'فيديو كشف مرفوع', countdown: 'عدّ تنازلي ثم كشف', light: 'انبثاق الضوء', curtain: 'انفتاح الستار', ribbon: 'قص الشريط', rays: 'أشعة الذهب', pulse: 'نبض يتسارع', dust: 'غبار الذهب يجتمع' };
+// how the guest of honour launches, on the device in front of him
+export const GESTURES = { hold: 'ضغطة مطوّلة', swipe: 'سحب للتدشين', tap: 'ضغطة واحدة' };
+export const gestureOf = ev => { const c = (ev.cues || []).find(c => c.type === 'launch'); return handsOf(ev) > 1 ? 'hold' : (c && GESTURES[c.gesture] ? c.gesture : 'hold'); };   // several hands always hold together
+// what moves quietly behind the scenes of text, and how a title or a name arrives
+export const AMBIENT = { none: 'ساكنة', glow: 'ضوء هادئ', lines: 'خطوط هندسية', dust: 'ذرّات متصاعدة' };
+export const TEXTIN = { fade: 'دفعة واحدة', words: 'كلمة كلمة', rise: 'صعود الأسطر' };
+export const PULSE = [0, 1, 1.8, 2.4, 2.9, 3.3, 3.6];   // the beats of the «pulse» reveal: closer and closer, then the strike at 4
 export const TRANSITIONS = { fade: 'تلاشٍ هادئ', rise: 'صعود', zoom: 'اقتراب', wipe: 'ستار ذهبي', blur: 'انقشاع', iris: 'عدسة' };
 export const launchStyle = c => (c && LAUNCH[c.style] ? c.style : 'video');
 export const handsOf = ev => { const c = (ev.cues || []).find(c => c.type === 'launch'); return Math.max(1, Math.min(6, Math.round(+(c && c.hands) || 1))); };
 // seconds from the press to the moment the new identity is seen, and to the end of the launch
 export function launchTimes(ev) { const c = (ev.cues || []).find(c => c.type === 'launch'), st = launchStyle(c), n = Math.max(3, Math.min(30, Math.round(+(c && c.count) || 10)));
   if (st === 'video') { const m = c && c.media && ev.media ? ev.media[c.media] : null; return { reveal: 0, end: (m && m.length) || 25 }; }
-  return st === 'countdown' ? { reveal: n, end: n + 7, count: n } : st === 'light' ? { reveal: 3, end: 10 } : { reveal: 1, end: 9 }; }
+  return st === 'countdown' ? { reveal: n, end: n + 7, count: n } : st === 'light' ? { reveal: 3, end: 10 } : st === 'ribbon' ? { reveal: 2.2, end: 9 } : st === 'rays' ? { reveal: 3, end: 10 } : st === 'pulse' ? { reveal: 4, end: 11, beats: PULSE } : st === 'dust' ? { reveal: 3.5, end: 10.5 } : { reveal: 1, end: 9 }; }
 const ID = /^[a-z0-9][a-z0-9_-]{0,39}$/;
 
 // problems of an event document, as sentences for the studio ([] when it can be published)

@@ -3,11 +3,15 @@
 <html lang="ar" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no"><title>التدشين</title><link rel="stylesheet" href="../app.css">
 <style>html,body{height:100%;overflow:hidden}body{background:var(--bg);color:var(--ink);display:grid;place-items:center;text-align:center;transition:background 1s;user-select:none;-webkit-user-select:none}
 img{max-width:60vw;max-height:40vh}#btn{display:none;width:min(52vw,52vh);aspect-ratio:1;border-radius:50%;border:0;background:radial-gradient(circle at 40% 35%,var(--gold),color-mix(in srgb,var(--gold) 55%,#000));color:#fff;font:900 clamp(26px,5vw,54px) Kufi;box-shadow:0 30px 80px rgba(0,0,0,.3);position:relative;touch-action:none}
-#btn:after{content:'';position:absolute;inset:-18px;border-radius:50%;border:6px solid var(--accent);clip-path:inset(0 0 calc(100% - var(--p,0%)) 0)}body.arm{background:#120E09}body.arm #btn{display:block}body.arm #idle{display:none}p{font:400 clamp(16px,2.4vw,26px) Plex;color:var(--gold);margin-top:28px}</style></head><body>
-<div id="idle"><img id="lg"><p id="nm"></p></div><div><button id="btn">تدشين</button><p id="hint" style="display:none">اضغط مطوّلاً ثانيتين</p></div>
+#btn:after{content:'';position:absolute;inset:-18px;border-radius:50%;border:6px solid var(--accent);clip-path:inset(0 0 calc(100% - var(--p,0%)) 0)}body.arm{background:#120E09}body.arm #btn{display:block}body.arm #idle{display:none}p{font:400 clamp(16px,2.4vw,26px) Plex;color:var(--gold);margin-top:28px}
+#sw{display:none;position:relative;width:min(78vw,640px);height:min(18vh,120px);border-radius:999px;border:2px solid var(--gold);background:rgba(255,255,255,.05);touch-action:none;margin:0 auto}#sw b{position:absolute;inset:0;display:grid;place-items:center;font:700 clamp(18px,3vw,30px) Kufi;color:var(--gold);letter-spacing:.04em;pointer-events:none}
+#sw i{position:absolute;top:6px;bottom:6px;right:6px;aspect-ratio:1;border-radius:50%;background:radial-gradient(circle at 40% 35%,var(--gold),color-mix(in srgb,var(--gold) 55%,#000));box-shadow:0 10px 30px rgba(0,0,0,.4);display:grid;place-items:center;color:#fff;font:900 clamp(20px,3vw,34px) Kufi;font-style:normal}
+body.arm.g-swipe #btn{display:none}body.arm.g-swipe #sw{display:block}</style></head><body>
+<div id="idle"><img id="lg"><p id="nm"></p></div><div><button id="btn">تدشين</button><div id="sw"><b>اسحب للتدشين</b><i>‹</i></div><p id="hint" style="display:none">اضغط مطوّلاً ثانيتين</p></div>
 <script type="module">
-import { connect, paint, $, handsOf } from './run.js'; const link = await connect(), need = handsOf(link.doc); let t0 = 0, raf, H = null, holding = false, sent = 0;
+import { connect, paint, $, handsOf, gestureOf } from './run.js'; const link = await connect(), need = handsOf(link.doc), G = gestureOf(link.doc); document.body.classList.add('g-' + G); let t0 = 0, raf, H = null, holding = false, sent = 0;
 link.on((s, info) => { document.documentElement.style.visibility = s.live ? '' : 'hidden'; document.documentElement.style.background = '#000'; const I = paint(link, s), arm = !!s.live && !!s.armed && !s.launchedAt; H = info.hands; document.body.classList.toggle('arm', arm); $('#hint').style.display = arm ? '' : 'none'; $('#lg').src = I.logo; $('#lg').style.display = I.logo ? '' : 'none'; $('#nm').textContent = I.logo ? '' : link.doc.name;
+  if (need === 1 && G !== 'hold') $('#hint').textContent = G === 'tap' ? 'اضغط للتدشين' : '';
   if (need > 1) $('#hint').textContent = H && H.held >= need ? 'أبقوا أيديكم' : `اضغطوا معاً وأبقوا أيديكم · ${(H ? H.held : 0).toLocaleString('ar-EG')} من ${need.toLocaleString('ar-EG')}`; if (!arm && holding) { up(); b.style.outline = ''; } });
 const b = $('#btn'), stop = () => { cancelAnimationFrame(raf); t0 = 0; b.style.setProperty('--p', '0%'); };
 // one guest: a press held for two seconds. Several guests: each holds on a device of their own, and the ring fills once all hands are down
@@ -16,5 +20,10 @@ const tick = () => { const from = need > 1 ? (H && H.allAt ? H.allAt : null) : t
 const up = () => { if (need > 1 && holding) link.raw({ hold: false }); holding = false; stop(); };
 const LATCH = need > 1 && new URLSearchParams(location.search).has('mute');   // in the studio's preview one person plays every guest: a click holds, a second click lets go
 if (LATCH) b.onclick = () => { holding = !holding; link.raw({ hold: holding }); b.style.outline = holding ? '6px solid #6FE0A6' : ''; cancelAnimationFrame(raf); if (holding) tick(); else stop(); };
-else b.onpointerdown = e => { e.preventDefault(); try { b.setPointerCapture(e.pointerId); } catch {} holding = true; t0 = performance.now(); if (need > 1) link.raw({ hold: true }); cancelAnimationFrame(raf); tick(); }; if (!LATCH) { b.onpointerup = b.onpointercancel = up; if (need === 1) b.onpointerleave = up; }
+else if (G === 'tap') b.onclick = () => { if (Date.now() - sent > 1500) { sent = Date.now(); link.send({ type: 'press' }); } };
+else if (G === 'swipe') { const sw = $('#sw'), k = sw.querySelector('i'); let x0 = null, max = 1; const set = p => { k.style.transform = `translateX(${-p * max}px)`; sw.querySelector('b').style.opacity = 1 - p; };
+  k.onpointerdown = e => { e.preventDefault(); k.setPointerCapture(e.pointerId); x0 = e.clientX; max = sw.clientWidth - k.clientWidth - 12; k.style.transition = 'none'; };
+  k.onpointermove = e => { if (x0 === null) return; const p = Math.max(0, Math.min(1, (x0 - e.clientX) / max)); set(p); if (p >= .96 && Date.now() - sent > 1500) { sent = Date.now(); x0 = null; link.send({ type: 'press' }); } };
+  k.onpointerup = k.onpointercancel = () => { if (x0 === null) return; x0 = null; k.style.transition = 'transform .3s'; set(0); }; }
+else b.onpointerdown = e => { e.preventDefault(); try { b.setPointerCapture(e.pointerId); } catch {} holding = true; t0 = performance.now(); if (need > 1) link.raw({ hold: true }); cancelAnimationFrame(raf); tick(); }; if (!LATCH && G === 'hold') { b.onpointerup = b.onpointercancel = up; if (need === 1) b.onpointerleave = up; }
 </script></body></html>

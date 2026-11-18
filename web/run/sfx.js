@@ -40,5 +40,7 @@ const SET = {
 export function play(ac, pack, kind) { const S = SET[pack]; if (!ac || !S || !S[kind]) return; S[kind](kit(ac, ac.currentTime + .02)); }
 export function launch(ac, pack, style, T, el = 0) { const S = SET[pack]; if (!ac || !S || el > T.reveal + .5) return; const k = kit(ac, ac.currentTime - el), [f0, f1, dur, vol] = S.strike;
   if (style === 'countdown') for (let i = 0; i < T.count; i++) k.tone(i, S.tick[0], S.tick[1], .28, .5);
+  if (T.beats) T.beats.forEach((b, i) => k.tone(b, S.tick[0], S.tick[1], .3, .3 + i * .07));   // the pulse: each beat a little louder
+  if (style === 'ribbon') k.noise(1.15, .16, .5, 5000, 1200, 2);   // the cut
   k.noise(Math.max(0, T.reveal - 2.6), Math.min(2.6, T.reveal), .35, S.sweep[0], S.sweep[1], 1.2, 'bandpass', .85);   // the breath that rises to the reveal
   k.tone(T.reveal, f0, f1, dur, vol); k.noise(T.reveal, 1.8, .22, 6000, 900, 1.2, 'bandpass', .05); }
