@@ -156,10 +156,17 @@ export default {
         return J({ orgs: await Promise.all(results.map(async o => { const [[c], [b], active] = await tdb(env, o.id).batch([{ sql: 'SELECT COUNT(*) AS n FROM events WHERE status != ?', params: ['archived'] }, { sql: 'SELECT COALESCE(SUM(bytes),0) AS b FROM media', params: [] }, { sql: 'SELECT name, active_from, active_until FROM events WHERE active_until > ? ORDER BY active_from', params: [now()] }]); return { ...o, events: c.n, bytes: b.b, active }; })) });
       }
       // ----- signing in by a link (no password): the link is used once and opens a session of 30 days
+      if (p === '/api/gate' && M === 'GET') { const o = await env.DB.prepare('SELECT name FROM orgs WHERE slug = ?').bind(url.searchParams.get('slug') || '').first(); return J({ name: o ? o.name : '' }); }   // the name over the door of an organisation's address
       if (p === '/api/login' && M === 'POST') {   // the studio's gate: email and password
         const ip = req.headers.get('CF-Connecting-IP') || 'local', f = await locked(env, ip); if (!f) return err('محاولات كثيرة. حاول بعد ربع ساعة.', 429);
-        const b = await req.json().catch(() => ({})), u = await env.DB.prepare('SELECT id, pw FROM users WHERE email = ?').bind(String(b.email || '').trim().toLowerCase()).first();
-        if (!(await pwOk(String(b.password || ''), u && u.pw)) || u.id === 'platform') { await failed(env, ip, f.n); return err('البريد أو كلمة المرور غير صحيحة', 403); }
+        const b = await req.json().catch(() => ({})); let u = null;
+        // at an organisation's own address the password is enough: it is tried against the members of that organisation only
+        if (b.slug && !b.email) { const { results } = await env.DB.prepare("SELECT u.id, u.pw FROM users u JOIN members m ON m.user_id = u.id JOIN orgs o ON o.id = m.org_id WHERE o.slug = ? AND u.pw IS NOT NULL ORDER BY CASE m.role WHEN 'owner' THEN 0 ELSE 1 END LIMIT 8").bind(String(b.slug)).all();
+          for (const x of results) if (await pwOk(String(b.password || ''), x.pw)) { u = x; break; }
+          if (!u) { await failed(env, ip, f.n); return err('كلمة المرور غير صحيحة', 403); } }
+        else { u = await env.DB.prepare('SELECT id, pw FROM users WHERE email = ?').bind(String(b.email || '').trim().toLowerCase()).first();
+          if (!(await pwOk(String(b.password || ''), u && u.pw)) || u.id === 'platform') { await failed(env, ip, f.n); return err('البريد أو كلمة المرور غير صحيحة', 403); } }
+        if (b.slug) { await env.DB.prepare('DELETE FROM login_fail WHERE ip = ?').bind(ip).run(); return new Response(JSON.stringify({ ok: true, to: '/' + b.slug }), { headers: { 'Content-Type': 'application/json', 'Set-Cookie': await session(env, u.id) } }); }
         await env.DB.prepare('DELETE FROM login_fail WHERE ip = ?').bind(ip).run(); const first = await env.DB.prepare('SELECT o.slug FROM members m JOIN orgs o ON o.id = m.org_id WHERE m.user_id = ? LIMIT 1').bind(u.id).first();
         return new Response(JSON.stringify({ ok: true, to: '/' + (first ? first.slug : 'login') }), { headers: { 'Content-Type': 'application/json', 'Set-Cookie': await session(env, u.id) } }); }
       if (p === '/api/password' && M === 'POST') {   // a signed in member sets a password of their own
