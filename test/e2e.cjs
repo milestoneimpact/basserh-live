@@ -65,7 +65,7 @@ const ok = (c, m) => { console.log((c ? '✓ ' : '✗ ') + m); if (!c) process.e
   require('child_process').spawn(process.env.SERVE || '/tmp/claude-0/sx/serve.sh', [], { detached: true, stdio: 'ignore' }).unref(); await con.waitForFunction(() => document.querySelector('#nT').textContent === 'دعوة التدشين', null, { timeout: 60000 }); ok(true, 'network back: the room took the hall\'s state, the console shows «دعوة التدشين»'); await tab.waitForSelector('body.arm');
   } else { await con.click('#next'); await st.waitForTimeout(1500); ok(await scene() === 'arm', 'stage: waiting for the launch'); await tab.waitForSelector('body.arm'); }
   const bx = await (await tab.$('#btn')).boundingBox(); await tab.mouse.move(bx.x + bx.width / 2, bx.y + bx.height / 2); await tab.mouse.down(); await tab.waitForTimeout(2300); await tab.mouse.up(); await st.waitForTimeout(2500);
-  ok(await scene() === 'vid', 'the guest pressed: the reveal video plays'); await st.waitForTimeout(5500);
+  ok(await scene() === 'vid', 'the guest pressed: the reveal video plays'); await st.waitForSelector('#idle.on', { timeout: 20000 }); await st.waitForTimeout(600);
   const acc = () => st.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--accent')); ok(await scene() === 'idle' && /8e1f26/i.test(await acc()) && /f[a-z0-9]+\.png/.test(await st.getAttribute('#idle img', 'src')), 'after the reveal: the new identity on the stage (' + await acc() + ')'); await shot('s4');
   ok(/8e1f26/i.test(await tab.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--accent'))), 'and on the tablet');
   // a stage link cannot command; a revoked link stops opening
