@@ -68,7 +68,15 @@ document.body.classList.add('tr-' + (D.transition || 'fade')); if (LOGO) st.clas
 const fit = () => { const a = innerWidth / innerHeight, port = a < 1, W = port ? 1080 : Math.round(1080 * a), H = port ? Math.round(1080 / a) : 1080;
   st.style.width = W + 'px'; st.style.height = H + 'px'; st.style.setProperty('--W', W + 'px'); st.style.setProperty('--H', H + 'px'); st.style.setProperty('--k', port ? .66 : Math.max(.7, Math.min(1, W / 1920)).toFixed(3));
   st.style.transform = `translate(-50%,-50%) scale(${innerWidth / W})`; st.classList.toggle('port', port); }; addEventListener('resize', () => { fit(); tellRep(); }); fit();
-if (MUTE) { $('#go').remove(); v.muted = true; } else $('#go').onclick = () => { $('#go').remove(); v.muted = false; v.play().catch(() => {}); document.documentElement.requestFullscreen?.().catch(() => {}); };
+if (MUTE) { $('#go').remove(); v.muted = true; } else $('#go').onclick = () => { $('#go').remove(); audio(); v.muted = false; v.play().catch(() => {}); document.documentElement.requestFullscreen?.().catch(() => {}); };
+// the sound of a drawn launch, made here (no file, no melody): a soft tick for each second of the countdown, a rising breath, a deep strike at the reveal.
+// Only the big screen sounds, and only once someone has clicked it (the browser's rule), so the hall hears one source.
+let AC = null; const audio = () => { if (MUTE || kind !== 'main') return null; try { AC = AC || new (window.AudioContext || window.webkitAudioContext)(); AC.resume(); } catch {} return AC; };
+function sound(style, T, el) { const a = audio(); if (!a || el > T.reveal + .5) return; const t0 = a.currentTime - el, out = a.createGain(); out.gain.value = .8; out.connect(a.destination);
+  const tone = (at, f0, f1, dur, vol, type = 'sine') => { if (t0 + at + dur < a.currentTime) return; const o = a.createOscillator(), g = a.createGain(), st = Math.max(a.currentTime, t0 + at); o.type = type; o.frequency.setValueAtTime(f0, st); o.frequency.exponentialRampToValueAtTime(f1, t0 + at + dur); g.gain.setValueAtTime(0.0001, st); g.gain.exponentialRampToValueAtTime(vol, st + Math.min(.03, dur / 4)); g.gain.exponentialRampToValueAtTime(0.0001, t0 + at + dur); o.connect(g).connect(out); o.start(st); o.stop(t0 + at + dur + .05); };
+  const noise = (at, dur, vol, f0, f1) => { if (t0 + at + dur < a.currentTime) return; const n = a.createBufferSource(), b = a.createBuffer(1, a.sampleRate * dur, a.sampleRate), d = b.getChannelData(0); for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1; n.buffer = b; const f = a.createBiquadFilter(), g = a.createGain(), st = Math.max(a.currentTime, t0 + at); f.type = 'bandpass'; f.Q.value = 1.2; f.frequency.setValueAtTime(f0, st); f.frequency.exponentialRampToValueAtTime(f1, t0 + at + dur); g.gain.setValueAtTime(0.0001, st); g.gain.exponentialRampToValueAtTime(vol, t0 + at + dur * .85); g.gain.exponentialRampToValueAtTime(0.0001, t0 + at + dur); n.connect(f).connect(g).connect(out); n.start(st); n.stop(t0 + at + dur + .05); };
+  if (style === 'countdown') for (let i = 0; i < T.count; i++) tone(i, 190, 70, .28, .5);
+  noise(Math.max(0, T.reveal - 2.6), Math.min(2.6, T.reveal), .35, 300, 5000); tone(T.reveal, 95, 38, 2.4, .9); noise(T.reveal, 1.8, .22, 6000, 900); }
 const show = id => document.querySelectorAll('.sc').forEach(s => s.classList.toggle('on', s.id === id));
 const M = c => (c && c.media ? D.media[c.media] : null);
 let cur = null, slideEl = 0, lastSlide = '';
@@ -78,6 +86,7 @@ function logoScene(I, big, sub) { $('#idle img').src = I.logo; $('#idle img').st
 // the launch drawn by the screen: countdown, light or curtain, then the logo (the new one when the event has one) and the revealed name
 function reveal(c, s) { const R = $('#rev'), style = launchStyle(c), T = launchTimes(D), key = s.launchedAt + style; show('rev'); if (R.dataset.k === key) return; R.dataset.k = key; R.className = 'sc on st-' + style;
   const I = D.identity.after || D.identity.before, el = (link.now() - s.launchedAt) / 1000, img = $('#rev img'); img.style.display = I.logo ? '' : 'none'; if (I.logo) store.url(link.base + I.logo).then(u => { img.src = u; }); $('#rev .big').textContent = c.text || (I.logo ? '' : D.name);
+  sound(style, T, el);
   const run = (e, name, at, dur, ease = 'ease') => { e.style.animation = 'none'; void e.offsetWidth; e.style.animation = `${name} ${dur}s ${ease} ${(at - el).toFixed(3)}s both`; };
   const cd = $('#rev .cd'); cd.innerHTML = ''; if (style === 'countdown') for (let i = 0; i < T.count; i++) { const b = document.createElement('b'); b.textContent = (T.count - i).toLocaleString('ar-EG'); cd.appendChild(b); run(b, 'cd', i, 1); }
   const ring = $('#rev .ring'); ring.style.animation = 'none'; void ring.offsetWidth; if (style === 'light') ring.style.animation = `ring 3s cubic-bezier(.5,0,.9,.4) ${(-el).toFixed(3)}s both, gone .5s ease ${(3 - el).toFixed(3)}s forwards`;

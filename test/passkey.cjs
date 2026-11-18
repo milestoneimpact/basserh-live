@@ -13,7 +13,7 @@ const ok = (c, m) => { console.log((c ? '✓ ' : '✗ ') + m); if (!c) process.e
   await p.fill('#pw', AK); await p.click('#pwIn'); await p.waitForSelector('#pkAdd'); ok(true, 'the owner signed in with the password');
   await p.click('#pkAdd'); await p.waitForFunction(() => /أُضيف مفتاح المرور/.test(document.querySelector('#toast').textContent)); ok(true, 'the owner added a passkey');
   await p.goto(B + '/api/logout'); await p.goto(B + '/admin.html'); await p.waitForSelector('#pkIn'); await p.click('#pkIn'); await p.waitForSelector('#pkAdd'); ok((await p.textContent('#pkAdd')).match(/مفاتيح المرور: [1-9]/), 'signed out, then back in with the passkey alone');
-  ok((await p.$$('#rows tr')).length >= 1, 'the owner\'s page lists the organisations');
+  await p.waitForSelector('#rows tr'); ok((await p.$$('#rows tr')).length >= 1, 'the owner\'s page lists the organisations');
   // a member of an organisation
   const s = 'pk' + Date.now() % 1e6; await p.fill('#n', 'جهة مفتاح المرور'); await p.fill('#s', s); await p.fill('#e', s + '@t.test'); await p.click('#mk'); await p.waitForSelector('#join'); const join = await p.textContent('#join');
   await p.goto(B + '/api/logout'); await p.goto(join); await p.waitForSelector('#new'); await p.click('#pk'); await p.waitForFunction(() => /أُضيف مفتاح المرور/.test(document.querySelector('#toast').textContent)); ok(true, 'a member added a passkey in the studio');

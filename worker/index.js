@@ -38,6 +38,16 @@ const mailJoin = (env, origin, email, join, orgName) => mail(env, { to: email, s
   html: `<div dir="rtl" style="font-family:Tahoma,Arial,sans-serif;font-size:16px;line-height:1.9;color:#1F2A2E;max-width:520px"><p>السلام عليكم،</p><p>دُعيتم إلى <b>${orgName.replace(/[<>&]/g, '')}</b> في استوديو اللقاءات.</p><p><a href="${origin + join}" style="display:inline-block;background:#B88A3D;color:#fff;text-decoration:none;padding:10px 26px;border-radius:8px">الدخول إلى الاستوديو</a></p><p style="font-size:13px;color:#777">الرابط يُستعمل مرة واحدة خلال 14 يوماً.</p><p>بصيرة</p></div>` });
 async function invite(env, email, days = 14) { const code = rid(28); await env.DB.prepare('INSERT INTO login_codes (code_hash, email, expires_at) VALUES (?,?,?)').bind(await sha(code), email, new Date(Date.now() + days * 864e5).toISOString()).run(); return '/join/' + code; }
 // a session of 30 days for a user; returns the cookie
+// passwords: PBKDF2 (SHA-256, 100000 rounds) with a salt of its own; only "salt:hash" is kept
+const hex = b => [...new Uint8Array(b)].map(x => x.toString(16).padStart(2, '0')).join('');
+async function pwHash(pw, salt = hex(crypto.getRandomValues(new Uint8Array(16)))) { const k = await crypto.subtle.importKey('raw', new TextEncoder().encode(pw), 'PBKDF2', false, ['deriveBits']);
+  return salt + ':' + hex(await crypto.subtle.deriveBits({ name: 'PBKDF2', hash: 'SHA-256', salt: new TextEncoder().encode(salt), iterations: 100000 }, k, 256)); }
+const pwOk = async (pw, kept) => { if (!kept || !pw) return false; const a = await pwHash(pw, kept.split(':')[0]); let d = a.length ^ kept.length; for (let i = 0; i < a.length; i++) d |= a.charCodeAt(i) ^ kept.charCodeAt(i % kept.length); return d === 0; };
+// a password a person can read out and type: four groups of four, no look-alike characters
+const newPw = () => [0, 1, 2, 3].map(() => rid(4)).join('-');
+// five wrong attempts from one address close the door for fifteen minutes (the owner's page and the studio share the count)
+async function locked(env, ip) { const f = await env.DB.prepare('SELECT n, until FROM login_fail WHERE ip = ?').bind(ip).first(); return f && f.until && f.until > now() ? null : { n: f && !f.until ? f.n : 0 }; }
+const failed = (env, ip, n) => env.DB.prepare('INSERT INTO login_fail (ip, n, until) VALUES (?,?,?) ON CONFLICT (ip) DO UPDATE SET n = excluded.n, until = excluded.until').bind(ip, n + 1, n + 1 >= 5 ? new Date(Date.now() + 9e5).toISOString() : null).run();
 async function session(env, uid) { const t = rid(32); await env.DB.prepare('INSERT INTO sessions (token_hash, user_id, expires_at, created_at) VALUES (?,?,?,?)').bind(await sha(t), uid, new Date(Date.now() + 30 * 864e5).toISOString(), now()).run(); return setCookie('sid', t, 30); }
 // the platform owner as a person of the system (for sessions and passkeys); belongs to no organisation
 async function platform(env) { await env.DB.prepare('INSERT INTO users (id, email, name, created_at) VALUES (?,?,?,?) ON CONFLICT (id) DO NOTHING').bind('platform', 'platform@basserh', 'مالك المنصة', now()).run(); return 'platform'; }
@@ -115,7 +125,9 @@ export default {
         // the organisation's own database is born here, with its first event
         await tdb(env, id).prepare('INSERT INTO events (id, org_id, slug, name, status, draft, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?)').bind('e_' + id.slice(2) + rid(8), id, 'first-' + rid(4), 'لقاؤكم الأول', 'draft', JSON.stringify(STARTER()), now(), now()).run();
         if (+b.credits > 0) await env.DB.prepare('UPDATE orgs SET credits = ? WHERE id = ?').bind(+b.credits, id).run();
-        await audit(env, id, null, null, 'org', b.name); const join = await invite(env, u.email); return J({ org: id, slug: s, join, mailed: await mailJoin(env, url.origin, u.email, join, b.name) });
+        // the owner's password: the one the platform owner typed, or a generated one; shown once in the answer, kept hashed
+        const password = String(b.password || '').trim() || newPw(); if (password.length < 8) return err('كلمة المرور ثمانية أحرف على الأقل'); await env.DB.prepare('UPDATE users SET pw = ? WHERE id = ?').bind(await pwHash(password), u.id).run();
+        await audit(env, id, null, null, 'org', b.name); const join = await invite(env, u.email); return J({ org: id, slug: s, join, email: u.email, password, mailed: await mailJoin(env, url.origin, u.email, join, b.name) });
       }
       // ----- an organisation's data as a file; its end; the copies
       if (p === '/api/admin/export' && M === 'GET') { const d = await exportOrg(env, url.searchParams.get('org')); if (!d) return err('لا يوجد', 404); return new Response(JSON.stringify(d, null, 1), { headers: { 'Content-Type': 'application/json; charset=utf-8', 'Content-Disposition': `attachment; filename="${d.org.slug}-${now().slice(0, 10)}.json"` } }); }
@@ -125,6 +137,10 @@ export default {
         await tdb(env, o.id).wipe(); await env.DB.batch([env.DB.prepare('DELETE FROM members WHERE org_id = ?').bind(o.id), env.DB.prepare('DELETE FROM orgs WHERE id = ?').bind(o.id)]); return J({ ok: true, files: keys.length }); }
       if (p === '/api/admin/backup' && M === 'POST') return J(await backup(env));
       if (p === '/api/admin/backup' && M === 'GET') { const days = [...new Set((await listAll(env, '_backup/')).map(o => o.key.split('/')[1]))].sort(); return J({ days, last: days[days.length - 1] || null }); }
+      if (p === '/api/admin/password' && M === 'POST') {   // a new password for a member of an organisation (the old one stops working)
+        const b = await req.json(), u = await env.DB.prepare('SELECT u.id, u.email FROM users u JOIN members m ON m.user_id = u.id WHERE m.org_id = ? AND u.email = ?').bind(b.org, String(b.email || '').toLowerCase()).first(); if (!u) return err('ليس عضواً في هذه الجهة', 404);
+        const password = String(b.password || '').trim() || newPw(); if (password.length < 8) return err('كلمة المرور ثمانية أحرف على الأقل');
+        await env.DB.batch([env.DB.prepare('UPDATE users SET pw = ? WHERE id = ?').bind(await pwHash(password), u.id), env.DB.prepare('DELETE FROM sessions WHERE user_id = ?').bind(u.id)]); await audit(env, b.org, null, null, 'password', u.email); return J({ email: u.email, password }); }
       if (p === '/api/admin/leads' && M === 'GET') return J({ leads: (await env.DB.prepare('SELECT id, name, org, phone, email, kind, event_date, message, created_at, handled_at, mailed FROM leads ORDER BY id DESC LIMIT 200').all()).results, mail: !!((env.EMAIL || env.RESEND_KEY) && env.CONTACT_TO) });
       if (p === '/api/admin/leads' && M === 'PATCH') { const b = await req.json(); await env.DB.prepare('UPDATE leads SET handled_at = ? WHERE id = ?').bind(b.handled ? now() : null, b.id).run(); return J({ ok: true }); }
       if (p === '/api/admin/site' && M === 'PUT') { const f = url.searchParams.get('path') || ''; if (!/^[\w./-]+$/.test(f) || f.includes('..')) return err('مسار غير صالح'); await env.MEDIA.put('_site/' + f, req.body, { httpMetadata: { contentType: req.headers.get('Content-Type') || 'application/octet-stream' } }); return J({ ok: true }); }
@@ -140,6 +156,15 @@ export default {
         return J({ orgs: await Promise.all(results.map(async o => { const [[c], [b], active] = await tdb(env, o.id).batch([{ sql: 'SELECT COUNT(*) AS n FROM events WHERE status != ?', params: ['archived'] }, { sql: 'SELECT COALESCE(SUM(bytes),0) AS b FROM media', params: [] }, { sql: 'SELECT name, active_from, active_until FROM events WHERE active_until > ? ORDER BY active_from', params: [now()] }]); return { ...o, events: c.n, bytes: b.b, active }; })) });
       }
       // ----- signing in by a link (no password): the link is used once and opens a session of 30 days
+      if (p === '/api/login' && M === 'POST') {   // the studio's gate: email and password
+        const ip = req.headers.get('CF-Connecting-IP') || 'local', f = await locked(env, ip); if (!f) return err('محاولات كثيرة. حاول بعد ربع ساعة.', 429);
+        const b = await req.json().catch(() => ({})), u = await env.DB.prepare('SELECT id, pw FROM users WHERE email = ?').bind(String(b.email || '').trim().toLowerCase()).first();
+        if (!(await pwOk(String(b.password || ''), u && u.pw)) || u.id === 'platform') { await failed(env, ip, f.n); return err('البريد أو كلمة المرور غير صحيحة', 403); }
+        await env.DB.prepare('DELETE FROM login_fail WHERE ip = ?').bind(ip).run(); const first = await env.DB.prepare('SELECT o.slug FROM members m JOIN orgs o ON o.id = m.org_id WHERE m.user_id = ? LIMIT 1').bind(u.id).first();
+        return new Response(JSON.stringify({ ok: true, to: '/' + (first ? first.slug : 'login') }), { headers: { 'Content-Type': 'application/json', 'Set-Cookie': await session(env, u.id) } }); }
+      if (p === '/api/password' && M === 'POST') {   // a signed in member sets a password of their own
+        const w = await me(req, env); if (!w || !w.user || w.user.id === 'platform') return err('ادخل أولاً', 401); const b = await req.json().catch(() => ({})), pw = String(b.password || ''); if (pw.length < 8) return err('كلمة المرور ثمانية أحرف على الأقل');
+        await env.DB.prepare('UPDATE users SET pw = ? WHERE id = ?').bind(await pwHash(pw), w.user.id).run(); return J({ ok: true }); }
       if (p.startsWith('/join/')) {
         const h = await sha(p.slice(6)), c = await env.DB.prepare('SELECT email FROM login_codes WHERE code_hash = ? AND used_at IS NULL AND expires_at > ?').bind(h, now()).first();
         if (!c) return new Response('الرابط منتهٍ أو مستعمل. اطلب رابطاً جديداً من مالك الحساب.', { status: 410, headers: { 'Content-Type': 'text/plain; charset=utf-8' } });

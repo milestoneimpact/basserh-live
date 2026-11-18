@@ -30,7 +30,7 @@ main{max-width:1320px;margin:0 auto;padding:30px 34px 80px}
 .logo{height:86px;min-width:140px;border:1px dashed var(--line);border-radius:12px;display:grid;place-items:center;color:var(--mute);font-size:13px;padding:8px}.logo img{max-height:70px;max-width:220px}
 #gate{max-width:520px;margin:120px auto;text-align:center}
 </style></head><body>
-<header><div class="wm">بصيرة<i></i><span>BASSERH</span></div><span style="font:600 14px Plex;color:var(--gold2);margin-inline-start:6px">استوديو اللقاءات</span><span class="org" id="orgName"></span><span class="sp"></span><span id="saved" style="font-size:13px;color:var(--gold2)"></span><a href="#" id="pk" title="الدخول لاحقاً ببصمة هذا الجهاز أو رمزه، بلا رابط دعوة">إضافة مفتاح مرور</a><a href="#" id="home">لقاءاتي</a><a href="/api/logout">خروج</a></header>
+<header><div class="wm">بصيرة<i></i><span>BASSERH</span></div><span style="font:600 14px Plex;color:var(--gold2);margin-inline-start:6px">استوديو اللقاءات</span><span class="org" id="orgName"></span><span class="sp"></span><span id="saved" style="font-size:13px;color:var(--gold2)"></span><a href="#" id="pwSet" style="color:var(--gold2);font:600 13px Plex;text-decoration:none;margin-inline-end:14px;display:none">كلمة المرور</a><a href="#" id="pk" title="الدخول لاحقاً ببصمة هذا الجهاز أو رمزه، بلا رابط دعوة">إضافة مفتاح مرور</a><a href="#" id="home">لقاءاتي</a><a href="/api/logout">خروج</a></header>
 <main id="app"></main><div id="toast"></div>
 <script type="module">
 import { SCENES, problems, LAUNCH, TRANSITIONS, launchStyle } from './engine/config.js';
@@ -192,9 +192,13 @@ async function run() { const b = $('#body'), L = { stage: 'الشاشة الكب
 // ---------- start
 $('#home').onclick = e => { e.preventDefault(); home(); };
 ME = await api('/api/me', { soft: true });
-if (!ME.user) app.innerHTML = '<div id="gate"><img src="brand/mark.png" alt="بصيرة" style="height:150px;margin-bottom:18px"><div class="k">بصيرة · استوديو اللقاءات</div><h2 style="font:900 34px Kufi;color:var(--deep);margin:10px 0">الدخول برابط الدعوة</h2><p style="color:var(--mute)">افتح الرابط الذي وصلك من مالك الحساب. الرابط يُستعمل مرة واحدة ويبقيك داخلاً ثلاثين يوماً على هذا الجهاز.</p><button class="btn gold" id="pkIn" style="margin-top:14px;padding:12px 28px;font-size:17px">الدخول بمفتاح المرور</button></div>';
+if (!ME.user) { app.innerHTML = `<div id="gate"><img src="brand/mark.png" alt="بصيرة" style="height:130px;margin-bottom:14px"><div class="k">بصيرة · استوديو اللقاءات</div><h2 style="font:900 32px Kufi;color:var(--deep);margin:8px 0 18px">الدخول</h2>
+  <form id="lf2" style="max-width:380px;margin:0 auto;display:grid;gap:10px"><input type="email" id="lE" placeholder="البريد" dir="ltr" autocomplete="username" required style="border:1px solid var(--line);border-radius:10px;padding:12px 14px;text-align:center;font-size:16px"><input type="password" id="lP" placeholder="كلمة المرور" dir="ltr" autocomplete="current-password" required style="border:1px solid var(--line);border-radius:10px;padding:12px 14px;text-align:center;font-size:16px"><button class="btn pri" style="padding:12px;font-size:17px">دخول</button></form>
+  <button class="btn gold" id="pkIn" style="margin-top:12px;padding:11px 28px;font-size:16px">الدخول بمفتاح المرور</button><p style="color:var(--mute);font-size:14px;margin-top:16px">أو افتح رابط الدعوة الذي وصلك من مالك الحساب.</p></div>`;
+  $('#lf2').onsubmit = async e => { e.preventDefault(); try { const r = await api('/api/login', { method: 'POST', body: JSON.stringify({ email: $('#lE').value, password: $('#lP').value }) }); location.href = r.to; } catch {} }; }
 else if (!SLUG && ME.orgs[0]) location.replace('/' + ME.orgs[0].slug);   // signed in at /login: on to the organisation's own address
 else home();
+if (ME.user) { const w = $('#pwSet'); w.style.display = ''; w.onclick = async e => { e.preventDefault(); const p1 = prompt('كلمة مرور جديدة لحسابك (ثمانية أحرف على الأقل)'); if (!p1) return; try { await api('/api/password', { method: 'POST', body: JSON.stringify({ password: p1 }) }); toast('حُفظت كلمة المرور الجديدة'); } catch {} }; }
 // passkeys: add one once signed in; sign in with it next time
 import('./passkey.js').then(PK => { const add = $('#pk'), inb = $('#pkIn'); if (!PK.supported()) { add.style.display = 'none'; if (inb) inb.style.display = 'none'; return; }
   if (!ME.user) add.style.display = 'none'; add.onclick = async e => { e.preventDefault(); try { await PK.register(); toast('أُضيف مفتاح المرور لهذا الجهاز'); } catch (x) { toast(x.name === 'NotAllowedError' ? 'أُلغيت العملية' : x.message); } };
