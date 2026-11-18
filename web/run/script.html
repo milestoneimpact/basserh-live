@@ -1,0 +1,11 @@
+<!doctype html>
+<!-- The moderator's page: his words cue by cue in the running order, the current one lit. -->
+<html lang="ar" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>نص مدير الجلسة</title><link rel="icon" href="../brand/icon.png"><link rel="stylesheet" href="../app.css">
+<style>body{background:var(--paper);max-width:860px;margin:0 auto;padding:26px 22px 60vh}h1{font:900 26px Kufi;color:var(--deep);margin-bottom:18px}section{padding:18px 20px;border-radius:14px;margin-bottom:10px;opacity:.5;border:1px solid transparent;transition:.4s}
+section.now{opacity:1;background:#fff;border-color:var(--gold);box-shadow:0 14px 40px rgba(14,17,20,.08)}section.next{opacity:.85}h2{font:700 16px Kufi;color:var(--gold);margin-bottom:6px}p{font:400 26px/1.9 Plex;margin:0 0 8px}p.note{font-size:17px;color:var(--mute)}</style></head><body><h1 id="t"></h1><div id="list"></div>
+<script type="module">
+import { connect, $, esc, cueOf, shown } from './run.js'; const link = await connect(), D = link.doc; $('#t').textContent = D.name; let key = '', last = '';
+link.on(s => { const sh = shown(D, s), k = sh.join(); if (k !== key) { key = k; $('#list').innerHTML = sh.map(id => cueOf(D, id)).filter(c => (c.moderator || []).length).map(c => `<section data-id="${c.id}"><h2>${esc(c.title)}</h2>${c.moderator.map(l => `<p class="${l.startsWith('[') ? 'note' : ''}">${esc(l)}</p>`).join('')}</section>`).join(''); last = ''; }
+  const nx = sh[sh.indexOf(s.cue) + 1]; document.querySelectorAll('section').forEach(el => { el.classList.toggle('now', el.dataset.id === s.cue); el.classList.toggle('next', el.dataset.id === nx); });
+  if (s.cue !== last) { last = s.cue; document.querySelector('section.now')?.scrollIntoView({ behavior: 'smooth', block: 'start' }); } });
+</script></body></html>

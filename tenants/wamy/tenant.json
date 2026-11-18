@@ -1,0 +1,19 @@
+{
+  "name": "الندوة العالمية للشباب الإسلامي",
+  "slug": "wamy",
+  "events_limit": 5,
+  "storage_limit_mb": 5000,
+  "credits": 1,
+  "events": [
+    {
+      "name": "التحول الاستراتيجي للأيتام",
+      "document": "event.json",
+      "publish": true,
+      "files": {
+        "videos": { "loop": "out/intro/loop.mp4", "film": "out/hq/film_voices.mp4", "tour": "out/platform/tour.mp4", "launch": "out/hq/launch.mp4", "system": "out/system/short/system_voiced.mp4" },
+        "slides": { "deck": { "pdf": "docs/العرض_الاستراتيجي_v36.pdf", "name": "التحول الاستراتيجي" }, "aslan_slides": { "images": "show/speakers/ayman/s-%d.jpg", "count": 8, "name": "نموذج بناء الأهلية" } },
+        "logos": { "before": "assets/identity/title.svg", "after": "assets/logo-alahliya.svg" }
+      }
+    }
+  ]
+}

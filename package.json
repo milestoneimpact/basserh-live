@@ -1,0 +1,16 @@
+{
+  "name": "basserh-live",
+  "private": true,
+  "type": "module",
+  "description": "استوديو اللقاءات من بصيرة: منظومة إدارة اللقاءات ولحظات التدشين، تُؤجَّر لجهات متعددة",
+  "scripts": {
+    "db": "wrangler d1 execute basserh-live --local --file db/control.sql",
+    "dev": "wrangler dev --port 8790 --var ADMIN_KEY:dev",
+    "test": "node --test test/engine.test.mjs",
+    "test:e2e": "node test/e2e.cjs",
+    "seed": "node tools/seed_tenant.mjs tenants/wamy",
+    "profile": "THEME=basserh node profile/build.mjs",
+    "deploy": "./deploy.sh"
+  },
+  "devDependencies": { "wrangler": "^4", "playwright-core": "^1" }
+}

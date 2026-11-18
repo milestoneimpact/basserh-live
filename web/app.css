@@ -1,0 +1,23 @@
+/* the look of the studio and of its control pages: the identity of «بصيرة» (Basserh): charcoal #0E1114 and #1F2A2E, gold #B88A3D,
+   sand #E8D9BD, paper #F6F2E8; Cairo for Arabic, Cinzel for Latin and figures. The family names stay Kufi (titles), Plex (text), Corm (figures).
+   The screens of a running event (stage, tablet) take the colours and logo of the organisation's own event, not these. */
+@font-face{font-family:Kufi;src:url(fonts/cairo-arabic-700-normal.woff2);font-weight:400 700}
+@font-face{font-family:Kufi;src:url(fonts/cairo-arabic-900-normal.woff2);font-weight:900}
+@font-face{font-family:Plex;src:url(fonts/cairo-arabic-400-normal.woff2);font-weight:400}
+@font-face{font-family:Plex;src:url(fonts/cairo-arabic-600-normal.woff2);font-weight:600}
+@font-face{font-family:Plex;src:url(fonts/cairo-latin-400-normal.woff2);font-weight:400;unicode-range:U+0000-00FF}
+@font-face{font-family:Plex;src:url(fonts/cairo-latin-600-normal.woff2);font-weight:600;unicode-range:U+0000-00FF}
+@font-face{font-family:Corm;src:url(fonts/cinzel-latin-600-normal.woff2);font-weight:400 700}
+@font-face{font-family:Cinzel;src:url(fonts/cinzel-latin-400-normal.woff2);font-weight:400}
+:root{--night:#0E1114;--deep:#1F2A2E;--green:#1F2A2E;--leaf:#2E3D42;--cream:#E8D9BD;--paper:#F6F2E8;--gold:#B88A3D;--gold2:#D9B878;--ink:#0E1114;--mute:#6F7578;--line:#E4DAC6;--bad:#A8402F}
+*{box-sizing:border-box}html,body{margin:0;min-height:100%}body{background:var(--paper);color:var(--ink);font:400 16px/1.7 Plex,sans-serif}
+button,input,select,textarea{font:inherit;color:inherit}
+.btn{border:1px solid var(--line);background:#fff;border-radius:10px;padding:8px 16px;cursor:pointer;font:600 15px Plex;transition:.15s}.btn:hover{border-color:var(--gold)}
+.btn.pri{background:var(--green);border-color:var(--green);color:#fff}.btn.pri:hover{background:var(--leaf)}.btn.gold{background:var(--gold);border-color:var(--gold);color:#fff;font-family:Kufi;font-weight:700}
+.btn.sm{padding:4px 11px;font-size:13px}.btn.bad{color:var(--bad)}.btn:disabled{opacity:.45;cursor:default}
+input[type=text],input[type=number],input[type=email],select,textarea{width:100%;border:1px solid var(--line);border-radius:10px;padding:9px 12px;background:#fff;outline:none}
+input:focus,select:focus,textarea:focus{border-color:var(--gold);box-shadow:0 0 0 3px rgba(194,160,99,.18)}
+label{display:block;font:600 13px Plex;color:var(--mute);margin:14px 0 5px}
+h1,h2,h3{font-family:Kufi;margin:0}.k{font:600 13px Plex;letter-spacing:.12em;color:var(--gold)}
+#toast{position:fixed;left:50%;bottom:28px;transform:translateX(-50%);background:var(--deep);color:var(--cream);padding:10px 22px;border-radius:999px;font:600 15px Plex;opacity:0;transition:.25s;pointer-events:none;z-index:50}#toast.on{opacity:1}
+.wm{display:flex;align-items:center;gap:12px;font:900 24px Kufi;color:var(--cream)}.wm:before{content:'';width:1.5em;height:1.7em;background:url(brand/mark_light.png) center/contain no-repeat}.wm i{width:1px;height:24px;background:var(--gold)}.wm span{font:400 19px Cinzel;letter-spacing:.24em;direction:ltr}

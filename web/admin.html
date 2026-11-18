@@ -1,0 +1,28 @@
+<!doctype html>
+<!-- The platform owner's page: the organisations that rent the studio, their limits, their activation days, and the link that signs an owner in.
+     Opens with the owner key (kept for this tab only). -->
+<html lang="ar" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>بصيرة · إدارة المنصة</title><link rel="icon" href="brand/icon.png"><link rel="stylesheet" href="app.css">
+<style>header{background:linear-gradient(120deg,var(--deep),var(--night));color:var(--cream);padding:16px 34px;display:flex;align-items:center;gap:18px;border-bottom:2px solid var(--gold)}main{max-width:1280px;margin:0 auto;padding:30px 34px 80px}
+.panel{background:#fff;border:1px solid var(--line);border-radius:18px;padding:24px;margin-bottom:18px}.g{display:grid;grid-template-columns:1.3fr 1fr 1.4fr .7fr .7fr auto;gap:12px;align-items:end}
+table{width:100%;border-collapse:collapse}th{font:600 13px Plex;color:var(--mute);text-align:right;padding:8px 10px}td{padding:12px 10px;border-top:1px solid var(--line);vertical-align:middle}td b{font-family:Kufi}
+.num{font:600 20px Corm;color:var(--gold);direction:ltr}code{direction:ltr;display:inline-block;font-size:13px;word-break:break-all}.okb{padding:12px 16px;border-radius:10px;background:#F1EAD8;border:1px solid var(--line);margin-top:12px}.act{font-size:13px;color:var(--deep);background:#ECE7DA;border-radius:8px;padding:2px 10px;display:inline-block;margin:2px 0}</style></head><body>
+<header><div class="wm">بصيرة<i></i><span>BASSERH</span></div><span style="font:600 14px Plex;color:var(--gold2)">إدارة المنصة</span></header>
+<main><div class="panel"><h2 style="font:900 22px Kufi;color:var(--deep);margin-bottom:6px">جهة جديدة</h2>
+  <div class="g"><div><label>اسم الجهة</label><input type="text" id="n"></div><div><label>العنوان (/slug)</label><input type="text" id="s" dir="ltr" placeholder="org-name"></div><div><label>بريد المالك</label><input type="email" id="e" dir="ltr"></div><div><label>اللقاءات</label><input type="number" id="l" value="3" min="1"></div><div><label>أيام التفعيل</label><input type="number" id="c" value="1" min="0"></div><button class="btn gold" id="mk">إنشاء</button></div><div id="out"></div></div>
+  <div class="panel"><h2 style="font:900 22px Kufi;color:var(--deep);margin-bottom:10px">الجهات</h2><table><thead><tr><th>الجهة</th><th>المالك</th><th>اللقاءات</th><th>المساحة</th><th>أيام التفعيل</th><th>لقاءات مفعّلة</th><th></th></tr></thead><tbody id="rows"></tbody></table></div></main><div id="toast"></div>
+<script type="module">
+const $ = s => document.querySelector(s), esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
+const toast = t => { const e = $('#toast'); e.textContent = t; e.classList.add('on'); setTimeout(() => e.classList.remove('on'), 2600); };
+let KEY = sessionStorage.getItem('ak') || prompt('مفتاح مالك المنصة') || ''; sessionStorage.setItem('ak', KEY);
+const api = async (p, m = 'GET', b) => { const r = await fetch('/api/admin/' + p, { method: m, headers: { 'x-admin-key': KEY, 'Content-Type': 'application/json' }, body: b ? JSON.stringify(b) : undefined }), j = await r.json(); if (r.status === 403) { sessionStorage.removeItem('ak'); toast('المفتاح غير صحيح'); throw 0; } if (!r.ok) { toast(j.error || 'تعذّر الطلب'); throw 0; } return j; };
+async function list() { const { orgs } = await api('orgs');
+  $('#rows').innerHTML = orgs.map(o => `<tr data-id="${o.id}"><td><b>${esc(o.name)}</b><br><code>/${o.slug}</code></td><td><code>${esc(o.owners || '')}</code></td><td class="num">${o.events} / ${o.events_limit}</td><td class="num">${(o.bytes / 1048576).toFixed(0)} / ${o.storage_limit_mb} MB</td><td class="num">${o.credits}</td><td>${o.active.map(a => `<span class="act">${esc(a.name)} · ${a.active_from.slice(0, 10)}</span>`).join('<br>') || '<span style="color:var(--mute)">لا شيء</span>'}</td>
+    <td style="white-space:nowrap"><button class="btn sm" data-a="day">+ يوم تفعيل</button> <button class="btn sm" data-a="ev">+ لقاء</button> <button class="btn sm" data-a="link">رابط دخول</button></td></tr>`).join('') || '<tr><td colspan="7" style="color:var(--mute);text-align:center">لا جهات بعد</td></tr>';
+  document.querySelectorAll('[data-a]').forEach(b => b.onclick = async () => { const tr = b.closest('tr'), id = tr.dataset.id, o = orgs.find(x => x.id === id);
+    if (b.dataset.a === 'day') { await api('org', 'PATCH', { id, add_credits: 1 }); toast('أُضيف يوم تفعيل'); list(); }
+    if (b.dataset.a === 'ev') { await api('org', 'PATCH', { id, events_limit: o.events_limit + 1 }); toast('زيد حد اللقاءات'); list(); }
+    if (b.dataset.a === 'link') { const e = prompt('بريد من يدخل (مالك الجهة)', (o.owners || '').split(',')[0]); if (!e) return; const r = await api('invite', 'POST', { org: id, email: e }); $('#out').innerHTML = `<div class="okb">رابط الدخول (مرة واحدة، 14 يوماً):<br><code>${location.origin + r.join}</code></div>`; scrollTo(0, 0); } }); }
+$('#mk').onclick = async () => { const r = await api('org', 'POST', { name: $('#n').value, slug: $('#s').value, email: $('#e').value, events_limit: +$('#l').value, credits: +$('#c').value });
+  $('#out').innerHTML = `<div class="okb">أُنشئت الجهة بعنوانها ولقاء أول جاهز للتعديل. عنوانها: <code>${location.origin}/${r.slug}</code><br>رابط دخول المالك (مرة واحدة): <code id="join">${location.origin + r.join}</code></div>`; list(); };
+list();
+</script></body></html>

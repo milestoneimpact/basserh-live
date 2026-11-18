@@ -1,0 +1,67 @@
+<!doctype html>
+<!-- The operator's console of any event: next and previous, the moderator's words, the video bar, the slides, the running order. -->
+<html lang="ar" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>لوحة المشغّل</title><link rel="icon" href="../brand/icon.png"><link rel="stylesheet" href="../app.css">
+<style>
+body{background:var(--night);color:var(--cream)}header{padding:14px 26px;display:flex;gap:14px;align-items:center;border-bottom:1px solid rgba(228,204,151,.18)}header h1{font:900 19px Kufi}
+.pill{font:600 12px Plex;padding:3px 12px;border-radius:999px;background:#1F2A2E;color:#D9B878}.pill.bad{background:#4A1D16;color:#FFB4A4}.pill.reh{background:var(--gold);color:var(--deep)}
+main{display:grid;grid-template-columns:1fr 380px;gap:18px;padding:18px 26px;max-width:1500px;margin:0 auto}
+.card{background:#171D21;border:1px solid rgba(228,204,151,.16);border-radius:16px;padding:18px;margin-bottom:14px}
+.now .n{font:600 13px Plex;color:var(--gold2)}.now .t{font:900 34px Kufi}.now .a{color:#A9B2B4;font-size:14px}
+#clock{font:600 30px Corm;color:var(--gold2);direction:ltr}
+.go{display:grid;grid-template-columns:1fr 170px;gap:12px;margin-top:14px}#next{padding:20px;border:0;border-radius:14px;background:linear-gradient(180deg,#CFA255,#B88A3D);color:#0E1114;font:900 30px Kufi;cursor:pointer}#next small{display:block;font:400 14px Plex;color:#3A2C10;margin-top:4px}
+.side{display:grid;gap:8px}.b{border:1px solid rgba(228,204,151,.25);background:#1F2A2E;color:var(--cream);border-radius:10px;padding:9px;cursor:pointer;font:600 15px Plex}.b.on{background:var(--gold);color:var(--deep)}.b.red{background:#8E2A1E;border-color:#C2533F}
+#lines p{font:400 22px/1.85 Plex;margin:0 0 6px}#lines p.note{font-size:15px;color:var(--gold2)}.lab{font:600 13px Plex;color:var(--gold2);margin-bottom:8px;display:flex;justify-content:space-between}
+#mbar{display:none;grid-template-columns:64px 1fr auto auto;gap:14px;align-items:center}#mbar.on{display:grid}#mPlay{width:64px;height:64px;border-radius:50%;border:0;background:var(--gold);color:var(--deep);font-size:24px;cursor:pointer}
+.mp{height:6px;border-radius:3px;background:#2A3A3F;margin-top:8px}.mp i{display:block;height:100%;border-radius:3px;background:var(--gold);width:0}
+#thumbs{display:none;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:10px}#thumbs.on{display:grid}.th{position:relative;cursor:pointer}.th img{width:100%;border-radius:8px;border:2px solid transparent;display:block}.th.on img{border-color:var(--gold)}.th.hid img{opacity:.3}
+.th b{position:absolute;right:6px;top:4px;font:600 14px Corm;color:#fff;text-shadow:0 1px 3px #000}.th i{position:absolute;left:6px;top:4px;width:22px;height:22px;border-radius:50%;background:rgba(7,31,27,.8);color:var(--gold2);font:600 12px/22px Plex;text-align:center;font-style:normal}
+.cue{display:grid;grid-template-columns:18px 28px 1fr 28px;gap:8px;align-items:center;padding:9px 10px;border-radius:10px;background:#171D21;margin-bottom:6px;cursor:pointer;border:1px solid transparent}
+.cue.now{border-color:var(--gold);background:#2A3A3F}.cue.done{opacity:.45}.cue.off{opacity:.35}.cue.off b{text-decoration:line-through}.cue .h{cursor:grab;color:#6C7A7E}.cue .p{font:600 17px Corm;color:var(--gold2);text-align:center}.cue b{font:700 14px Kufi}.cue .x{border:1px solid #3E4D52;background:none;color:#A9B2B4;border-radius:50%;width:26px;height:26px;cursor:pointer;padding:0}.cue.over{box-shadow:0 -3px 0 var(--gold)}
+#peers span{margin-inline-start:10px;font-size:13px;color:#A9B2B4}#peers i{display:inline-block;width:8px;height:8px;border-radius:50%;background:#6C7A7E;margin-inline-end:5px}#peers i.on{background:#6FE0A6}
+.wm:before{background-image:url(../brand/mark_light.png)}
+</style></head><body>
+<header><div class="wm" style="font-size:19px">بصيرة<i></i></div><h1 id="evName"></h1><span class="pill" id="conn">…</span><span class="pill" id="hall" title="ما حفظه جهاز القاعة من ملفات اللقاء"></span><span class="pill reh" id="reh" style="display:none">بروفة على المسودة</span><span style="flex:1"></span><span id="peers"></span></header>
+<main><section>
+  <div class="card now"><div style="display:flex;justify-content:space-between;align-items:flex-start"><div><div class="n" id="nN"></div><div class="t" id="nT"></div><div class="a" id="nA"></div></div><div id="clock">0:00</div></div>
+    <div class="go"><button id="next">التالي<small id="nx"></small></button><div class="side"><button class="b" id="prev">السابق</button><button class="b" id="launch" style="display:none">إطلاق يدوي</button><button class="b" id="black">إظلام</button></div></div></div>
+  <div class="card"><div id="mbar"><button id="mPlay">❚❚</button><div><b id="mName" style="font-family:Kufi"></b> <span id="mTime" style="font:600 18px Corm;color:var(--gold2);direction:ltr;display:inline-block"></span><div class="mp"><i id="mProg"></i></div></div><button class="b" data-seek="-10">١٠ ث ⟲</button><button class="b" data-seek="10">⟳ ١٠ ث</button></div>
+    <div id="talk" style="display:none"><div class="lab"><span id="tkNow"></span><span>انقر شريحة لعرضها، وانقر ◉ لإخفائها</span></div><div style="display:flex;gap:8px;margin-bottom:10px"><button class="b" id="tkCard">الاسم على الشاشة</button><button class="b on" id="tkStart">بدء العرض ▸</button><button class="b" data-step="-1">السابقة</button><button class="b" data-step="1">التالية</button></div></div><div id="thumbs"></div>
+    <div id="nomedia" style="color:#8C979A;font-size:14px">لا فيديو ولا شرائح في هذه الفقرة.</div></div>
+  <div class="card" style="border-color:rgba(228,204,151,.5)"><div class="lab"><span>يقوله مدير الجلسة الآن</span><span id="lnx"></span></div><div id="lines"></div></div>
+</section><aside><div class="card"><div class="lab"><span>ترتيب الفقرات</span><span>اسحب للنقل · ✕ للإخفاء</span></div><div id="order"></div></div></aside></main>
+<div id="toast"></div>
+<script type="module">
+import { connect, $, esc, cueOf, shown, slidesOf, pausable } from './run.js';
+import { order as orderOf, offOf } from '../engine/state.js'; import { orderProblem } from '../engine/config.js';
+const link = await connect(), D = link.doc; $('#evName').textContent = D.name; if (link.draft) $('#reh').style.display = '';
+const toast = t => { const e = $('#toast'); e.textContent = t; e.classList.add('on'); clearTimeout(toast.t); toast.t = setTimeout(() => e.classList.remove('on'), 2400); };
+const fmt = ms => { const s = Math.max(0, Math.floor(ms / 1000)); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; };
+const send = c => link.send(c); let S = null, drawnThumbs = '';
+$('#next').onclick = () => send({ type: 'next' }); $('#prev').onclick = () => send({ type: 'prev' }); $('#black').onclick = () => send({ type: 'black', on: !S.black });
+$('#launch').onclick = () => confirm('إطلاق التدشين يدوياً الآن؟') && send({ type: 'launch' });
+$('#mPlay').onclick = () => send({ type: S.paused ? 'resume' : 'pause' }); document.querySelectorAll('[data-seek]').forEach(b => b.onclick = () => send({ type: 'seek', d: +b.dataset.seek }));
+document.querySelectorAll('[data-step]').forEach(b => b.onclick = () => send({ type: 'step', d: +b.dataset.step })); $('#tkCard').onclick = () => send({ type: 'slide', n: 0 }); $('#tkStart').onclick = () => send({ type: 'step', d: 1 });
+addEventListener('keydown', e => { if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); send({ type: 'next' }); } });
+link.on((s, info) => { S = s; const c = cueOf(D, s.cue), sh = shown(D, s), i = sh.indexOf(s.cue), nx = cueOf(D, sh[i + 1]), ord = orderOf(D, s), off = offOf(D, s);
+  $('#conn').textContent = info.online ? 'متصل' : 'إعادة الاتصال…'; $('#conn').className = 'pill' + (info.online ? '' : ' bad');
+  { const h = info.hall, e = $('#hall'); e.textContent = !info.peers.stage ? 'جهاز القاعة غير متصل' : !h ? 'جهاز القاعة: يفحص الملفات…' : h.bad ? `جهاز القاعة: تعذّر حفظ ${h.bad} ملف` : h.done === h.total ? `جهاز القاعة: كل الملفات محفوظة عليه (${h.total})` : `جهاز القاعة يحفظ الملفات: ${h.done} من ${h.total}${h.pct ? ' · ' + h.pct + '%' : ''}`; e.className = 'pill' + (!info.peers.stage || (h && h.bad) ? ' bad' : ''); }
+  $('#peers').innerHTML = [['stage', 'الشاشات'], ['tablet', 'جهاز الضيف'], ['script', 'مدير الجلسة']].map(([k, t]) => `<span><i class="${info.peers[k] ? 'on' : ''}"></i>${t}${info.peers[k] > 1 ? ' ' + info.peers[k] : ''}</span>`).join('');
+  $('#nN').textContent = `الفقرة ${i + 1} من ${sh.length}`; $('#nT').textContent = c.title; $('#nA').textContent = c.at ? 'عند: ' + c.at : ''; $('#nx').textContent = nx ? nx.title + (nx.at ? ' · عند: ' + nx.at : '') : 'آخر فقرة'; $('#lnx').textContent = nx && nx.at ? `اضغط «التالي» عند: ${nx.at}` : '';
+  $('#lines').innerHTML = ((c.moderator || []).length ? c.moderator : ['لا كلام لمدير الجلسة في هذه الفقرة']).map(l => `<p class="${l.startsWith('[') ? 'note' : ''}">${esc(l)}</p>`).join('');
+  $('#black').classList.toggle('on', !!s.black); const L = D.cues.some(x => x.type === 'launch'); $('#launch').style.display = L ? '' : 'none'; $('#launch').classList.toggle('red', !!s.armed && !s.launchedAt);
+  const m = c.media ? D.media[c.media] : null, isV = pausable(D, s.cue), r = slidesOf(D, s.cue); $('#mbar').classList.toggle('on', isV); $('#nomedia').style.display = isV || r ? 'none' : ''; if (isV) { $('#mName').textContent = m.name || c.title; $('#mPlay').textContent = s.paused ? '▶' : '❚❚'; }
+  $('#talk').style.display = r ? '' : 'none'; $('#thumbs').classList.toggle('on', !!r);
+  if (r) { $('#tkCard').style.display = $('#tkStart').style.display = r.min === 0 ? '' : 'none'; if (r.min === 0) { $('#tkStart').style.display = s.slide ? 'none' : ''; $('#tkCard').classList.toggle('on', !s.slide); }
+    $('#tkNow').textContent = s.slide ? `الشريحة ${s.slide} من ${r.max}` : 'الاسم على الشاشة'; const hid = (s.hide || {})[s.cue] || [], key = s.cue;
+    if (drawnThumbs !== key) { drawnThumbs = key; $('#thumbs').innerHTML = Array.from({ length: r.max }, (_, k) => `<div class="th" data-s="${k + 1}"><img src="${link.base + m.src}s-${k + 1}.jpg" loading="lazy"><b>${k + 1}</b><i title="إخفاء أو إظهار">◉</i></div>`).join('');
+      $('#thumbs').querySelectorAll('.th').forEach(t => t.onclick = e => { const n = +t.dataset.s; if (e.target.tagName === 'I') send({ type: 'hide', n, on: !((S.hide || {})[S.cue] || []).includes(n) }); else send({ type: 'slide', n }); }); }
+    $('#thumbs').querySelectorAll('.th').forEach(t => { const n = +t.dataset.s; t.classList.toggle('on', n === s.slide); t.classList.toggle('hid', hid.includes(n)); }); } else drawnThumbs = '';
+  const at = ord.indexOf(s.cue); let n = 0; $('#order').innerHTML = ord.map((id, k) => { const x = cueOf(D, id), isOff = off.includes(id) && id !== s.cue, keep = x.fixed || ['arm', 'launch'].includes(x.type);
+    return `<div class="cue${id === s.cue ? ' now' : k < at ? ' done' : ''}${isOff ? ' off' : ''}" data-id="${id}" draggable="${!x.fixed}"><span class="h">${x.fixed ? '' : '⋮⋮'}</span><span class="p">${isOff ? '·' : ++n}</span><b>${esc(x.title)}</b>${keep ? '<span></span>' : `<button class="x">${isOff ? '↺' : '✕'}</button>`}</div>`; }).join('');
+  $('#order').querySelectorAll('.cue').forEach(el => { const id = el.dataset.id;
+    el.onclick = e => { if (e.target.classList.contains('x')) { const on = !offOf(D, S).includes(id); if (on && id === S.cue) return toast('الفقرة على الشاشة الآن: انتقل منها أولاً'); send({ type: 'off', id, on }); return; } if (id !== S.cue && confirm(`الانتقال إلى «${cueOf(D, id).title}» الآن؟`)) send({ type: 'go', id }); };
+    el.ondragstart = e => e.dataTransfer.setData('text/plain', id); el.ondragover = e => { e.preventDefault(); el.classList.add('over'); }; el.ondragleave = () => el.classList.remove('over');
+    el.ondrop = e => { e.preventDefault(); const a = e.dataTransfer.getData('text/plain'), v = orderOf(D, S).slice(), from = v.indexOf(a), to = v.indexOf(id); if (from < 0 || from === to) return; v.splice(from, 1); v.splice(to, 0, a); const why = orderProblem(D, v); if (why) return toast(why); send({ type: 'order', order: v }); toast('اعتُمد الترتيب الجديد'); }; });
+});
+setInterval(() => { if (!S) return; const now = link.now(); $('#clock').textContent = fmt(S.beganAt ? now - S.beganAt : 0); if (pausable(D, S.cue)) { const c = cueOf(D, S.cue), L = (D.media[c.media] || {}).length || 0, el = ((S.paused || now) - S.cueAt) / 1000; $('#mTime').textContent = `${fmt(Math.min(el, L || el) * 1000)}${L ? ' / ' + fmt(L * 1000) : ''}`; $('#mProg').style.width = L ? Math.min(100, el / L * 100) + '%' : '0'; } }, 250);
+</script></body></html>
