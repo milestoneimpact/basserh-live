@@ -1,0 +1,189 @@
+<!doctype html>
+<!-- The studio: an organisation builds its events here (cues, people, files, identity), rehearses, publishes and hands out the links of the screens.
+     One page; the data is the event document (engine/config.js), saved as a draft after every change. -->
+<html lang="ar" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>بصيرة · استوديو اللقاءات</title>
+<link rel="icon" href="brand/icon.png"><link rel="stylesheet" href="app.css">
+<style>
+header{background:linear-gradient(120deg,var(--deep),var(--night));color:var(--cream);padding:16px 34px;display:flex;align-items:center;gap:18px;border-bottom:2px solid var(--gold)}
+header h1{font:900 22px Kufi}header .org{font:400 14px Plex;color:var(--gold2)}header .sp{flex:1}header a{color:var(--gold2);font:600 14px Plex;text-decoration:none}
+main{max-width:1320px;margin:0 auto;padding:30px 34px 80px}
+.hero{display:flex;align-items:flex-end;justify-content:space-between;gap:20px;margin-bottom:22px}.hero h2{font:900 34px Kufi;color:var(--deep)}
+.cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(290px,1fr));gap:18px}
+.ev{background:#fff;border:1px solid var(--line);border-radius:18px;padding:22px;cursor:pointer;transition:.2s}.ev:hover{border-color:var(--gold);transform:translateY(-2px);box-shadow:0 18px 40px rgba(14,17,20,.09)}
+.ev h3{font:700 21px Kufi;color:var(--deep)}.ev p{margin:6px 0 0;color:var(--mute);font-size:14px}
+.pill{display:inline-block;font:600 12px Plex;padding:2px 12px;border-radius:999px;background:#ECE7DA;color:var(--deep)}.pill.d{background:#F6EFDD;color:#8A6D3A}
+.panel{background:#fff;border:1px solid var(--line);border-radius:18px;padding:24px}
+.tabs{display:flex;gap:6px;margin:6px 0 20px;border-bottom:1px solid var(--line)}.tabs button{border:0;background:none;padding:12px 20px;font:700 16px Kufi;color:var(--mute);cursor:pointer;border-bottom:3px solid transparent;margin-bottom:-1px}
+.tabs button.on{color:var(--deep);border-color:var(--gold)}.tabs .n{font:600 12px Plex;background:var(--bad);color:#fff;border-radius:999px;padding:0 7px;margin-inline-start:6px}
+.split{display:grid;grid-template-columns:400px 1fr;gap:20px;align-items:start}
+.cue{display:grid;grid-template-columns:20px 30px 1fr auto;gap:10px;align-items:center;padding:11px 12px;border:1px solid var(--line);border-radius:12px;margin-bottom:7px;background:#fff;cursor:pointer}
+.cue.on{border-color:var(--gold);background:#FBF6EA}.cue.off{opacity:.45}.cue .h{cursor:grab;color:#B5AC98}.cue .p{font:600 19px Corm;color:var(--gold);text-align:center}
+.cue b{font:700 15px Kufi;display:block}.cue small{color:var(--mute);font-size:12px}.cue.over{box-shadow:0 -3px 0 var(--gold)}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:0 16px}.row{display:grid;grid-template-columns:1fr 1fr auto;gap:10px;margin-bottom:8px;align-items:center}
+.types{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:10px}.types button{padding:12px 6px;border:1px solid var(--line);border-radius:12px;background:#fff;cursor:pointer;font:700 14px Kufi}.types button:hover{border-color:var(--gold);background:#FBF6EA}
+.file{display:grid;grid-template-columns:54px 1fr auto auto;gap:14px;align-items:center;padding:12px;border:1px solid var(--line);border-radius:12px;margin-bottom:8px}
+.file .ic{width:54px;height:40px;border-radius:8px;background:var(--deep);color:var(--gold2);display:grid;place-items:center;font:600 12px Plex;overflow:hidden}.file .ic img{width:100%;height:100%;object-fit:cover}
+.drop{border:2px dashed var(--line);border-radius:16px;padding:26px;text-align:center;color:var(--mute);margin-bottom:16px}.drop.hot{border-color:var(--gold);background:#FBF6EA}
+.prob{padding:10px 14px;border-radius:10px;background:#FBEDEA;color:var(--bad);margin-bottom:6px;font-weight:600}.okb{padding:12px 16px;border-radius:10px;background:#F1EAD8;color:var(--deep);font-weight:600;border:1px solid var(--line)}
+.link{display:grid;grid-template-columns:150px 1fr auto;gap:12px;align-items:center;padding:10px 0;border-top:1px solid var(--line)}.link code{direction:ltr;text-align:left;font-size:13px;color:var(--mute);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sw{display:flex;gap:10px;align-items:center}.sw input[type=color]{width:46px;height:38px;border:1px solid var(--line);border-radius:8px;padding:2px;background:#fff}
+.logo{height:86px;min-width:140px;border:1px dashed var(--line);border-radius:12px;display:grid;place-items:center;color:var(--mute);font-size:13px;padding:8px}.logo img{max-height:70px;max-width:220px}
+#gate{max-width:520px;margin:120px auto;text-align:center}
+</style></head><body>
+<header><div class="wm">بصيرة<i></i><span>BASSERH</span></div><span style="font:600 14px Plex;color:var(--gold2);margin-inline-start:6px">استوديو اللقاءات</span><span class="org" id="orgName"></span><span class="sp"></span><span id="saved" style="font-size:13px;color:var(--gold2)"></span><a href="#" id="pk" title="الدخول لاحقاً ببصمة هذا الجهاز أو رمزه، بلا رابط دعوة">إضافة مفتاح مرور</a><a href="#" id="home">لقاءاتي</a><a href="/api/logout">خروج</a></header>
+<main id="app"></main><div id="toast"></div>
+<script type="module">
+import { SCENES, problems } from './engine/config.js';
+const $ = (s, r = document) => r.querySelector(s), app = $('#app'), esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
+const toast = t => { const e = $('#toast'); e.textContent = t; e.classList.add('on'); clearTimeout(toast.t); toast.t = setTimeout(() => e.classList.remove('on'), 2600); };
+// each organisation works under its own address (/<slug>); the slug goes with every request
+const SLUG = (location.pathname.match(/^\/([a-z0-9][a-z0-9-]+)\/?$/) || [])[1] || '', ORG = SLUG ? { 'x-org-slug': SLUG } : {};
+const api = async (path, opt = {}) => { const r = await fetch(path, { ...opt, headers: { ...ORG, ...(opt.body && typeof opt.body === 'string' ? { 'Content-Type': 'application/json' } : {}), ...(opt.headers || {}) } }); const j = await r.json().catch(() => ({})); if (!r.ok && !opt.soft) { toast(j.error || 'تعذّر الطلب'); throw Object.assign(new Error(j.error), { data: j }); } return j; };
+const nid = p => p + Math.random().toString(36).slice(2, 7);
+let ME, E = null, doc = null, base = '', tab = 'cues', sel = null, probs = [];
+const FIELD = { person: 'المتحدث', media: 'الملف', text: 'النص على الشاشة', url: 'الرابط' };
+const KIND = { video: 'فيديو', image: 'صورة', slides: 'شرائح' };
+
+// ---------- saving: the draft is stored a moment after every change
+let st; const save = () => { $('#saved').textContent = 'يحفظ…'; clearTimeout(st); st = setTimeout(async () => { const r = await api('/api/events/' + E.id, { method: 'PUT', body: JSON.stringify(doc) }); probs = r.problems; $('#saved').textContent = 'حُفظ'; const n = $('.tabs .n'); if (n) { n.textContent = probs.length; n.style.display = probs.length ? '' : 'none'; } }, 500); };
+
+// ---------- home: the events of the organisation
+async function home() { E = null; const { events, org } = await api('/api/events'); $('#orgName').textContent = org.name;
+  app.innerHTML = `<div class="hero"><div><div class="k">${esc(org.name)}</div><h2>لقاءاتكم</h2></div><div style="display:flex;gap:10px"><button class="btn" id="team">الفريق</button><button class="btn pri" id="new">لقاء جديد</button></div></div>
+  <div class="cards">${events.map(e => `<div class="ev" data-id="${e.id}"><span class="pill ${e.published_version ? '' : 'd'}">${e.published_version ? 'معتمد · النسخة ' + e.published_version : 'مسودة'}</span><h3 style="margin-top:10px">${esc(e.name)}</h3><p>آخر تعديل ${new Date(e.updated_at).toLocaleDateString('ar', { day: 'numeric', month: 'long' })}</p></div>`).join('') || '<div class="panel" style="grid-column:1/-1;text-align:center;color:var(--mute)">لا لقاءات بعد. ابدأ بلقاء جديد.</div>'}</div>
+  <p style="color:var(--mute);font-size:13px;margin-top:22px">اللقاءات: ${events.length} من ${org.events_limit} · أيام التفعيل في رصيدكم: <b style="color:var(--gold)">${org.credits}</b> · البناء والبروفة بلا تفعيل، ويوم التفعيل يفتح شاشات القاعة</p>`;
+  app.querySelectorAll('.ev').forEach(c => c.onclick = () => open(c.dataset.id));
+  $('#new').onclick = async () => { const name = prompt('اسم اللقاء'); if (!name) return; const from = events.length && confirm('نسخ فقرات وهوية آخر لقاء؟ (إلغاء = لقاء فارغ)') ? events[0].id : null; const r = await api('/api/events', { method: 'POST', body: JSON.stringify({ name, from }) }); open(r.id); };
+  $('#team').onclick = team;
+}
+async function team() { const { members } = await api('/api/members'); const R = { owner: 'مالك', editor: 'محرّر', operator: 'مشغّل', viewer: 'مطّلع' };
+  app.innerHTML = `<div class="hero"><h2>الفريق</h2></div><div class="panel" style="max-width:760px">${members.map(m => `<div class="link" style="grid-template-columns:1fr 120px"><span>${esc(m.email)}</span><span class="pill">${R[m.role]}</span></div>`).join('')}
+  <h3 style="margin-top:24px;font-size:17px">إضافة عضو</h3><div class="row" style="margin-top:10px"><input type="email" id="mEmail" placeholder="البريد" dir="ltr"><select id="mRole">${Object.entries(R).map(([k, v]) => `<option value="${k}" ${k === 'operator' ? 'selected' : ''}>${v}</option>`).join('')}</select><button class="btn pri" id="mAdd">إنشاء رابط الدخول</button></div><div id="mOut"></div></div>`;
+  $('#mAdd').onclick = async () => { const r = await api('/api/members', { method: 'POST', body: JSON.stringify({ email: $('#mEmail').value, role: $('#mRole').value }) }); $('#mOut').innerHTML = `<div class="okb" style="margin-top:12px">أرسل هذا الرابط للعضو (يُستعمل مرة واحدة):<br><code dir="ltr">${location.origin + r.join}</code></div>`; };
+}
+
+// ---------- one event
+async function open(id) { const r = await api('/api/events/' + id); E = r; E.id = id; doc = r.doc; base = r.base; probs = r.problems; sel = doc.cues[0]?.id; tab = 'cues'; draw(); }
+const med = k => doc.media[k], src = f => (f ? base + f : '');
+function draw() {
+  app.innerHTML = `<div class="hero"><div><div class="k">${E.published_version ? 'معتمد · النسخة ' + E.published_version : 'مسودة'}</div><input type="text" id="evName" value="${esc(doc.name)}" style="font:900 30px Kufi;border:0;background:none;padding:0;color:var(--deep);width:640px"></div>
+    <div style="display:flex;gap:10px"><button class="btn" id="reh">بروفة</button><button class="btn gold" id="pub">اعتماد النسخة</button></div></div>
+  <div class="tabs">${[['cues', 'الفقرات'], ['people', 'الأشخاص'], ['media', 'الملفات'], ['identity', 'الهوية'], ['run', 'الاعتماد والشاشات']].map(([k, t]) => `<button data-t="${k}" class="${k === tab ? 'on' : ''}">${t}${k === 'run' ? `<span class="n" style="${probs.length ? '' : 'display:none'}">${probs.length}</span>` : ''}</button>`).join('')}</div><div id="body"></div>`;
+  app.querySelectorAll('.tabs button').forEach(b => b.onclick = () => { tab = b.dataset.t; draw(); });
+  $('#evName').oninput = e => { doc.name = e.target.value; save(); };
+  $('#reh').onclick = () => { window.open(`/run/console.html?e=${E.id}&draft`, '_blank'); window.open(`/run/stage.html?e=${E.id}&draft`, '_blank'); };
+  $('#pub').onclick = publish; ({ cues, people, media, identity, run })[tab]();
+}
+async function publish() { clearTimeout(st); await api('/api/events/' + E.id, { method: 'PUT', body: JSON.stringify(doc) }); const r = await api('/api/events/' + E.id + '/publish', { method: 'POST', soft: true });
+  if (r.problems) { probs = r.problems; tab = 'run'; draw(); toast('أكمل النواقص قبل الاعتماد'); return; } E.published_version = r.version; toast('اعتُمدت النسخة ' + r.version + '، وتقرؤها الشاشات الآن'); draw(); }
+
+// ---------- cues
+function cues() { const body = $('#body'), c = doc.cues.find(x => x.id === sel) || doc.cues[0]; let n = 0;
+  body.innerHTML = `<div class="split"><div><div id="list">${doc.cues.map(x => `<div class="cue${x.id === c?.id ? ' on' : ''}${x.off ? ' off' : ''}" data-id="${x.id}" draggable="${!x.fixed}"><span class="h">${x.fixed ? '' : '⋮⋮'}</span><span class="p">${x.off ? '·' : ++n}</span><span><b>${esc(x.title)}</b><small>${SCENES[x.type].label}${x.off ? ' · مخفية' : ''}${x.after ? ' · بالهوية الجديدة' : ''}</small></span><small>${x.dur || ''}${x.dur ? ' د' : ''}</small></div>`).join('')}</div>
+    <div class="panel" style="padding:16px;margin-top:12px"><b style="font-family:Kufi">إضافة فقرة</b><div class="types">${Object.entries(SCENES).filter(([k, s]) => !(s.once && doc.cues.some(x => x.type === k))).map(([k, s]) => `<button data-add="${k}">${s.label}</button>`).join('')}</div></div></div>
+    <div class="panel" id="form"></div></div>`;
+  body.querySelectorAll('.cue').forEach(el => { el.onclick = () => { sel = el.dataset.id; cues(); };
+    el.ondragstart = e => e.dataTransfer.setData('text/plain', el.dataset.id); el.ondragover = e => { e.preventDefault(); el.classList.add('over'); }; el.ondragleave = () => el.classList.remove('over');
+    el.ondrop = e => { e.preventDefault(); const a = e.dataTransfer.getData('text/plain'), list = doc.cues, from = list.findIndex(x => x.id === a), to = list.findIndex(x => x.id === el.dataset.id); if (from < 0 || to < 0 || from === to) return;
+      const next = list.slice(); const [mv] = next.splice(from, 1); next.splice(to, 0, mv); const bad = problems({ ...doc, cues: next }).find(p => /تبقى أول|بعد الدعوة|الهوية الجديدة، فلا/.test(p)); if (bad) { toast(bad); cues(); return; } doc.cues = next; save(); cues(); }; });
+  body.querySelectorAll('[data-add]').forEach(b => b.onclick = () => { const t = b.dataset.add, x = { id: nid('c'), type: t, title: SCENES[t].label, at: '', dur: 5, moderator: [] }, i = doc.cues.findIndex(y => y.id === sel); doc.cues.splice(i < 0 ? doc.cues.length : i + 1, 0, x);
+    if (t === 'arm' && !doc.cues.some(y => y.type === 'launch')) doc.cues.splice(doc.cues.indexOf(x) + 1, 0, { id: nid('c'), type: 'launch', title: SCENES.launch.label, at: 'ضغط ضيف الشرف', dur: 1, moderator: [] });
+    if (t === 'launch' && !doc.cues.some(y => y.type === 'arm')) doc.cues.splice(doc.cues.indexOf(x), 0, { id: nid('c'), type: 'arm', title: SCENES.arm.label, at: '', dur: 1, moderator: [] });
+    if ((t === 'arm' || t === 'launch') && !doc.identity.after) doc.identity.after = { logo: '', colors: { ...doc.identity.before.colors } }; sel = x.id; save(); cues(); });
+  if (!c) return; const sc = SCENES[c.type], f = $('#form'), hasLaunch = doc.cues.some(x => x.type === 'launch');
+  const opt = (o, v, none) => `<option value="">${none}</option>` + Object.entries(o).map(([k, x]) => `<option value="${k}" ${k === v ? 'selected' : ''}>${esc(x.name || k)}</option>`).join('');
+  const want = c.type === 'slides' || c.type === 'speaker' ? 'slides' : 'video', files = Object.fromEntries(Object.entries(doc.media).filter(([, m]) => m.kind === want));
+  f.innerHTML = `<div style="display:flex;justify-content:space-between;align-items:center"><span class="pill">${sc.label}</span><span><button class="btn sm" id="off">${c.off ? 'إعادتها إلى اللقاء' : 'إخفاؤها من اللقاء'}</button> <button class="btn sm bad" id="del" ${c.fixed ? 'disabled' : ''}>حذف</button></span></div>
+    <label>عنوان الفقرة</label><input type="text" data-k="title" value="${esc(c.title)}">
+    <div class="grid2"><div><label>تبدأ عند (آخر ما يقوله مدير الجلسة قبلها)</label><input type="text" data-k="at" value="${esc(c.at)}"></div><div><label>المدة بالدقائق (للمشغّل فقط)</label><input type="number" data-k="dur" min="0" value="${c.dur ?? ''}"></div></div>
+    ${sc.fields.includes('person') ? `<label>${FIELD.person}</label><select data-k="person">${opt(doc.people, c.person, 'بلا')}</select>` : ''}
+    ${sc.fields.includes('media') ? `<label>${c.type === 'speaker' ? 'شرائح المتحدث (اختياري)' : FIELD.media}</label><select data-k="media">${opt(files, c.media, 'اختر من ملفات اللقاء')}</select>` : ''}
+    ${sc.fields.includes('text') ? `<label>${FIELD.text}</label><input type="text" data-k="text" value="${esc(c.text)}">` : ''}
+    ${sc.fields.includes('url') ? `<label>${FIELD.url}</label><input type="text" data-k="url" dir="ltr" value="${esc(c.url)}">` : ''}
+    ${hasLaunch && !['arm', 'launch', 'loop'].includes(c.type) ? `<label style="display:flex;gap:8px;align-items:center;color:var(--ink);font-size:15px"><input type="checkbox" id="after" ${c.after ? 'checked' : ''}> تُعرض بالهوية الجديدة (بعد التدشين فقط)</label>` : ''}
+    <label>ما يقوله مدير الجلسة في هذه الفقرة (كل سطر جملة، وما بين [ ] ملاحظة لا تُقرأ)</label><textarea id="mod" rows="5">${esc((c.moderator || []).join('\n'))}</textarea>`;
+  f.querySelectorAll('[data-k]').forEach(i => i.oninput = () => { const k = i.dataset.k; c[k] = k === 'dur' ? +i.value || 0 : i.value; if (!c[k] && k !== 'dur') delete c[k]; save(); if (k === 'title') $(`.cue[data-id="${c.id}"] b`).textContent = c.title; });
+  $('#mod').oninput = e => { c.moderator = e.target.value.split('\n').map(s => s.trim()).filter(Boolean); save(); };
+  $('#off').onclick = () => { if (['arm', 'launch'].includes(c.type) || c.fixed) return toast('هذه الفقرة لا تُخفى'); c.off = !c.off; if (!c.off) delete c.off; save(); cues(); };
+  $('#del').onclick = () => { if (!confirm(`حذف «${c.title}»؟`)) return; doc.cues = doc.cues.filter(x => x !== c && !(['arm', 'launch'].includes(c.type) && ['arm', 'launch'].includes(x.type))); sel = doc.cues[0]?.id; save(); cues(); };
+  const a = $('#after'); if (a) a.onchange = () => { a.checked ? c.after = true : delete c.after; const bad = problems(doc).find(p => /الهوية الجديدة، فلا/.test(p)); if (bad) { delete c.after; toast('انقلها بعد لحظة التدشين أولاً'); } save(); cues(); };
+}
+
+// ---------- people
+function people() { const b = $('#body'); b.innerHTML = `<div class="panel" style="max-width:900px"><div class="row" style="color:var(--mute);font:600 13px Plex"><span>الاسم كما يظهر على الشاشة</span><span>السطر الصغير فوقه (الصفة أو اللقب)</span><span style="width:60px"></span></div>
+  ${Object.entries(doc.people).map(([k, p]) => `<div class="row"><input type="text" data-p="${k}" data-f="name" value="${esc(p.name)}"><input type="text" data-p="${k}" data-f="honorific" value="${esc(p.honorific)}"><button class="btn sm bad" data-rm="${k}">حذف</button></div>`).join('')}
+  <button class="btn pri" id="addP" style="margin-top:8px">إضافة شخص</button></div>`;
+  b.querySelectorAll('[data-p]').forEach(i => i.oninput = () => { doc.people[i.dataset.p][i.dataset.f] = i.value; save(); });
+  b.querySelectorAll('[data-rm]').forEach(x => x.onclick = () => { if (doc.cues.some(c => c.person === x.dataset.rm)) return toast('هذا الشخص مستعمل في فقرة'); delete doc.people[x.dataset.rm]; save(); people(); });
+  $('#addP').onclick = () => { doc.people[nid('p')] = { name: '', honorific: '' }; save(); people(); b.querySelector('.row:nth-last-of-type(1) input')?.focus(); };
+}
+
+// ---------- files: video and image as they are; a PDF becomes slides, page by page, in this browser
+const put = (q, body, type) => fetch(`/api/events/${E.id}/media?${new URLSearchParams(q)}`, { method: 'PUT', body, headers: { ...ORG, 'Content-Type': type } }).then(async r => { const j = await r.json(); if (!r.ok) throw new Error(j.error); return j; });
+// a large video goes up in parts of 16 MB, each retried three times, with its progress shown
+async function putBig(file, note) { const PART = 16 * 1048576, u = `/api/events/${E.id}/upload`, st = await api(u, { method: 'POST', body: JSON.stringify({ start: 1, name: file.name, type: file.type, size: file.size }) }), parts = [];
+  for (let n = 1, at = 0; at < file.size; n++, at += PART) { let ok = null; for (let t = 0; t < 3 && !ok; t++) { try { const r = await fetch(`${u}?${new URLSearchParams({ key: st.key, uploadId: st.uploadId, n })}`, { method: 'PUT', headers: ORG, body: file.slice(at, at + PART) }); if (r.ok) ok = await r.json(); } catch {} } if (!ok) throw new Error('انقطع الرفع. أعد المحاولة.'); parts.push(ok); note(`${file.name}: ${Math.min(100, Math.round((at + PART) / file.size * 100))}%`); }
+  await api(u, { method: 'POST', body: JSON.stringify({ done: 1, key: st.key, uploadId: st.uploadId, parts, name: file.name, size: file.size }) }); return { src: st.file }; }
+async function upload(file, note) {
+  const name = file.name, key = nid('f');
+  if (file.type === 'application/pdf') { const pdfjs = await import('./vendor/pdf.min.mjs'); pdfjs.GlobalWorkerOptions.workerSrc = './vendor/pdf.worker.min.mjs';
+    const pdf = await pdfjs.getDocument({ data: await file.arrayBuffer() }).promise; let id = null;
+    for (let n = 1; n <= pdf.numPages; n++) { note(`${name}: الشريحة ${n} من ${pdf.numPages}`); const pg = await pdf.getPage(n), v0 = pg.getViewport({ scale: 1 }), vp = pg.getViewport({ scale: 1920 / v0.width });
+      const cv = Object.assign(document.createElement('canvas'), { width: Math.round(vp.width), height: Math.round(vp.height) }); await pg.render({ canvasContext: cv.getContext('2d'), viewport: vp }).promise;
+      const blob = await new Promise(r => cv.toBlob(r, 'image/jpeg', .9)); const q = { kind: 'slides', name, n }; if (id) q.slides = id; id = (await put(q, blob, 'image/jpeg')).id; }
+    doc.media[key] = { kind: 'slides', name: name.replace(/\.pdf$/i, ''), src: id + '/', count: pdf.numPages };
+  } else if (file.type.startsWith('video/')) { note(`${name}: يُرفع…`); const r = file.size > 20 * 1048576 ? await putBig(file, note) : await put({ kind: 'video', name }, file, file.type);
+    const length = await new Promise(res => { const v = document.createElement('video'); v.preload = 'metadata'; v.onloadedmetadata = () => res(Math.round(v.duration)); v.onerror = () => res(0); v.src = URL.createObjectURL(file); });
+    doc.media[key] = { kind: 'video', name: name.replace(/\.\w+$/, ''), src: r.src, length };
+  } else if (file.type.startsWith('image/')) { note(`${name}: يُرفع…`); const r = await put({ kind: 'image', name }, file, file.type); doc.media[key] = { kind: 'image', name: name.replace(/\.\w+$/, ''), src: r.src }; }
+  else throw new Error('نوع الملف غير مدعوم: فيديو، صورة، أو PDF'); save(); return key;
+}
+function media() { const b = $('#body'), used = k => doc.cues.some(c => c.media === k);
+  b.innerHTML = `<div class="panel" style="max-width:960px"><div class="drop" id="drop"><b style="font-family:Kufi;color:var(--deep);font-size:18px">اسحب الملفات هنا، أو <a href="#" id="pick">اختر من جهازك</a></b><br>فيديو (MP4)، صورة، أو عرض تقديمي بصيغة PDF يتحول إلى شرائح<div id="note" style="margin-top:8px;color:var(--green);font-weight:600"></div></div><input type="file" id="fi" multiple hidden accept="video/*,image/*,application/pdf">
+  ${Object.entries(doc.media).map(([k, m]) => `<div class="file"><span class="ic">${m.kind === 'slides' ? `<img src="${src(m.src)}s-1.jpg">` : m.kind === 'image' ? `<img src="${src(m.src)}">` : '▶'}</span><span><input type="text" data-m="${k}" value="${esc(m.name)}" style="border:0;padding:0;font:700 16px Kufi"><small style="color:var(--mute)">${KIND[m.kind]}${m.count ? ' · ' + m.count + ' شريحة' : ''}${m.length ? ' · ' + Math.floor(m.length / 60) + ':' + String(m.length % 60).padStart(2, '0') : ''}${used(k) ? ' · مستعمل في فقرة' : ''}</small></span><span></span><button class="btn sm bad" data-rm="${k}">إزالة</button></div>`).join('') || '<p style="color:var(--mute);text-align:center">لا ملفات بعد.</p>'}</div>`;
+  const note = t => $('#note').textContent = t, go = async files => { for (const f of files) { try { await upload(f, note); } catch (e) { toast(e.message); } } media(); toast('اكتمل الرفع'); };
+  $('#pick').onclick = e => { e.preventDefault(); $('#fi').click(); }; $('#fi').onchange = e => go([...e.target.files]);
+  const d = $('#drop'); d.ondragover = e => { e.preventDefault(); d.classList.add('hot'); }; d.ondragleave = () => d.classList.remove('hot'); d.ondrop = e => { e.preventDefault(); d.classList.remove('hot'); go([...e.dataTransfer.files]); };
+  b.querySelectorAll('[data-m]').forEach(i => i.oninput = () => { doc.media[i.dataset.m].name = i.value; save(); });
+  b.querySelectorAll('[data-rm]').forEach(x => x.onclick = () => { if (used(x.dataset.rm)) return toast('الملف مستعمل في فقرة'); delete doc.media[x.dataset.rm]; save(); media(); });
+}
+
+// ---------- identity: the organisation's own logo and colours on every screen; a second identity when the event has a launch
+function identity() { const b = $('#body'), has = doc.cues.some(c => c.type === 'launch'), C = { bg: 'الخلفية', ink: 'النص', accent: 'اللون الرئيسي', gold: 'لون الزخرفة' };
+  const block = (k, title) => { const I = doc.identity[k]; return `<div class="panel"><h3 style="font-size:19px;color:var(--deep)">${title}</h3><label>الشعار (PNG أو SVG بخلفية شفافة)</label><div class="sw"><div class="logo">${I.logo ? `<img src="${src(I.logo)}">` : 'لا شعار'}</div><button class="btn" data-logo="${k}">رفع شعار</button></div>
+    <div class="grid2">${Object.entries(C).map(([c, t]) => `<div><label>${t}</label><div class="sw"><input type="color" data-i="${k}" data-c="${c}" value="${I.colors[c] || '#000000'}"><code dir="ltr">${I.colors[c] || ''}</code></div></div>`).join('')}</div>
+    <div style="margin-top:18px;border-radius:14px;padding:26px;text-align:center;background:${I.colors.bg};color:${I.colors.ink};border:1px solid var(--line)"><div style="font:400 13px Plex;color:${I.colors.gold}">الصفة</div><div style="font:900 30px Kufi;color:${I.colors.accent}">اسم المتحدث</div></div></div>`; };
+  b.innerHTML = `<div style="display:grid;grid-template-columns:1fr 1fr;gap:20px">${block('before', has ? 'الهوية قبل التدشين' : 'هوية اللقاء')}${has ? block('after', 'الهوية الجديدة (تظهر بعد التدشين)') : '<div class="panel" style="color:var(--mute)">أضف «دعوة التدشين» إلى الفقرات إن كان في اللقاء كشف عن هوية أو شعار جديد، فتظهر هنا الهوية الثانية.</div>'}</div><input type="file" id="lf" hidden accept="image/*">`;
+  b.querySelectorAll('[data-i]').forEach(i => i.onchange = () => { doc.identity[i.dataset.i].colors[i.dataset.c] = i.value; save(); identity(); });
+  let target; b.querySelectorAll('[data-logo]').forEach(x => x.onclick = () => { target = x.dataset.logo; $('#lf').click(); });
+  $('#lf').onchange = async e => { const f = e.target.files[0]; if (!f) return; const r = await put({ kind: 'image', name: f.name }, f, f.type); doc.identity[target].logo = r.src; save(); identity(); };
+}
+
+// ---------- approval and the links of the screens
+async function run() { const b = $('#body'), L = { stage: 'الشاشة الكبرى', side: 'شاشة جانبية', tablet: 'جهاز ضيف الشرف', console: 'لوحة المشغّل', script: 'صفحة مدير الجلسة' }; probs = problems(doc);
+  const { links } = await api(`/api/events/${E.id}/links`);
+  b.innerHTML = `<div class="split" style="grid-template-columns:1fr 1fr"><div class="panel"><h3 style="font-size:19px;color:var(--deep);margin-bottom:12px">جاهزية اللقاء</h3>${probs.length ? probs.map(p => `<div class="prob">${esc(p)}</div>`).join('') : '<div class="okb">اللقاء مكتمل ويمكن اعتماده.</div>'}
+    <p style="color:var(--mute);font-size:14px">«بروفة» تشغّل المسودة في غرفة مستقلة لا يراها أحد. «اعتماد النسخة» يجمّد المسودة، وتقرؤها شاشات القاعة فوراً، وتبقى المسودة قابلة للتعديل بجانبها.</p>
+    <h3 style="font-size:19px;color:var(--deep);margin:22px 0 8px">تفعيل يوم اللقاء</h3>
+    ${E.active_until && new Date(E.active_until) > new Date() ? `<div class="okb">مفعّل: شاشات القاعة تفتح من ${new Date(E.active_from).toLocaleString('ar', { weekday: 'long', day: 'numeric', month: 'long', hour: 'numeric', minute: '2-digit' })} حتى ${new Date(E.active_until).toLocaleString('ar', { weekday: 'long', day: 'numeric', month: 'long', hour: 'numeric', minute: '2-digit' })}</div>`
+      : `<p style="color:var(--mute);font-size:14px;margin:0 0 10px">شاشات القاعة تفتح في يوم التفعيل فقط (من مساء اليوم السابق للتجهيز حتى نهاية اليوم). في رصيدكم <b style="color:var(--gold)">${E.credits}</b> يوم.</p><div class="row" style="grid-template-columns:220px auto 1fr"><input type="date" id="actDay" style="border:1px solid var(--line);border-radius:10px;padding:8px 12px"><button class="btn gold" id="act" ${E.published_version && E.credits ? '' : 'disabled'}>تفعيل هذا اليوم</button><span></span></div>`}</div>
+    <div class="panel"><h3 style="font-size:19px;color:var(--deep)">روابط الشاشات</h3><p style="color:var(--mute);font-size:14px;margin:4px 0 10px">لكل شاشة أو شخص رابط خاص بلا حساب. يظهر الرابط مرة واحدة عند إنشائه، ويُلغى بضغطة.</p>
+    <div class="row" style="grid-template-columns:200px 1fr auto"><select id="lr">${Object.entries(L).map(([k, v]) => `<option value="${k}">${v}</option>`).join('')}</select><input type="text" id="ll" placeholder="وصف (مثل: جهاز القاعة)"><button class="btn pri" id="la" ${E.published_version ? '' : 'disabled'}>إنشاء رابط</button></div>
+    ${E.published_version ? '' : '<p style="color:var(--bad);font-size:14px">اعتمد نسخة أولاً لتعمل الروابط.</p>'}<div id="lo"></div>
+    ${links.map(l => `<div class="link"><b style="font-family:Kufi">${L[l.role]}</b><span>${esc(l.label)}</span><button class="btn sm bad" data-rv="${l.id}">إلغاء</button></div>`).join('')}</div></div>`;
+  const act = $('#act'); if (act) act.onclick = async () => { const d = $('#actDay').value; if (!d) return toast('اختر يوم اللقاء'); if (!confirm('يُخصم يوم واحد من رصيدكم ويُفعَّل اللقاء في ' + d + '. متابعة؟')) return; const r = await api(`/api/events/${E.id}/activate`, { method: 'POST', body: JSON.stringify({ from: new Date(d + 'T00:00:00').toISOString() }) }); Object.assign(E, r); toast('فُعّل يوم اللقاء'); run(); };
+  $('#la').onclick = async () => { const r = await api(`/api/events/${E.id}/links`, { method: 'POST', body: JSON.stringify({ role: $('#lr').value, label: $('#ll').value }) }); await run(); $('#lo').innerHTML = `<div class="okb" style="margin:10px 0">انسخ الرابط الآن:<br><code dir="ltr" id="newLink">${location.origin + r.url}</code></div>`; };
+  b.querySelectorAll('[data-rv]').forEach(x => x.onclick = async () => { await api(`/api/events/${E.id}/links/${x.dataset.rv}`, { method: 'DELETE' }); toast('أُلغي الرابط'); run(); });
+}
+
+// ---------- start
+$('#home').onclick = e => { e.preventDefault(); home(); };
+ME = await api('/api/me', { soft: true });
+if (!ME.user) app.innerHTML = '<div id="gate"><img src="brand/mark.png" alt="بصيرة" style="height:150px;margin-bottom:18px"><div class="k">بصيرة · استوديو اللقاءات</div><h2 style="font:900 34px Kufi;color:var(--deep);margin:10px 0">الدخول برابط الدعوة</h2><p style="color:var(--mute)">افتح الرابط الذي وصلك من مالك الحساب. الرابط يُستعمل مرة واحدة ويبقيك داخلاً ثلاثين يوماً على هذا الجهاز.</p><button class="btn gold" id="pkIn" style="margin-top:14px;padding:12px 28px;font-size:17px">الدخول بمفتاح المرور</button></div>';
+else if (!SLUG && ME.orgs[0]) location.replace('/' + ME.orgs[0].slug);   // signed in at /login: on to the organisation's own address
+else home();
+// passkeys: add one once signed in; sign in with it next time
+import('./passkey.js').then(PK => { const add = $('#pk'), inb = $('#pkIn'); if (!PK.supported()) { add.style.display = 'none'; if (inb) inb.style.display = 'none'; return; }
+  if (!ME.user) add.style.display = 'none'; add.onclick = async e => { e.preventDefault(); try { await PK.register(); toast('أُضيف مفتاح المرور لهذا الجهاز'); } catch (x) { toast(x.name === 'NotAllowedError' ? 'أُلغيت العملية' : x.message); } };
+  if (inb) inb.onclick = async () => { try { const r = await PK.login(); location.href = r.to; } catch (x) { toast(x.name === 'NotAllowedError' ? 'أُلغيت العملية' : x.message); } }; });
+</script></body></html>

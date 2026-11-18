@@ -68,6 +68,7 @@ export default {
       // ----- the platform owner: a new organisation and the link that signs its owner in
       if (p === '/api/admin/org' && M === 'POST') {
         const b = await req.json(), s = slug(b.slug || b.name); if (!b.name || !s) return err('اسم الجهة ومعرّفها مطلوبان');
+        if (['login', 'admin', 'studio', 'run', 'api', 'm', 'go', 'join', 'fonts', 'vendor', 'engine', 'brand'].includes(s)) return err('هذا العنوان محجوز للنظام');
         if (await env.DB.prepare('SELECT 1 FROM orgs WHERE slug = ?').bind(s).first()) return err('المعرّف مستعمل');
         const u = await userFor(env, b.email, b.owner); if (!u) return err('بريد المالك غير صالح');
         const id = 'o_' + rid(); await env.DB.batch([
@@ -98,7 +99,7 @@ export default {
         await env.DB.batch([env.DB.prepare('UPDATE login_codes SET used_at = ? WHERE code_hash = ?').bind(now(), h),
           env.DB.prepare('INSERT INTO sessions (token_hash, user_id, expires_at, created_at) VALUES (?,?,?,?)').bind(await sha(t), u.id, new Date(Date.now() + 30 * 864e5).toISOString(), now())]);
         const first = await env.DB.prepare('SELECT o.slug FROM members m JOIN orgs o ON o.id = m.org_id WHERE m.user_id = ? LIMIT 1').bind(u.id).first();
-        return new Response(null, { status: 302, headers: { Location: '/' + (first ? first.slug : ''), 'Set-Cookie': setCookie('sid', t, 30) } });
+        return new Response(null, { status: 302, headers: { Location: '/' + (first ? first.slug : 'login'), 'Set-Cookie': setCookie('sid', t, 30) } });
       }
       // ----- passkeys: add one while signed in; sign in with one from the gate (the device offers the passkeys it holds for this site)
       if (p.startsWith('/api/passkey/')) { const b = M === 'POST' ? await req.json().catch(() => ({})) : {};
@@ -119,10 +120,10 @@ export default {
             if (!(await verify({ spki: unb64u(k.spki), alg: k.alg, authenticatorData: unb64u(b.authenticatorData), clientDataJSON: cdj, signature: unb64u(b.signature), rpId }))) return err('توقيع غير صحيح', 403);
             await env.DB.prepare('UPDATE passkeys SET last_used_at = ? WHERE cred_id = ?').bind(now(), b.id).run();
             const first = k.user_id === 'platform' ? null : await env.DB.prepare('SELECT o.slug FROM members m JOIN orgs o ON o.id = m.org_id WHERE m.user_id = ? LIMIT 1').bind(k.user_id).first();
-            return new Response(JSON.stringify({ to: k.user_id === 'platform' ? '/admin.html' : '/' + (first ? first.slug : '') }), { headers: { 'Content-Type': 'application/json', 'Set-Cookie': await session(env, k.user_id) } }); }
+            return new Response(JSON.stringify({ to: k.user_id === 'platform' ? '/admin.html' : '/' + (first ? first.slug : 'login') }), { headers: { 'Content-Type': 'application/json', 'Set-Cookie': await session(env, k.user_id) } }); }
         } catch (e) { return err(e.message || 'تعذّر التحقق', 400); }
         return err('لا يوجد', 404); }
-      if (p === '/api/logout') return new Response(null, { status: 302, headers: { Location: '/', 'Set-Cookie': setCookie('sid', '', 0) } });
+      if (p === '/api/logout') return new Response(null, { status: 302, headers: { Location: '/login', 'Set-Cookie': setCookie('sid', '', 0) } });
       // ----- a link of one screen: opens that page of that event, with no account
       if (p.startsWith('/go/')) {
         const tok = p.slice(4), l = /^[a-z0-9]{12}\.[a-z0-9]+$/.test(tok) ? await tdb(env, 'o_' + tok.slice(0, 12)).prepare('SELECT event_id, role FROM links WHERE token_hash = ? AND revoked_at IS NULL').bind(await sha(tok)).first() : null;
@@ -163,7 +164,7 @@ export default {
         return err('لا يوجد', 404);
       }
       if (!p.startsWith('/api/')) {   // /<slug>: the studio of that organisation (the same page; it sends the slug with every request)
-        const sl = p.match(/^\/([a-z0-9][a-z0-9-]{1,39})\/?$/); if (sl && !['run', 'fonts', 'vendor', 'engine', 'admin', 'brand'].includes(sl[1]) && await env.DB.prepare('SELECT 1 FROM orgs WHERE slug = ?').bind(sl[1]).first()) return site(env, req, '/');
+        const sl = p.match(/^\/([a-z0-9][a-z0-9-]{1,39})\/?$/); if (p === '/login' || (sl && !['run', 'fonts', 'vendor', 'engine', 'admin', 'brand', 'studio'].includes(sl[1]) && await env.DB.prepare('SELECT 1 FROM orgs WHERE slug = ?').bind(sl[1]).first())) return site(env, req, '/studio');   // «/» is the public page; the studio opens at /login and at each organisation's address
         return site(env, req, url.pathname); }
 
       // ----- the studio (signed in people)
