@@ -44,4 +44,5 @@ const adm = (p, m = 'GET', b) => fetch(B + '/api/admin/' + p, { method: m, heade
   const after = (await (await adm('orgs')).json()).orgs; ok(!after.some(o => o.id === org.org), 'it is gone from the list');
   ok((await adm('export?org=' + org.org)).status === 404, 'and nothing is left to export');
   ok(!(await api('/api/events')).ok, 'its owner has no way in');
+  const pa = (await (await adm('audit')).json()).audit.filter(a => (a.detail || '').includes(slug)).map(a => a.action); ok(pa.includes('org_created') && pa.includes('org_deleted') && pa.includes('org_changed'), 'the platform owner\'s own record holds what was done to it: ' + pa.join(', '));
 })();

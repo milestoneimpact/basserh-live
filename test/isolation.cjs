@@ -67,6 +67,13 @@ const NAMES = [['شركة الأفق', '#0B3D91', 'ملتقى الأفق الس�
   const zc = { cookie: (await Z.con.context().cookies()).map(c => `${c.name}=${c.value}`).join('; ') };
   ok(await st(`/api/run/${Z.ev.id}/cmd`, { method: 'POST', headers: zc, body: '{"type":"next"}' }) === 401 && (await (await fetch(`${B}/api/run/${Z.ev.id}/state`, { headers: { cookie: Z.sid } })).json()).state.cue === before, 'a console link revoked while open: its page goes blank and it can command no more');
   await Z.stage.waitForTimeout(2500); ok(await Z.stage.evaluate(() => !!document.querySelector('#title.on')), 'the other screens of that event came back by their own links and carry on');
+  // the report of an event is its own: what was shown and for how long
+  const rep = await Y.api(`/api/events/${Y.ev.id}/report`), titles = (rep.rows || []).map(r => r.title).join(' ');
+  ok(rep.rows && rep.rows.length === 3 && rep.rows.every(r => r.ms >= 0) && rep.from > 0 && !titles.includes(X.name), 'the report of an event lists its own three cues as they were shown: ' + (rep.rows || []).map(r => `${r.title} ${Math.round(r.ms / 1000)}ث`).join('، '));
+  ok(await st(`/api/events/${Y.ev.id}/report`, { headers: X.H }) === 404, 'and another organisation cannot read it');
+  // five wrong passwords at one door close that door for a while, not the others
+  const tryDoor = (slug, pw) => st('/api/login', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ slug, password: pw }) }); const codes = []; for (let i = 0; i < 22 && codes[codes.length - 1] !== 429; i++) codes.push(await tryDoor(X.slug, 'wrong-' + i));   // five from one address; twenty from any number of addresses
+  ok(codes[codes.length - 1] === 429 && codes.slice(0, -1).every(c => c === 403) && codes.length >= 6 && codes.length <= 21 && await tryDoor(Y.slug, 'wrong') === 403, `wrong passwords lock that organisation's door (429 after ${codes.length - 1}), and the door of another stays open to try`);
   // a password added by an owner cannot take over an account of another organisation
   const steal = await X.api('/api/members', 'POST', { email: `i1${t}@t.test`, role: 'editor', password: 'stolen-pass-123' }); ok(steal.status === 400, 'an owner cannot set a password for someone who already has an account elsewhere');
   ok(!errs.length, 'page errors: ' + (errs.join(' | ') || 'none')); await b.close(); for (const o of orgs) await adm('org', 'DELETE', { id: o.org, confirm: o.slug });

@@ -47,7 +47,8 @@ const pwOk = async (pw, kept) => { if (!kept || !pw) return false; const a = awa
 const newPw = () => [0, 1, 2, 3].map(() => rid(4)).join('-');
 // five wrong attempts from one address close the door for fifteen minutes (the owner's page and the studio share the count)
 async function locked(env, ip) { const f = await env.DB.prepare('SELECT n, until FROM login_fail WHERE ip = ?').bind(ip).first(); return f && f.until && f.until > now() ? null : { n: f && !f.until ? f.n : 0 }; }
-const failed = (env, ip, n) => env.DB.prepare('INSERT INTO login_fail (ip, n, until) VALUES (?,?,?) ON CONFLICT (ip) DO UPDATE SET n = excluded.n, until = excluded.until').bind(ip, n + 1, n + 1 >= 5 ? new Date(Date.now() + 9e5).toISOString() : null).run();
+const failed = (env, ip, n, limit = 5) => env.DB.prepare('INSERT INTO login_fail (ip, n, until) VALUES (?,?,?) ON CONFLICT (ip) DO UPDATE SET n = excluded.n, until = excluded.until').bind(ip, n + 1, n + 1 >= limit ? new Date(Date.now() + 9e5).toISOString() : null).run();
+const padd = (env, action, detail = '') => env.DB.prepare('INSERT INTO platform_audit (action, detail, at) VALUES (?,?,?)').bind(action, String(detail).slice(0, 300), now()).run().catch(() => {});   // the platform owner's own record
 async function session(env, uid) { const t = rid(32); await env.DB.prepare('INSERT INTO sessions (token_hash, user_id, expires_at, created_at) VALUES (?,?,?,?)').bind(await sha(t), uid, new Date(Date.now() + 30 * 864e5).toISOString(), now()).run(); return setCookie('sid', t, 30); }
 // the platform owner as a person of the system (for sessions and passkeys); belongs to no organisation
 async function platform(env) { await env.DB.prepare('INSERT INTO users (id, email, name, created_at) VALUES (?,?,?,?) ON CONFLICT (id) DO NOTHING').bind('platform', 'platform@basserh', 'مالك المنصة', now()).run(); return 'platform'; }
@@ -108,7 +109,7 @@ const main = {
       if (p === '/api/admin/login' && M === 'POST') { const ip = req.headers.get('CF-Connecting-IP') || 'local', f = await env.DB.prepare('SELECT n, until FROM login_fail WHERE ip = ?').bind(ip).first();
         if (f && f.until && f.until > now()) return err('محاولات كثيرة. أعد المحاولة بعد ربع ساعة.', 429);
         const b = await req.json().catch(() => ({})); if (!env.ADMIN_KEY || b.password !== env.ADMIN_KEY) { const n = (f && (!f.until || f.until > now()) ? f.n : 0) + 1; await env.DB.prepare('INSERT INTO login_fail (ip, n, until) VALUES (?,?,?) ON CONFLICT (ip) DO UPDATE SET n = excluded.n, until = excluded.until').bind(ip, n, n >= 5 ? new Date(Date.now() + 9e5).toISOString() : null).run(); return err('كلمة المرور غير صحيحة', 403); }
-        await env.DB.prepare('DELETE FROM login_fail WHERE ip = ?').bind(ip).run(); return new Response('{"ok":true}', { headers: { 'Content-Type': 'application/json', 'Set-Cookie': await session(env, await platform(env)) } }); }
+        await env.DB.prepare('DELETE FROM login_fail WHERE ip = ?').bind(ip).run(); await padd(env, 'owner_login', req.headers.get('CF-Connecting-IP') || ''); return new Response('{"ok":true}', { headers: { 'Content-Type': 'application/json', 'Set-Cookie': await session(env, await platform(env)) } }); }
       const admin = p.startsWith('/api/admin/') && ((env.ADMIN_KEY && req.headers.get('x-admin-key') === env.ADMIN_KEY) || ((await me(req, env)) || {}).user?.id === 'platform');
       if (p.startsWith('/api/admin/') && !admin) return err('غير مصرح', 403);
       if (p === '/api/admin/me') return J({ ok: true, passkeys: (await env.DB.prepare('SELECT COUNT(*) AS n FROM passkeys WHERE user_id = ?').bind('platform').first()).n });
@@ -127,27 +128,28 @@ const main = {
         if (+b.credits > 0) await env.DB.prepare('UPDATE orgs SET credits = ? WHERE id = ?').bind(+b.credits, id).run();
         // the owner's password: the one the platform owner typed, or a generated one; shown once in the answer, kept hashed
         const password = String(b.password || '').trim() || newPw(); if (password.length < 8) return err('كلمة المرور ثمانية أحرف على الأقل'); await env.DB.prepare('UPDATE users SET pw = ? WHERE id = ?').bind(await pwHash(password), u.id).run();
-        await audit(env, id, null, null, 'org', b.name); const join = await invite(env, u.email); return J({ org: id, slug: s, join, email: u.email, password, mailed: await mailJoin(env, url.origin, u.email, join, b.name) });
+        await audit(env, id, null, null, 'org', b.name); await padd(env, 'org_created', `${b.name} /${s}`); const join = await invite(env, u.email); return J({ org: id, slug: s, join, email: u.email, password, mailed: await mailJoin(env, url.origin, u.email, join, b.name) });
       }
       // ----- an organisation's data as a file; its end; the copies
       if (p === '/api/admin/export' && M === 'GET') { const d = await exportOrg(env, url.searchParams.get('org')); if (!d) return err('لا يوجد', 404); return new Response(JSON.stringify(d, null, 1), { headers: { 'Content-Type': 'application/json; charset=utf-8', 'Content-Disposition': `attachment; filename="${d.org.slug}-${now().slice(0, 10)}.json"` } }); }
       if (p === '/api/admin/org' && M === 'DELETE') {   // gone for good: its files, its database, its place among the organisations. The address must be typed to confirm
         const b = await req.json(), o = await env.DB.prepare('SELECT * FROM orgs WHERE id = ?').bind(b.id).first(); if (!o) return err('لا يوجد', 404); if (b.confirm !== o.slug) return err('اكتب عنوان الجهة للتأكيد');
         const keys = (await listAll(env, o.id + '/')).map(x => x.key); for (let i = 0; i < keys.length; i += 500) await env.MEDIA.delete(keys.slice(i, i + 500));
-        await tdb(env, o.id).wipe(); await env.DB.batch([env.DB.prepare('DELETE FROM members WHERE org_id = ?').bind(o.id), env.DB.prepare('DELETE FROM orgs WHERE id = ?').bind(o.id)]); return J({ ok: true, files: keys.length }); }
-      if (p === '/api/admin/backup' && M === 'POST') return J(await backup(env));
+        await tdb(env, o.id).wipe(); await env.DB.batch([env.DB.prepare('DELETE FROM members WHERE org_id = ?').bind(o.id), env.DB.prepare('DELETE FROM orgs WHERE id = ?').bind(o.id)]); await padd(env, 'org_deleted', `${o.name} /${o.slug} · ${keys.length} ملف`); return J({ ok: true, files: keys.length }); }
+      if (p === '/api/admin/backup' && M === 'POST') { const r = await backup(env); await padd(env, 'backup', r.day); return J(r); }
+      if (p === '/api/admin/audit' && M === 'GET') return J({ audit: (await env.DB.prepare('SELECT action, detail, at FROM platform_audit ORDER BY id DESC LIMIT 200').all()).results });
       if (p === '/api/admin/backup' && M === 'GET') { const days = [...new Set((await listAll(env, '_backup/')).map(o => o.key.split('/')[1]))].sort(); return J({ days, last: days[days.length - 1] || null }); }
       if (p === '/api/admin/password' && M === 'POST') {   // a new password for a member of an organisation (the old one stops working)
         const b = await req.json(), u = await env.DB.prepare('SELECT u.id, u.email FROM users u JOIN members m ON m.user_id = u.id WHERE m.org_id = ? AND u.email = ?').bind(b.org, String(b.email || '').toLowerCase()).first(); if (!u) return err('ليس عضواً في هذه الجهة', 404);
         const password = String(b.password || '').trim() || newPw(); if (password.length < 8) return err('كلمة المرور ثمانية أحرف على الأقل');
-        await env.DB.batch([env.DB.prepare('UPDATE users SET pw = ? WHERE id = ?').bind(await pwHash(password), u.id), env.DB.prepare('DELETE FROM sessions WHERE user_id = ?').bind(u.id)]); await audit(env, b.org, null, null, 'password', u.email); return J({ email: u.email, password }); }
+        await env.DB.batch([env.DB.prepare('UPDATE users SET pw = ? WHERE id = ?').bind(await pwHash(password), u.id), env.DB.prepare('DELETE FROM sessions WHERE user_id = ?').bind(u.id)]); await audit(env, b.org, null, null, 'password', u.email); await padd(env, 'password_renewed', u.email); return J({ email: u.email, password }); }
       if (p === '/api/admin/leads' && M === 'GET') return J({ leads: (await env.DB.prepare('SELECT id, name, org, phone, email, kind, event_date, message, created_at, handled_at, mailed FROM leads ORDER BY id DESC LIMIT 200').all()).results, mail: !!((env.EMAIL || env.RESEND_KEY) && env.CONTACT_TO) });
       if (p === '/api/admin/leads' && M === 'PATCH') { const b = await req.json(); await env.DB.prepare('UPDATE leads SET handled_at = ? WHERE id = ?').bind(b.handled ? now() : null, b.id).run(); return J({ ok: true }); }
       if (p === '/api/admin/site' && M === 'PUT') { const f = url.searchParams.get('path') || ''; if (!/^[\w./-]+$/.test(f) || f.includes('..')) return err('مسار غير صالح'); await env.MEDIA.put('_site/' + f, req.body, { httpMetadata: { contentType: req.headers.get('Content-Type') || 'application/octet-stream' } }); return J({ ok: true }); }
       if (p === '/api/admin/org' && M === 'PATCH') {   // the plan of an organisation: limits, the paid period, activation days added
         const b = await req.json(), o = await env.DB.prepare('SELECT * FROM orgs WHERE id = ?').bind(b.id).first(); if (!o) return err('لا يوجد', 404);
         await env.DB.prepare('UPDATE orgs SET name = ?, plan = ?, events_limit = ?, storage_limit_mb = ?, paid_until = ?, credits = ? WHERE id = ?').bind(b.name ?? o.name, b.plan ?? o.plan, b.events_limit ?? o.events_limit, b.storage_limit_mb ?? o.storage_limit_mb, b.paid_until === undefined ? o.paid_until : b.paid_until, Math.max(0, o.credits + (+b.add_credits || 0)), o.id).run();
-        await audit(env, o.id, null, null, 'plan', JSON.stringify(b)); return J({ ok: true });
+        await audit(env, o.id, null, null, 'plan', JSON.stringify(b)); await padd(env, 'org_changed', `${o.name} /${o.slug} ${JSON.stringify({ ...b, id: undefined })}`); return J({ ok: true });
       }
       if (p === '/api/admin/invite' && M === 'POST') { const b = await req.json(), u = await userFor(env, b.email); if (!u) return err('بريد غير صالح'); await env.DB.prepare('INSERT INTO members (org_id, user_id, role) VALUES (?,?,?) ON CONFLICT (org_id, user_id) DO NOTHING').bind(b.org, u.id, 'owner').run(); return J({ join: await invite(env, u.email) }); }
       if (p === '/api/admin/orgs' && M === 'GET') {
@@ -157,15 +159,17 @@ const main = {
       }
       // ----- signing in by a link (no password): the link is used once and opens a session of 30 days
       if (p === '/api/login' && M === 'POST') {   // the studio's gate: email and password
-        const ip = req.headers.get('CF-Connecting-IP') || 'local', f = await locked(env, ip); if (!f) return err('محاولات كثيرة. حاول بعد ربع ساعة.', 429);
         const b = await req.json().catch(() => ({})); let u = null;
+        const ip = (req.headers.get('CF-Connecting-IP') || 'local') + '|' + (b.slug ? String(b.slug).slice(0, 60) : 'login'), f = await locked(env, ip); if (!f) return err('محاولات كثيرة. حاول بعد ربع ساعة.', 429);   // counted per address and per door
+        // and the door itself: twenty wrong passwords from anywhere close it for a quarter of an hour, so guessing from many addresses gains nothing
+        const door = '*|' + (b.slug ? String(b.slug).slice(0, 60) : 'login'), fd = b.slug ? await locked(env, door) : { n: 0 }; if (!fd) return err('محاولات كثيرة على هذا العنوان. حاول بعد ربع ساعة، أو ادخل بمفتاح المرور.', 429);
         // at an organisation's own address the password is enough: it is tried against the members of that organisation only
         if (b.slug && !b.email) { const { results } = await env.DB.prepare("SELECT u.id, u.pw FROM users u JOIN members m ON m.user_id = u.id JOIN orgs o ON o.id = m.org_id WHERE o.slug = ? AND u.pw IS NOT NULL ORDER BY CASE m.role WHEN 'owner' THEN 0 ELSE 1 END LIMIT 8").bind(String(b.slug)).all();
           for (const x of results) if (await pwOk(String(b.password || ''), x.pw)) { u = x; break; }
-          if (!u) { await failed(env, ip, f.n); return err('كلمة المرور غير صحيحة', 403); } }
+          if (!u) { await failed(env, ip, f.n); await failed(env, door, fd.n, 20); return err('كلمة المرور غير صحيحة', 403); } }
         else { u = await env.DB.prepare('SELECT id, pw FROM users WHERE email = ?').bind(String(b.email || '').trim().toLowerCase()).first();
           if (!(await pwOk(String(b.password || ''), u && u.pw)) || u.id === 'platform') { await failed(env, ip, f.n); return err('البريد أو كلمة المرور غير صحيحة', 403); } }
-        if (b.slug) { await env.DB.prepare('DELETE FROM login_fail WHERE ip = ?').bind(ip).run(); const on = await env.DB.prepare('SELECT name FROM orgs WHERE slug = ?').bind(String(b.slug)).first(); return new Response(JSON.stringify({ ok: true, to: '/' + b.slug, name: on ? on.name : '' }), { headers: { 'Content-Type': 'application/json', 'Set-Cookie': await session(env, u.id) } }); }
+        if (b.slug) { await env.DB.prepare('DELETE FROM login_fail WHERE ip IN (?, ?)').bind(ip, door).run(); const on = await env.DB.prepare('SELECT name FROM orgs WHERE slug = ?').bind(String(b.slug)).first(); return new Response(JSON.stringify({ ok: true, to: '/' + b.slug, name: on ? on.name : '' }), { headers: { 'Content-Type': 'application/json', 'Set-Cookie': await session(env, u.id) } }); }
         await env.DB.prepare('DELETE FROM login_fail WHERE ip = ?').bind(ip).run(); const first = await env.DB.prepare('SELECT o.slug FROM members m JOIN orgs o ON o.id = m.org_id WHERE m.user_id = ? LIMIT 1').bind(u.id).first();
         return new Response(JSON.stringify({ ok: true, to: '/' + (first ? first.slug : 'login') }), { headers: { 'Content-Type': 'application/json', 'Set-Cookie': await session(env, u.id) } }); }
       if (p === '/api/password' && M === 'POST') {   // a signed in member sets a password of their own
@@ -310,6 +314,10 @@ const main = {
           const rev = req.headers.get('x-rev'); if (rev && rev !== ev.updated_at && !req.headers.get('x-force')) return J({ error: 'عدّل زميل هذا اللقاء أثناء عملك', conflict: true, rev: ev.updated_at }, 409);
           const at = now(); await T.prepare('UPDATE events SET draft = ?, name = ?, updated_at = ? WHERE id = ?').bind(JSON.stringify(doc), doc.name || ev.name, at, id).run(); return J({ ok: true, rev: at, problems: problems(doc) }); }
         // the published versions of the event, and a version brought back as the draft (the versions themselves never change)
+        if (sub === 'report' && M === 'GET') { if (!ev.published_version) return J({ rows: [] }); const r = await (await env.ROOM.get(env.ROOM.idFromName(id + ':live')).fetch(new Request('https://room/log'))).json().catch(() => ({ log: [] }));
+          const d = JSON.parse((await T.prepare('SELECT doc FROM event_versions WHERE event_id = ? AND version = ?').bind(id, ev.published_version).first()).doc), log = r.log || [], end = log.length ? (r.state && r.state.live ? Date.now() : log[log.length - 1].t) : 0, rows = [];
+          log.forEach((x, i) => { if (x.k !== 'cue') return; const nx = log.slice(i + 1).find(y => y.k === 'cue' || y.k === 'off'), c = d.cues.find(q => q.id === x.id); rows.push({ title: c ? c.title : x.id, type: c ? c.type : '', at: x.t, ms: (nx ? nx.t : end) - x.t, planned: c ? (+c.dur || 0) * 60000 : 0 }); });
+          const on = log.find(x => x.k === 'on'), la = log.find(x => x.k === 'launch'); return J({ name: d.name, version: ev.published_version, from: on ? on.t : (rows[0] ? rows[0].at : 0), to: end, launchAt: la ? la.t : 0, running: !!(r.state && r.state.live), rows }); }
         if (sub === 'versions' && M === 'GET') { const { results } = await T.prepare('SELECT version, published_by, published_at FROM event_versions WHERE event_id = ? ORDER BY version DESC LIMIT 50').bind(id).all(), names = {};
           for (const u of new Set(results.map(r => r.published_by).filter(Boolean))) { const x = await env.DB.prepare('SELECT email FROM users WHERE id = ?').bind(u).first(); names[u] = x ? x.email : ''; }
           return J({ versions: results.map(r => ({ version: r.version, at: r.published_at, by: names[r.published_by] || '' })), current: ev.published_version }); }

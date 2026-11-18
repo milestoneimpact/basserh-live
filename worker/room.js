@@ -24,9 +24,13 @@ export class Room {
     // several hands: the press counts once every guest has held for two seconds together
     if (press && !op && handsOf(this.doc) > 1) { const h = this.hands(); if (!(h.allAt && Date.now() - h.allAt >= 1800)) return; }
     const trusted = op || click;
-    const next = reduce(this.doc, this.state, cmd, Date.now(), trusted); if (next !== this.state) { this.state = next; await this.ctx.storage.put('state', next); this.cast({ state: next, now: Date.now(), peers: this.peers() }); }
+    const next = reduce(this.doc, this.state, cmd, Date.now(), trusted); if (next !== this.state) { const was = this.state, t = Date.now(), add = [];
+      if (cmd.type === 'reset') { this.log = []; } if (!!next.live !== !!was.live) add.push({ t, k: next.live ? 'on' : 'off' }); if (next.cue !== was.cue || (next.live && !was.live)) add.push({ t, k: 'cue', id: next.cue }); if (next.launchedAt && next.launchedAt !== was.launchedAt && next.launchedAt >= t - 2000) add.push({ t, k: 'launch' });
+      if (add.length) { this.log = [...(this.log || (await this.ctx.storage.get('log')) || []), ...add].slice(-600); await this.ctx.storage.put('log', this.log); }
+      this.state = next; await this.ctx.storage.put('state', next); this.cast({ state: next, now: Date.now(), peers: this.peers() }); }
   }
   async fetch(req) {
+    if (new URL(req.url).pathname === '/log') return Response.json({ log: this.log || (await this.ctx.storage.get('log')) || [], state: this.state });
     if (new URL(req.url).pathname === '/kick') { for (const ws of this.ctx.getWebSockets()) { try { ws.close(4001, 'renew'); } catch {} } return Response.json({ ok: true }); }
     await this.take(req); const role = req.headers.get('x-role'), url = new URL(req.url);
     if (url.pathname.endsWith('/state')) return Response.json({ state: this.state, now: Date.now(), peers: this.peers() });

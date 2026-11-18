@@ -15,3 +15,5 @@ CREATE TABLE IF NOT EXISTS passkeys (cred_id TEXT PRIMARY KEY, user_id TEXT NOT 
 CREATE TABLE IF NOT EXISTS challenges (challenge TEXT PRIMARY KEY, user_id TEXT, expires_at TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS login_fail (ip TEXT PRIMARY KEY, n INTEGER NOT NULL, until TEXT);
 CREATE TABLE IF NOT EXISTS leads (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, org TEXT, phone TEXT, email TEXT, kind TEXT, event_date TEXT, message TEXT, ip TEXT, created_at TEXT NOT NULL, handled_at TEXT, mailed INTEGER NOT NULL DEFAULT 0);
+-- what the platform owner did, for the owner's own page
+CREATE TABLE IF NOT EXISTS platform_audit (id INTEGER PRIMARY KEY AUTOINCREMENT, action TEXT NOT NULL, detail TEXT, at TEXT NOT NULL);
