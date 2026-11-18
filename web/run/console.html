@@ -44,6 +44,18 @@ body{background:var(--paper);color:var(--ink)}header h1{color:var(--deep)}
 .dev{border-top:1px solid var(--line)}.dev i{background:#D9B878}.dev i.on{background:#2FA36B}.dev i.bad{background:#C4513C}.dev b{color:var(--deep)}.dev small{color:var(--mute)}.dev small[style*="FF8E7A"]{color:#B4432F!important;font-weight:600}.dev small[style*="E0B15C"]{color:#9A6B12!important}
 #offBar{background:linear-gradient(120deg,#FBEDEA,#FFF8EC);border:1px solid #E3B4A8}#offBar b{color:#8F3525}#offBar span{color:#6F5A52}#liveOn{color:#fff;text-shadow:0 1px 0 rgba(0,0,0,.2)}
 #notes{border-top:1px solid var(--line)}#noteT{background:#fff;border:1px solid var(--line);color:var(--ink)}#live{box-shadow:0 6px 18px rgba(14,17,20,.18)}
+/* the console in the hand: «next» stays under the thumb, the small buttons sit two by two, nothing runs off the side */
+html,body{overflow-x:hidden}
+@media(max-width:900px){
+  header{gap:8px}header .wm span{display:none}header h1{font-size:17px;flex:1 1 55%;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.pill{order:3}#reh{order:4}header>span[style*="flex:1"]{display:none}#peers{order:5}#peers{width:100%;display:flex;flex-wrap:wrap;gap:4px 12px}#peers span{margin:0}
+  main{padding:12px 12px 120px;gap:12px}.card{padding:14px;margin-bottom:12px;border-radius:14px}.now .t{font-size:24px;line-height:1.4}#clock{font-size:24px}
+  .go{display:block;margin-top:12px}.side{grid-template-columns:1fr 1fr;margin-top:0}.side .b{padding:12px 6px}
+  #next{position:fixed;inset:auto 12px 12px 12px;z-index:30;padding:14px;font-size:24px;border-radius:16px;box-shadow:0 14px 34px rgba(14,17,20,.3),inset 0 1px 0 rgba(255,255,255,.3)}#next small{font-size:13px;margin-top:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  #talk .lab span:last-child{display:none}#talk>div:last-child{flex-wrap:wrap}[data-step],#tkCard,#tkStart{flex:1;padding:12px 8px;font-size:15px;white-space:nowrap}
+  #thumbs{grid-template-columns:repeat(3,1fr);gap:8px}#lines p{font-size:19px}#notes .b{flex:1}#noteT{flex-basis:100%}
+  #offBar{flex-direction:column;align-items:stretch;text-align:center;margin:12px 12px 0;padding:16px}#liveOn{padding:14px}
+  #mbar{grid-template-columns:56px 1fr;gap:10px}#mbar .b{grid-column:auto}.lab{flex-wrap:wrap;gap:2px 10px}.dev{grid-template-columns:12px 1fr auto}.cue{padding:11px 10px}
+}
 </style></head><body>
 <header><div class="wm" style="font-size:19px">بصيرة<i></i></div><h1 id="evName"></h1><span class="pill" id="conn">…</span><span class="pill" id="hall" title="ما حفظه جهاز القاعة من ملفات اللقاء"></span><span class="pill reh" id="reh" style="display:none">بروفة على المسودة</span><span style="flex:1"></span><span id="peers"></span></header>
 <div id="offBar"><div><b>الشاشات مطفأة</b><span>كل شاشة مفتوحة الآن سوداء، وتحفظ ملفاتها في الخلفية. شغّلها حين تجهز القاعة.</span></div><button id="liveOn">تشغيل الشاشات</button></div>
