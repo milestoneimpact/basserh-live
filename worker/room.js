@@ -15,8 +15,8 @@ export class Room {
   // the screens of the hall as they report themselves (which kind, what size, how many files they hold); kept with each connection, so it survives the room's sleep
   hall() { const d = {}; for (const ws of this.ctx.getWebSockets()) { const a = ws.deserializeAttachment() || {}; if (a.rep) d[a.rep.id] = a.rep; } return d; }
   // a launch by several hands: how many guests are holding their button now, and since when all of them are
-  hands() { let held = 0; for (const ws of this.ctx.getWebSockets()) { if ((ws.deserializeAttachment() || {}).hold) held++; } const need = this.doc ? handsOf(this.doc) : 1;
-    if (held >= need) this.allAt = this.allAt || Date.now(); else this.allAt = null; return { held, need, allAt: this.allAt }; }
+  hands() { const at = []; for (const ws of this.ctx.getWebSockets()) { const h = (ws.deserializeAttachment() || {}).hold; if (h) at.push(+h); } const need = this.doc ? handsOf(this.doc) : 1;
+    return { held: at.length, need, allAt: at.length >= need ? Math.max(...at) : null }; }
   peers() { const n = {}; for (const ws of this.ctx.getWebSockets()) { const r = (ws.deserializeAttachment() || {}).role; n[r] = (n[r] || 0) + 1; } return n; }
   async apply(cmd, role) {
     // the operator sends everything; the guest's tablet only the launch press; the hall computer only the presenter's clicker (slides)
@@ -44,7 +44,7 @@ export class Room {
     const role = (ws.deserializeAttachment() || {}).role;
     // the hall computer reports the files it holds locally; the operator sees it
     if (m.report && /^[a-z0-9]{4,12}$/.test(m.report.id || '')) { const r = m.report, a = ws.deserializeAttachment() || {}; ws.serializeAttachment({ ...a, rep: { id: r.id, kind: ['main', 'side', 'logo'].includes(r.kind) ? r.kind : 'main', w: +r.w || 0, h: +r.h || 0, total: +r.total || 0, done: +r.done || 0, bad: +r.bad || 0, pct: +r.pct || 0, label: String(r.label || '').slice(0, 40), scene: String(r.scene || '').slice(0, 12), cue: String(r.cue || '').slice(0, 40), lag: Math.round(+r.lag || 0), err: String(r.err || '').slice(0, 90), ver: +r.ver || 0, t: +r.t || 0, at: Date.now() } }); return this.cast({ hall: this.hall() }); }
-    if (m.hold !== undefined && (role === 'tablet' || role === 'console')) { const a = ws.deserializeAttachment() || {}; ws.serializeAttachment({ ...a, hold: !!m.hold }); return this.cast({ hands: this.hands() }); }
+    if (m.hold !== undefined && (role === 'tablet' || role === 'console')) { const a = ws.deserializeAttachment() || {}; ws.serializeAttachment({ ...a, hold: m.hold ? (a.hold || Date.now()) : 0 }); return this.cast({ hands: this.hands() }); }
     // the hall computer ran the event from its keyboard while the network was down: its state is taken back if nobody moved the event meanwhile
     if (m.adopt && (role === 'stage' || role === 'console') && this.state && m.adopt.base === this.state.ver && this.doc.cues.some(c => c.id === m.adopt.state.cue)) { this.state = { ...m.adopt.state, ver: this.state.ver + 1 }; await this.ctx.storage.put('state', this.state); return this.cast({ state: this.state, now: Date.now(), peers: this.peers() }); }
     if (!this.doc) return; await this.apply(m.cmd, (ws.deserializeAttachment() || {}).role); }
