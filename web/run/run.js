@@ -12,14 +12,16 @@ export async function connect() {
     if (!r.ok) { document.body.innerHTML = `<p style="font:600 22px sans-serif;text-align:center;margin-top:30vh;color:#888">${cfg.error || 'تعذّر فتح اللقاء'}</p>`; throw Object.assign(new Error(cfg.error), { shown: true }); } localStorage.setItem(K, JSON.stringify(cfg)); }
   catch (x) { if (x.shown) throw x; cfg = JSON.parse(localStorage.getItem(K) || 'null'); if (!cfg) { document.body.innerHTML = '<p style="font:600 22px sans-serif;text-align:center;margin-top:30vh;color:#888">لا اتصال، ولم يُفتح هذا اللقاء على هذا الجهاز من قبل</p>'; throw x; } }
   let state = JSON.parse(localStorage.getItem(K + ':s') || 'null'), skew = 0, peers = {}, hall = null, hands = null, online = false, ws, away = null; const subs = [], tell = () => { if (!state) return; localStorage.setItem(K + ':s', JSON.stringify(state)); subs.forEach(f => f(state, { peers, online, hall, hands })); };
+  // a tap made in the moment before the connection opens is not lost: it waits (five seconds at most) and goes out first
+  const wait = [], out = o => { const t = JSON.stringify(o); if (ws.readyState === 1) ws.send(t); else { wait.push({ t, at: Date.now() }); if (wait.length > 20) wait.shift(); } };
   const open = () => { ws = new WebSocket(`${location.origin.replace(/^http/, 'ws')}/api/run/${e}/ws${draft}`);
-    ws.onopen = () => { online = true; seen = Date.now(); if (away) { ws.send(JSON.stringify({ adopt: { state, base: away } })); away = null; } tell(); };
+    ws.onopen = () => { online = true; seen = Date.now(); for (const w of wait.splice(0)) if (Date.now() - w.at < 5000) ws.send(w.t); if (away) { ws.send(JSON.stringify({ adopt: { state, base: away } })); away = null; } tell(); };
     ws.onmessage = m => { seen = Date.now(); const d = JSON.parse(m.data); if (d.now) skew = d.now - Date.now(); if (d.peers) peers = d.peers; if (d.hall !== undefined) hall = d.hall; if (d.hands !== undefined) hands = d.hands; if (d.reload !== undefined && d.reload !== cfg.version) return location.reload(); if (d.state && !away) state = d.state; tell(); };
     ws.onclose = () => { online = false; tell(); setTimeout(open, 1500); }; };
   // a heartbeat: a connection that stays open but silent for ten seconds (a dead network) counts as down, and is opened again
   let seen = Date.now(); open(); setInterval(() => { if (ws.readyState === 1) { ws.send('{"ping":1}'); if (Date.now() - seen > 10000) ws.close(); } }, 4000);
   return { doc: cfg.doc, base: cfg.base, role: cfg.role, draft: !!draft, get state() { return state; }, now: () => Date.now() + skew,
-    on: f => { subs.push(f); if (state) f(state, { peers, online, hall, hands }); }, poke: tell, send: cmd => ws.readyState === 1 && ws.send(JSON.stringify({ cmd })), raw: o => ws.readyState === 1 && ws.send(JSON.stringify(o)),
+    on: f => { subs.push(f); if (state) f(state, { peers, online, hall, hands }); }, poke: tell, send: cmd => out({ cmd }), raw: o => out(o),
     get online() { return online; },
     // the hall computer alone, network down: its keyboard moves the event by the same rules; the room takes the result back on return
     local: cmd => { if (online || !state) return; if (away === null) away = state.ver; const n = reduce(cfg.doc, state, cmd, Date.now() + skew, true); if (n !== state) { state = n; tell(); } } };
