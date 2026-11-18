@@ -295,7 +295,8 @@ export default {
         const n = (await T.prepare('SELECT COUNT(*) AS n FROM events WHERE org_id = ? AND status != ?').bind(org.id, 'archived').first()).n;
         if (n >= org.events_limit) return err(`باقتكم تسمح بـ ${org.events_limit} لقاء. أرشفوا لقاءً أو رقّوا الباقة.`, 402);
         if (org.paid_until && org.paid_until < now()) return err('انتهى اشتراك الجهة', 402);
-        let doc = BLANK(b.name); if (b.from) { const src = await T.prepare('SELECT draft FROM events WHERE id = ? AND org_id = ?').bind(b.from, org.id).first(); if (src) doc = { ...JSON.parse(src.draft), name: b.name }; }
+        let doc = BLANK(b.name); if (b.doc && Array.isArray(b.doc.cues) && b.doc.identity && b.doc.identity.before) doc = { ...BLANK(b.name), ...b.doc, name: b.name };   // a template chosen in the studio
+        if (b.from) { const src = await T.prepare('SELECT draft FROM events WHERE id = ? AND org_id = ?').bind(b.from, org.id).first(); if (src) doc = { ...JSON.parse(src.draft), name: b.name }; }
         const id = 'e_' + org.id.slice(2) + rid(8), s = (slug(b.slug) || 'event') + '-' + rid(4);
         await T.prepare('INSERT INTO events (id, org_id, slug, name, status, draft, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?)').bind(id, org.id, s, b.name, 'draft', JSON.stringify(doc), now(), now()).run();
         await audit(env, org.id, id, who.user.id, 'create', b.name); return J({ id });
@@ -303,22 +304,29 @@ export default {
       const m = p.match(/^\/api\/events\/(e_[a-z0-9]{20})(?:\/(\w+))?(?:\/(.+))?$/);
       if (m) {
         const [, id, sub, rest] = m, ev = await T.prepare('SELECT * FROM events WHERE id = ? AND org_id = ?').bind(id, org.id).first(); if (!ev) return err('لا يوجد', 404);
-        if (!sub && M === 'GET') { const doc = JSON.parse(ev.draft); return J({ id, name: ev.name, status: ev.status, published_version: ev.published_version, active_from: ev.active_from, active_until: ev.active_until, credits: org.credits, doc, problems: problems(doc), base: `/m/${org.id}/${id}/` }); }
+        if (!sub && M === 'GET') { const doc = JSON.parse(ev.draft); return J({ id, name: ev.name, status: ev.status, published_version: ev.published_version, active_from: ev.active_from, active_until: ev.active_until, credits: org.credits, rev: ev.updated_at, doc, problems: problems(doc), base: `/m/${org.id}/${id}/` }); }
         if (!sub && M === 'PUT') { if (!can('editor')) return err('لا تملك صلاحية التعديل', 403); const doc = await req.json(); if (!doc || !Array.isArray(doc.cues)) return err('وثيقة غير صالحة');
-          await T.prepare('UPDATE events SET draft = ?, name = ?, updated_at = ? WHERE id = ?').bind(JSON.stringify(doc), doc.name || ev.name, now(), id).run(); return J({ ok: true, problems: problems(doc) }); }
+          const rev = req.headers.get('x-rev'); if (rev && rev !== ev.updated_at && !req.headers.get('x-force')) return J({ error: 'عدّل زميل هذا اللقاء أثناء عملك', conflict: true, rev: ev.updated_at }, 409);
+          const at = now(); await T.prepare('UPDATE events SET draft = ?, name = ?, updated_at = ? WHERE id = ?').bind(JSON.stringify(doc), doc.name || ev.name, at, id).run(); return J({ ok: true, rev: at, problems: problems(doc) }); }
+        // the published versions of the event, and a version brought back as the draft (the versions themselves never change)
+        if (sub === 'versions' && M === 'GET') { const { results } = await T.prepare('SELECT version, published_by, published_at FROM event_versions WHERE event_id = ? ORDER BY version DESC LIMIT 50').bind(id).all(), names = {};
+          for (const u of new Set(results.map(r => r.published_by).filter(Boolean))) { const x = await env.DB.prepare('SELECT email FROM users WHERE id = ?').bind(u).first(); names[u] = x ? x.email : ''; }
+          return J({ versions: results.map(r => ({ version: r.version, at: r.published_at, by: names[r.published_by] || '' })), current: ev.published_version }); }
+        if (sub === 'restore' && M === 'POST') { if (!can('editor')) return err('لا تملك صلاحية التعديل', 403); const b = await req.json(), v = await T.prepare('SELECT doc FROM event_versions WHERE event_id = ? AND version = ?').bind(id, +b.version).first(); if (!v) return err('لا توجد هذه النسخة', 404);
+          const at = now(); await T.prepare('UPDATE events SET draft = ?, updated_at = ? WHERE id = ?').bind(v.doc, at, id).run(); await audit(env, org.id, id, who.user.id, 'restore', 'v' + b.version); return J({ ok: true, rev: at }); }
         if (!sub && M === 'DELETE') { if (!can('owner')) return err('للمالك فقط', 403); await T.prepare('UPDATE events SET status = ?, updated_at = ? WHERE id = ?').bind('archived', now(), id).run(); await audit(env, org.id, id, who.user.id, 'archive'); return J({ ok: true }); }
         if (sub === 'publish' && M === 'POST') {   // freeze the draft as the next version: the screens of the hall read this one
           if (!can('editor')) return err('لا تملك صلاحية الاعتماد', 403); if (org.paid_until && org.paid_until < now()) return err('انتهى اشتراك الجهة', 402); const doc = JSON.parse(ev.draft), bad = problems(doc); if (bad.length) return J({ error: 'أكمل النواقص قبل الاعتماد', problems: bad }, 422);
-          const v = (ev.published_version || 0) + 1; await T.batch([T.prepare('INSERT INTO event_versions (event_id, version, doc, published_by, published_at) VALUES (?,?,?,?,?)').bind(id, v, ev.draft, who.user.id, now()),
-            T.prepare('UPDATE events SET published_version = ?, status = ?, updated_at = ? WHERE id = ?').bind(v, 'published', now(), id)]);
-          await audit(env, org.id, id, who.user.id, 'publish', 'v' + v); const swept = await sweep(env, T, org.id, { ...ev, published_version: v }).catch(() => 0); return J({ version: v, swept });
+          const v = (ev.published_version || 0) + 1, at = now(); await T.batch([T.prepare('INSERT INTO event_versions (event_id, version, doc, published_by, published_at) VALUES (?,?,?,?,?)').bind(id, v, ev.draft, who.user.id, now()),
+            T.prepare('UPDATE events SET published_version = ?, status = ?, updated_at = ? WHERE id = ?').bind(v, 'published', at, id)]);
+          await audit(env, org.id, id, who.user.id, 'publish', 'v' + v); const swept = await sweep(env, T, org.id, { ...ev, published_version: v }).catch(() => 0); return J({ version: v, swept, rev: at });   // rev: the draft's stamp after this write, so the studio's next save is not taken for a colleague's
         }
         if (sub === 'activate' && M === 'POST') {   // one activation day: from the morning of the chosen day (the browser's own midnight) for 24 hours, plus the evening before for the hall's set up
           if (!can('owner')) return err('التفعيل لمالك الحساب', 403); if (org.paid_until && org.paid_until < now()) return err('انتهى اشتراك الجهة', 402); const b = await req.json(), from = new Date(b.from); if (isNaN(from) || from.getTime() < Date.now() - 864e5) return err('تاريخ غير صالح');
           if (!ev.published_version) return err('اعتمد نسخة أولاً'); if (ev.active_until && ev.active_until > now()) return err('اللقاء مفعّل حتى ' + ev.active_until.slice(0, 10));
           const o = await env.DB.prepare('UPDATE orgs SET credits = credits - 1 WHERE id = ? AND credits > 0 RETURNING credits').bind(org.id).first(); if (!o) return err('لا أيام تفعيل في رصيدكم. تواصلوا معنا لإضافة يوم.', 402);
           const a = new Date(from.getTime() - 6 * 36e5).toISOString(), z = new Date(from.getTime() + 24 * 36e5).toISOString();
-          await T.prepare('UPDATE events SET active_from = ?, active_until = ?, updated_at = ? WHERE id = ?').bind(a, z, now(), id).run(); await audit(env, org.id, id, who.user.id, 'activate', a + ' ' + z); return J({ active_from: a, active_until: z, credits: o.credits });
+          const at = now(); await T.prepare('UPDATE events SET active_from = ?, active_until = ?, updated_at = ? WHERE id = ?').bind(a, z, at, id).run(); await audit(env, org.id, id, who.user.id, 'activate', a + ' ' + z); return J({ active_from: a, active_until: z, credits: o.credits, rev: at });
         }
         // a large file goes up in parts (16 MB each), so a long film survives a weak connection and can be retried part by part
         if (sub === 'upload' && M === 'POST') { if (!can('editor')) return err('لا تملك صلاحية الرفع', 403); const b = await req.json();

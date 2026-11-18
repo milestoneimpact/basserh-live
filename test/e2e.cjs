@@ -10,7 +10,7 @@ const ok = (c, m) => { console.log((c ? '✓ ' : '✗ ') + m); if (!c) process.e
   const ctx = await b.newContext({ viewport: { width: 1440, height: 900 } }); const p = await ctx.newPage(); p.on('pageerror', e => errs.push('studio: ' + e.message));
   let ans = []; p.on('dialog', d => d.type() === 'prompt' ? d.accept(ans.shift() || 'x') : d.accept());
   await p.goto(B + org.join); await p.waitForSelector('#new'); ok(new URL(p.url()).pathname === '/' + org.slug, 'signed in by the invitation link, at the organisation\'s own address ' + new URL(p.url()).pathname);
-  ans = ['ملتقى الشركاء السنوي']; await p.click('#new'); await p.waitForSelector('.tabs');
+  await p.click('#new'); await p.fill('#dlgIn', 'ملتقى الشركاء السنوي'); await p.click('#dlgOk'); await p.waitForSelector('.tabs');
   // people
   await p.click('[data-t="people"]'); for (const [n, h] of [['أ. اسم المتحدث الأول', 'المدير العام'], ['د. اسم المتحدث الثاني', '']]) { await p.click('#addP'); const r = p.locator('#body .row').last(); await r.locator('input').nth(0).fill(n); await r.locator('input').nth(1).fill(h); }
   // files: a video, a reveal video, a PDF that becomes slides
@@ -42,7 +42,7 @@ const ok = (c, m) => { console.log((c ? '✓ ' : '✗ ') + m); if (!c) process.e
   const L = { stage: await mk('stage'), console: await mk('console'), tablet: await mk('tablet'), script: await mk('script') }; await p.screenshot({ path: A + 'studio_run.png' });
   // before the activation day the hall's links stay closed
   const early = await (await b.newContext()).newPage(); await early.goto(L.stage); await early.waitForTimeout(800); ok((await early.textContent('body')).includes('غير مفعّل'), 'not activated: the stage link shows «' + (await early.textContent('body')).trim().slice(0, 40) + '»');
-  await p.fill('#actDay', new Date().toLocaleDateString('en-CA')); await p.click('#act'); await p.waitForSelector('.okb:has-text("مفعّل")'); ok(true, 'the owner activated the day (one credit used)');
+  await p.fill('#actDay', new Date().toLocaleDateString('en-CA')); await p.click('#act'); await p.click('#dlgOk'); await p.waitForSelector('.okb:has-text("مفعّل")'); ok(true, 'the owner activated the day (one credit used)');
   // the hall: every screen in its own browser context, opened by its link only
   const open = async (u, w, h, name) => { const c = await b.newContext({ viewport: { width: w, height: h } }); const pg = await c.newPage(); pg.on('pageerror', e => errs.push(name + ': ' + e.message)); pg.on('dialog', d => d.accept()); await pg.goto(u); return pg; };
   const st = await open(L.stage, 1920, 1080, 'stage'); await st.click('#go'); const con = await open(L.console, 1440, 1000, 'console'); const tab = await open(L.tablet, 1024, 768, 'tablet'); const scr = await open(L.script, 900, 1000, 'script');

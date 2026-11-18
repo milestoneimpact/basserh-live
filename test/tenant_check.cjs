@@ -8,7 +8,7 @@ const J = process.argv[2], O = process.env.SHOTS || '/tmp/';
   await p.goto(J); await p.waitForSelector('.ev');
   console.log('studio at', new URL(p.url()).pathname, '| events:', (await p.$$eval('.ev h3', l => l.map(e => e.textContent))).join(' , '));
   await p.click('.ev:has-text("التحول الاستراتيجي")'); await p.waitForSelector('.tabs'); await p.screenshot({ path: O + 'tenant_studio.png' });
-  await p.click('[data-t="run"]'); await p.waitForSelector('#act'); await p.fill('#actDay', new Date().toLocaleDateString('en-CA')); await p.click('#act'); await p.waitForSelector('.okb:has-text("مفعّل")');
+  await p.click('[data-t="run"]'); await p.waitForSelector('#act'); await p.fill('#actDay', new Date().toLocaleDateString('en-CA')); await p.click('#act'); await p.click('#dlgOk'); await p.waitForSelector('.okb:has-text("مفعّل")');
   let prev = '';
   const mk = async role => { await p.selectOption('#lr', role); await p.click('#la'); await p.waitForFunction(o => { const e = document.querySelector('#newLink'); return e && e.textContent !== o; }, prev); prev = await p.textContent('#newLink'); return prev; };
   const ls = await mk('stage'), lc = await mk('console');

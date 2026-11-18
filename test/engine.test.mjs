@@ -46,3 +46,9 @@ test('a small event without a launch, built from nothing', () => {
   assert.ok(problems({ ...e, cues: [...e.cues, { id: 'x', type: 'speaker', title: 'بلا متحدث' }] }).some(p => /المتحدث/.test(p)));
   assert.ok(problems({ ...e, cues: [...e.cues, { id: 'l', type: 'launch', title: 'تدشين', media: 'v' }] }).some(p => /تأتيان معاً/.test(p)));
 });
+
+test('the templates of a new event are sound documents', async () => {
+  const { TEMPLATES } = await import('../web/engine/templates.js');
+  for (const t of TEMPLATES.filter(t => t.doc)) { const p = problems({ ...t.doc, name: 'لقاء' }); assert.ok(p.every(x => /ينقصها الملف/.test(x)), t.id + ': ' + p.join(' | ')); assert.equal(t.doc.cues.length, t.cues, t.id); }
+  assert.deepEqual(problems({ ...TEMPLATES.find(t => t.id === 'signing').doc, name: 'توقيع' }), []);
+});

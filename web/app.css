@@ -12,10 +12,21 @@
 :root{--night:#0E1114;--deep:#1F2A2E;--green:#1F2A2E;--leaf:#2E3D42;--cream:#E8D9BD;--paper:#F6F2E8;--gold:#B88A3D;--gold2:#D9B878;--ink:#0E1114;--mute:#6F7578;--line:#E4DAC6;--bad:#A8402F}
 *{box-sizing:border-box}html,body{margin:0;min-height:100%}body{background:var(--paper);color:var(--ink);font:400 16px/1.7 Plex,sans-serif}
 button,input,select,textarea{font:inherit;color:inherit}
-.btn{border:1px solid var(--line);background:#fff;border-radius:10px;padding:8px 16px;cursor:pointer;font:600 15px Plex;transition:.15s}.btn:hover{border-color:var(--gold)}
-.btn.pri{background:var(--green);border-color:var(--green);color:#fff}.btn.pri:hover{background:var(--leaf)}.btn.gold{background:var(--gold);border-color:var(--gold);color:#fff;font-family:Kufi;font-weight:700}
-.btn.sm{padding:4px 11px;font-size:13px}.btn.bad{color:var(--bad)}.btn:disabled{opacity:.45;cursor:default}
-input[type=text],input[type=number],input[type=email],select,textarea{width:100%;border:1px solid var(--line);border-radius:10px;padding:9px 12px;background:#fff;outline:none}
+/* buttons: a quiet one, a dark one for the main act of a panel, a gold one for the act that matters on the page; they lift under the pointer and press under the finger */
+.btn{border:1px solid var(--line);background:linear-gradient(180deg,#fff,#FAF6EC);border-radius:12px;padding:9px 18px;cursor:pointer;font:600 15px Plex;line-height:1.5;box-shadow:0 1px 0 rgba(14,17,20,.04);transition:transform .16s,box-shadow .16s,border-color .16s,background .16s;white-space:nowrap}
+.btn:hover{border-color:var(--gold);box-shadow:0 8px 20px rgba(14,17,20,.09);transform:translateY(-1px)}.btn:active{transform:none;box-shadow:inset 0 2px 5px rgba(14,17,20,.12)}.btn:focus-visible{outline:0;box-shadow:0 0 0 3px rgba(184,138,61,.38)}
+.btn.pri{background:linear-gradient(180deg,#2D3C41,#1F2A2E);border-color:#1F2A2E;color:#F6F2E8;box-shadow:0 6px 16px rgba(31,42,46,.22),inset 0 1px 0 rgba(255,255,255,.08)}.btn.pri:hover{background:linear-gradient(180deg,#364950,#26343A);border-color:#1F2A2E}
+.btn.gold{background:linear-gradient(180deg,#D2A658,#B88A3D 58%,#A47730);border-color:#A47730;color:#fff;font-family:Kufi;font-weight:700;text-shadow:0 1px 0 rgba(0,0,0,.2);box-shadow:0 8px 20px rgba(184,138,61,.3),inset 0 1px 0 rgba(255,255,255,.32)}.btn.gold:hover{border-color:#8E6626;box-shadow:0 12px 26px rgba(184,138,61,.4),inset 0 1px 0 rgba(255,255,255,.32)}
+.btn.sm{padding:4px 12px;font-size:13px;border-radius:9px}.btn.bad{color:var(--bad)}.btn.bad:hover{border-color:var(--bad);background:#FBEDEA}.btn.red{background:linear-gradient(180deg,#B94A37,#A8402F);border-color:#8F3525;color:#fff}
+.btn:disabled{opacity:.45;cursor:default;transform:none;box-shadow:none}.btn.ic{padding:8px 12px;font-size:17px;line-height:1.2}
+/* a dialog of the studio, in place of the browser's own boxes */
+#dlg{position:fixed;inset:0;z-index:60;display:grid;place-items:center;padding:20px;background:rgba(14,17,20,.55);backdrop-filter:blur(6px);animation:dlgIn .18s ease}
+#dlg .dl{width:min(520px,100%);max-height:calc(100vh - 40px);overflow:auto;background:#fff;border-radius:20px;padding:30px 30px 24px;position:relative;box-shadow:0 40px 90px rgba(14,17,20,.4);animation:dlgUp .24s cubic-bezier(.2,.8,.2,1)}#dlg .dl.wide{width:min(860px,100%)}
+#dlg .dl:before{content:'';position:absolute;inset:0 0 auto 0;height:4px;border-radius:20px 20px 0 0;background:linear-gradient(90deg,#A47730,#D9B878,#A47730)}
+#dlg h3{font:900 24px Kufi;color:var(--deep)}#dlg p{color:var(--mute);margin:8px 0 0}#dlg input[type=text],#dlg input[type=password]{width:100%;border:1px solid var(--line);border-radius:12px;padding:12px 14px;font-size:17px;margin-top:16px;outline:none}
+#dlg .da{display:flex;gap:10px;justify-content:flex-start;flex-direction:row-reverse;margin-top:24px}#dlg .da .btn{padding:10px 24px;font-size:16px}
+@keyframes dlgIn{from{opacity:0}}@keyframes dlgUp{from{opacity:0;transform:translateY(16px) scale(.98)}}
+input[type=text],input[type=number],input[type=email],select,textarea{width:100%;border:1px solid var(--line);border-radius:12px;padding:10px 13px;background:#fff;outline:none;transition:border-color .15s,box-shadow .15s}input[type=text]:hover,input[type=number]:hover,input[type=email]:hover,select:hover,textarea:hover{border-color:#D3C4A4}
 input:focus,select:focus,textarea:focus{border-color:var(--gold);box-shadow:0 0 0 3px rgba(194,160,99,.18)}
 label{display:block;font:600 13px Plex;color:var(--mute);margin:14px 0 5px}
 h1,h2,h3{font-family:Kufi;margin:0}.k{font:600 13px Plex;letter-spacing:.12em;color:var(--gold)}
