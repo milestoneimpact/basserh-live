@@ -27,7 +27,7 @@ export const SCENES = {
 };
 // the ways a launch is shown: a video the organisation uploads, or a reveal the screens draw themselves in the organisation's identity
 export const LAUNCH = { video: 'فيديو كشف مرفوع', countdown: 'عدّ تنازلي ثم كشف', light: 'انبثاق الضوء', curtain: 'انفتاح الستار' };
-export const TRANSITIONS = { fade: 'تلاشٍ هادئ', rise: 'صعود', zoom: 'اقتراب', wipe: 'ستار ذهبي' };
+export const TRANSITIONS = { fade: 'تلاشٍ هادئ', rise: 'صعود', zoom: 'اقتراب', wipe: 'ستار ذهبي', blur: 'انقشاع', iris: 'عدسة' };
 export const launchStyle = c => (c && LAUNCH[c.style] ? c.style : 'video');
 export const handsOf = ev => { const c = (ev.cues || []).find(c => c.type === 'launch'); return Math.max(1, Math.min(6, Math.round(+(c && c.hands) || 1))); };
 // seconds from the press to the moment the new identity is seen, and to the end of the launch

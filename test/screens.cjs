@@ -52,7 +52,7 @@ const adm = (p, m = 'GET', b) => fetch(B + '/api/admin/' + p, { method: m, heade
   const at = async p => { const r = await p.locator('#btn').boundingBox(); await p.mouse.move(r.x + r.width / 2, r.y + r.height / 2); await p.mouse.down(); };
   await at(t1); await t1.waitForTimeout(2600); ok(await scene(wide) === 'arm' && await wide.$$eval('#hands b.on', l => l.length) === 1, 'one hand alone does not launch, and the screen counts it');
   await at(t2); await wide.waitForFunction(() => document.querySelector('#rev.on'), null, { timeout: 8000 }); ok(true, 'both hands held for two seconds: the launch starts on the big screen');
-  ok(await scene(logo) === 'rev' && await scene(tall) === 'rev', 'the fixed logo screen joins the launch');
+  ok(await logo.waitForSelector('#rev.on', { timeout: 5000 }).then(() => true, () => false) && await tall.waitForSelector('#rev.on', { timeout: 5000 }).then(() => true, () => false), 'the fixed logo screen joins the launch');
   const bg = p => p.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--bg').trim());
   ok(await bg(t1) === '#F6F1E6', 'the new identity is not shown while the countdown runs'); await tall.waitForTimeout(700); await tall.screenshot({ path: OUT + 'sc_tall_count.jpg', type: 'jpeg', quality: 70 });
   await wide.waitForFunction(() => getComputedStyle(document.documentElement).getPropertyValue('--bg').trim() === '#0E1114', null, { timeout: 8000 }); await wide.waitForTimeout(3200);
@@ -70,7 +70,8 @@ const adm = (p, m = 'GET', b) => fetch(B + '/api/admin/' + p, { method: m, heade
   // before the day: a hall screen opened by its link saves its files and waits
   const L = await api(`/api/events/${ev.id}/links`, 'POST', { role: 'logo', label: 'شاشة المدخل' }), hall = await (await b.newContext({ viewport: { width: 1080, height: 1920 } })).newPage(); hall.on('pageerror', e => errs.push('hall: ' + e.message));
   await hall.goto(B + L.url); await hall.waitForSelector('#prep .ok', { timeout: 30000 }); ok(/2 من 2/.test(await hall.textContent('#pn')), 'not activated yet: the logo screen saved its files (' + (await hall.textContent('#pn')) + ') and waits: «' + (await hall.textContent('#pw')) + '»'); await hall.screenshot({ path: OUT + 'sc_prep.jpg', type: 'jpeg', quality: 70 });
-  await api(`/api/events/${ev.id}/publish`, 'POST'); const act = await api(`/api/events/${ev.id}/activate`, 'POST', { from: new Date().toISOString() }); await hall.reload(); await hall.waitForSelector('#idle.on', { timeout: 15000 }); ok(!!act.active_until, 'on the day the same link opens the screen, on the logo' + (act.error ? ' · ' + act.error : ''));
+  await api(`/api/events/${ev.id}/publish`, 'POST'); const act = await api(`/api/events/${ev.id}/activate`, 'POST', { from: new Date().toISOString() }); await hall.reload(); await hall.waitForFunction(() => window.stageReady, null, { timeout: 15000 }); await hall.waitForTimeout(900); ok(await hall.evaluate(() => document.body.classList.contains('dark') && !document.querySelector('#idle.on')), 'on the day the link opens, black until the operator turns the screens on');
+  await con.evaluate(() => fetch(`/api/run/${new URLSearchParams(location.search).get('e')}/cmd`, { method: 'POST', body: JSON.stringify({ type: 'live', on: true }) })); await hall.waitForSelector('#idle.on', { timeout: 15000 }); ok(!!act.active_until, 'the operator turns the screens on: the same link shows the logo' + (act.error ? ' · ' + act.error : ''));
   ok(!errs.length, 'page errors: ' + (errs.join(' | ') || 'none'));
   await b.close(); await adm('org', 'DELETE', { id: org.org, confirm: org.slug });
 })().catch(e => { console.log('✗ ' + (e.stack || e)); process.exitCode = 1; });

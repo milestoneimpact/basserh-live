@@ -17,7 +17,10 @@ export async function connect() {
   const open = () => { ws = new WebSocket(`${location.origin.replace(/^http/, 'ws')}/api/run/${e}/ws${draft}`);
     ws.onopen = () => { online = true; seen = Date.now(); for (const w of wait.splice(0)) if (Date.now() - w.at < 5000) ws.send(w.t); if (away) { ws.send(JSON.stringify({ adopt: { state, base: away } })); away = null; } tell(); };
     ws.onmessage = m => { seen = Date.now(); const d = JSON.parse(m.data); if (d.now) skew = d.now - Date.now(); if (d.peers) peers = d.peers; if (d.hall !== undefined) hall = d.hall; if (d.hands !== undefined) hands = d.hands; if (d.reload !== undefined && d.reload !== cfg.version) return location.reload(); if (d.state && !away) state = d.state; tell(); };
-    ws.onclose = () => { online = false; tell(); setTimeout(open, 1500); }; };
+    ws.onclose = async () => { online = false; tell();
+      // closed by the server: is this screen still allowed? A revoked link (or an ended session) blanks the page and stops
+      try { const r = await fetch(`/api/run/${e}/config${draft}`); if (r.status === 401) { localStorage.removeItem(K); localStorage.removeItem(K + ':s'); document.documentElement.style.background = '#000'; document.body.innerHTML = '<p style="font:600 20px sans-serif;text-align:center;margin-top:40vh;color:#666">أُلغي رابط هذه الشاشة</p>'; document.body.className = ''; subs.length = 0; for (let i = setTimeout(() => {}, 0); i > 0; i--) { clearTimeout(i); clearInterval(i); } return; } } catch {}
+      setTimeout(open, 1500); }; };
   // a heartbeat: a connection that stays open but silent for ten seconds (a dead network) counts as down, and is opened again
   let seen = Date.now(); open(); setInterval(() => { if (ws.readyState === 1) { ws.send('{"ping":1}'); if (Date.now() - seen > 10000) ws.close(); } }, 4000);
   return { doc: cfg.doc, base: cfg.base, role: cfg.role, draft: !!draft, get state() { return state; }, now: () => Date.now() + skew,

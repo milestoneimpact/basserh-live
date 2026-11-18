@@ -10,6 +10,7 @@ import { connect, $, esc, cueOf, shown } from './run.js'; const link = await con
 let zf = +localStorage.getItem('zf') || 1; const zoom = () => document.documentElement.style.setProperty('--zf', zf); zoom(); document.querySelectorAll('[data-z]').forEach(b => b.onclick = () => { zf = Math.max(.7, Math.min(2.2, zf * +b.dataset.z)); localStorage.setItem('zf', zf); zoom(); });
 let wordAt = 0;
 link.on(s => { { const w = $('#word'), n = s.note; if (n && n.at !== wordAt) { wordAt = n.at; navigator.vibrate?.([80, 60, 80]); } w.textContent = n ? n.text : w.textContent; w.classList.toggle('on', !!n && link.now() - n.at < 30000); clearTimeout(w.t); if (n) w.t = setTimeout(() => w.classList.remove('on'), Math.max(0, 30000 - (link.now() - n.at))); }
+  document.body.style.visibility = s.live ? '' : 'hidden'; if (!s.live) return;
   const sh = shown(D, s), k = sh.join(); if (k !== key) { key = k; $('#list').innerHTML = sh.map(id => cueOf(D, id)).filter(c => (c.moderator || []).length).map(c => `<section data-id="${c.id}"><h2>${esc(c.title)}</h2>${c.moderator.map(l => `<p class="${l.startsWith('[') ? 'note' : ''}">${esc(l)}</p>`).join('')}</section>`).join(''); last = ''; }
   const nx = sh[sh.indexOf(s.cue) + 1]; document.querySelectorAll('section').forEach(el => { el.classList.toggle('now', el.dataset.id === s.cue); el.classList.toggle('next', el.dataset.id === nx); });
   if (s.cue !== last) { last = s.cue; document.querySelector('section.now')?.scrollIntoView({ behavior: 'smooth', block: 'start' }); } });

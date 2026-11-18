@@ -20,7 +20,7 @@ export function step(ev, s, d) {
   do { n += d; } while (n >= r.min && n <= r.max && n > 0 && hid.has(n));
   return Math.max(r.min, Math.min(r.max, n));
 }
-export const initial = ev => ({ cue: ids(ev)[0], cueAt: Date.now(), armed: false, launchedAt: null, slide: 0, black: false, paused: null, hide: {}, off: null, order: null, orderAt: null, beganAt: null, startAt: null, ver: 0 });
+export const initial = ev => ({ cue: ids(ev)[0], cueAt: Date.now(), armed: false, launchedAt: null, slide: 0, black: false, paused: null, hide: {}, off: null, order: null, orderAt: null, beganAt: null, startAt: null, live: false, ver: 0 });   // live: the operator's switch; until it is on, every screen is black
 
 function setCue(ev, s, n, now, { restart = false } = {}) {
   if (!cueOf(ev, n)) return s;
@@ -58,9 +58,10 @@ export function reduce(ev, s, cmd, now = Date.now(), trusted = false) {
   else if (cmd.type === 'resume') o = s.paused ? { ...s, cueAt: s.cueAt + (now - s.paused), paused: null } : s;
   else if (cmd.type === 'seek') o = pausable(ev, s.cue) ? { ...s, cueAt: Math.min(s.paused || now, s.cueAt - (+cmd.d || 0) * 1000) } : s;
   else if (cmd.type === 'black') o = { ...s, black: !!cmd.on };
+  else if (cmd.type === 'live') o = !!cmd.on === !!s.live ? s : { ...s, live: !!cmd.on, cueAt: cmd.on ? now : s.cueAt, paused: null };   // turning on starts the cue on show from its beginning
   else if (cmd.type === 'note') { const t = String(cmd.text || '').trim().slice(0, 120); o = t ? { ...s, note: { text: t, at: now } } : (s.note ? { ...s, note: null } : s); }   // a word from the operator to the moderator's page
   else if (cmd.type === 'start') o = { ...s, startAt: cmd.at || null };
-  else if (cmd.type === 'reset') o = { ...initial(ev), order: s.order, orderAt: s.orderAt, off: s.off, hide: s.hide };
+  else if (cmd.type === 'reset') o = { ...initial(ev), order: s.order, orderAt: s.orderAt, off: s.off, hide: s.hide, live: s.live };
   return o === s ? s : { ...o, ver: (s.ver || 0) + 1 };
 }
 // which identity a screen shows now: the one revealed by the launch once it has happened

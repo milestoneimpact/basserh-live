@@ -13,7 +13,7 @@ h1{font:800 16px Kufi;color:var(--gold2);display:flex;justify-content:space-betw
 import { connect, $, cueOf, slidesOf } from './run.js'; const link = await connect(), D = link.doc; let key = '', S = null;
 const step = d => { navigator.vibrate?.(18); link.send({ type: 'step', d }); }; $('#fw').onclick = () => step(1); $('#bk').onclick = () => step(-1);
 addEventListener('keydown', e => { if (['PageDown', 'ArrowLeft', 'ArrowDown', ' '].includes(e.key)) step(1); if (['PageUp', 'ArrowRight', 'ArrowUp'].includes(e.key)) step(-1); });
-link.on(s => { S = s; const c = cueOf(D, s.cue), r = slidesOf(D, s.cue), m = r ? D.media[c.media] : null; $('#t').textContent = c.title; document.querySelector('.nav').style.visibility = r ? '' : 'hidden';
+link.on(s => { S = s; document.body.style.visibility = s.live ? '' : 'hidden'; document.documentElement.style.background = '#0E1114'; if (!s.live) return; const c = cueOf(D, s.cue), r = slidesOf(D, s.cue), m = r ? D.media[c.media] : null; $('#t').textContent = c.title; document.querySelector('.nav').style.visibility = r ? '' : 'hidden';
   if (!r) { key = ''; $('#n').textContent = ''; $('#strip').innerHTML = ''; $('#now').innerHTML = '<p>ليس لهذه الفقرة شرائح. تظهر شرائحك هنا عند فقرتك.</p>'; return; }
   const u = n => `${link.base + m.src}s-${n}.jpg`, hid = (s.hide || {})[s.cue] || [];
   if (key !== s.cue) { key = s.cue; $('#strip').innerHTML = Array.from({ length: r.max }, (_, k) => `<img data-s="${k + 1}" src="${u(k + 1)}" loading="lazy">`).join(''); $('#strip').querySelectorAll('img').forEach(i => i.onclick = () => link.send({ type: 'slide', n: +i.dataset.s })); }

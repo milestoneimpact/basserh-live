@@ -14,7 +14,7 @@ const J = process.argv[2], O = process.env.SHOTS || '/tmp/';
   const ls = await mk('stage'), lc = await mk('console');
   const open = async (u, w, h) => { const pg = await (await b.newContext({ viewport: { width: w, height: h } })).newPage(); pg.on('pageerror', e => errs.push(e.message)); pg.on('dialog', d => d.accept()); await pg.goto(u); return pg; };
   const st = await open(ls, 1920, 1080); await st.click('#go'); const con = await open(lc, 1440, 1000); await con.waitForSelector('#order .cue');
-  await con.waitForFunction(() => /كل الملفات محفوظة/.test(document.querySelector('#hall').textContent), null, { timeout: 240000 }); console.log(await con.textContent('#hall'));
+  await con.click('#liveOn'); await con.waitForFunction(() => /كل الملفات محفوظة/.test(document.querySelector('#hall').textContent), null, { timeout: 240000 }); console.log(await con.textContent('#hall'));
   const order = await con.$$eval('#order .cue:not(.off) b', l => l.map(e => e.textContent)); console.log(order.length, 'cues:', order.join(' ← '));
   const go = async t => { await con.click(`#order .cue:has-text("${t}")`); await st.waitForTimeout(3500); return st.evaluate(() => document.querySelector('.sc.on') && document.querySelector('.sc.on').id); };
   console.log('speaker with slides:', await go('أصلان'), '| slides:', (await con.$$('#thumbs .th')).length);

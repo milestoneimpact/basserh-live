@@ -97,7 +97,7 @@ async function backup(env) { const day = now().slice(0, 10), orgs = (await env.D
   const keep = new Date(Date.now() - 14 * 864e5).toISOString().slice(0, 10), old = (await listAll(env, '_backup/')).filter(o => o.key.split('/')[1] < keep).map(o => o.key); for (let i = 0; i < old.length; i += 500) await env.MEDIA.delete(old.slice(i, i + 500));
   return { day, orgs: orgs.length, removed: old.length }; }
 let backupDay = '';
-export default {
+const main = {
   async scheduled(event, env, ctx) { ctx.waitUntil(backup(env)); },
   async fetch(req, env, ctx) {
     // without a cron trigger the copy still happens: the first request of each day finds no copy for that day and makes it
@@ -156,7 +156,6 @@ export default {
         return J({ orgs: await Promise.all(results.map(async o => { const [[c], [b], active] = await tdb(env, o.id).batch([{ sql: 'SELECT COUNT(*) AS n FROM events WHERE status != ?', params: ['archived'] }, { sql: 'SELECT COALESCE(SUM(bytes),0) AS b FROM media', params: [] }, { sql: 'SELECT name, active_from, active_until FROM events WHERE active_until > ? ORDER BY active_from', params: [now()] }]); return { ...o, events: c.n, bytes: b.b, active }; })) });
       }
       // ----- signing in by a link (no password): the link is used once and opens a session of 30 days
-      if (p === '/api/gate' && M === 'GET') { const o = await env.DB.prepare('SELECT name FROM orgs WHERE slug = ?').bind(url.searchParams.get('slug') || '').first(); return J({ name: o ? o.name : '' }); }   // the name over the door of an organisation's address
       if (p === '/api/login' && M === 'POST') {   // the studio's gate: email and password
         const ip = req.headers.get('CF-Connecting-IP') || 'local', f = await locked(env, ip); if (!f) return err('محاولات كثيرة. حاول بعد ربع ساعة.', 429);
         const b = await req.json().catch(() => ({})); let u = null;
@@ -166,7 +165,7 @@ export default {
           if (!u) { await failed(env, ip, f.n); return err('كلمة المرور غير صحيحة', 403); } }
         else { u = await env.DB.prepare('SELECT id, pw FROM users WHERE email = ?').bind(String(b.email || '').trim().toLowerCase()).first();
           if (!(await pwOk(String(b.password || ''), u && u.pw)) || u.id === 'platform') { await failed(env, ip, f.n); return err('البريد أو كلمة المرور غير صحيحة', 403); } }
-        if (b.slug) { await env.DB.prepare('DELETE FROM login_fail WHERE ip = ?').bind(ip).run(); return new Response(JSON.stringify({ ok: true, to: '/' + b.slug }), { headers: { 'Content-Type': 'application/json', 'Set-Cookie': await session(env, u.id) } }); }
+        if (b.slug) { await env.DB.prepare('DELETE FROM login_fail WHERE ip = ?').bind(ip).run(); const on = await env.DB.prepare('SELECT name FROM orgs WHERE slug = ?').bind(String(b.slug)).first(); return new Response(JSON.stringify({ ok: true, to: '/' + b.slug, name: on ? on.name : '' }), { headers: { 'Content-Type': 'application/json', 'Set-Cookie': await session(env, u.id) } }); }
         await env.DB.prepare('DELETE FROM login_fail WHERE ip = ?').bind(ip).run(); const first = await env.DB.prepare('SELECT o.slug FROM members m JOIN orgs o ON o.id = m.org_id WHERE m.user_id = ? LIMIT 1').bind(u.id).first();
         return new Response(JSON.stringify({ ok: true, to: '/' + (first ? first.slug : 'login') }), { headers: { 'Content-Type': 'application/json', 'Set-Cookie': await session(env, u.id) } }); }
       if (p === '/api/password' && M === 'POST') {   // a signed in member sets a password of their own
@@ -232,7 +231,8 @@ export default {
         if (p.startsWith('/m/')) {   // /m/<org>/<event>/<file>: the files of the event, in its own folder of the bucket
           const key = decodeURIComponent(p.slice(3)); if (!key.startsWith(ev.org_id + '/' + ev.id + '/')) return err('لا يوجد', 404);
           const range = req.headers.get('Range'), o = await env.MEDIA.get(key, range ? { range: req.headers } : {}); if (!o) return err('لا يوجد', 404);
-          const h = { 'Content-Type': o.httpMetadata?.contentType || 'application/octet-stream', 'Accept-Ranges': 'bytes', 'Cache-Control': 'private, max-age=3600', ETag: o.httpEtag };
+          const ct = o.httpMetadata?.contentType || '', safe = /^(video\/(mp4|webm|quicktime)|image\/(png|jpeg|webp|gif|svg\+xml))$/.test(ct);   // a video or a picture; anything else is handed over as a download, never shown
+          const h = { 'Content-Type': safe ? ct : 'application/octet-stream', ...(safe ? {} : { 'Content-Disposition': 'attachment' }), 'Accept-Ranges': 'bytes', 'Cache-Control': 'private, max-age=3600', ETag: o.httpEtag };
           if (range && o.range) { const r = o.range, st = 'suffix' in r ? o.size - r.suffix : (r.offset || 0), len = 'suffix' in r ? r.suffix : (r.length ?? o.size - st);
             return new Response(o.body, { status: 206, headers: { ...h, 'Content-Range': `bytes ${st}-${st + len - 1}/${o.size}`, 'Content-Length': String(len) } }); }
           return new Response(o.body, { headers: { ...h, 'Content-Length': String(o.size) } });
@@ -282,6 +282,7 @@ export default {
         const u = await userFor(env, b.email, b.name); if (!u) return err('بريد غير صالح');
         // a password for the member, typed by the owner: it opens the organisation's address as this member, so it must differ from the others'
         if (b.password) { const pw = String(b.password); if (pw.length < 8) return err('كلمة المرور ثمانية أحرف على الأقل');
+          const has = await env.DB.prepare('SELECT pw, (SELECT COUNT(*) FROM members WHERE user_id = users.id AND org_id != ?) AS other FROM users WHERE id = ?').bind(org.id, u.id).first(); if (has && (has.other > 0 || (has.pw && !(await env.DB.prepare('SELECT 1 FROM members WHERE user_id = ? AND org_id = ?').bind(u.id, org.id).first())))) return err('لهذا البريد حساب قائم. أضفه بلا كلمة مرور، ويدخل بكلمته أو برابط الدعوة.');
           const { results } = await env.DB.prepare('SELECT u.id, u.pw FROM users u JOIN members m ON m.user_id = u.id WHERE m.org_id = ? AND u.pw IS NOT NULL AND u.id != ?').bind(org.id, u.id).all();
           for (const x of results) if (await pwOk(pw, x.pw)) return err('كلمة المرور مستعملة لعضو آخر. اختر غيرها.');
           await env.DB.batch([env.DB.prepare('UPDATE users SET pw = ? WHERE id = ?').bind(await pwHash(pw), u.id), env.DB.prepare('DELETE FROM sessions WHERE user_id = ?').bind(u.id)]); }
@@ -351,9 +352,20 @@ export default {
         if (sub === 'links' && M === 'POST') { if (!can('operator')) return err('لا تملك الصلاحية', 403); const b = await req.json(); if (!LINK_ROLES.includes(b.role)) return err('نوع شاشة غير معروف');
           const tok = org.id.slice(2) + '.' + rid(24); await T.prepare('INSERT INTO links (token_hash, org_id, event_id, role, label, created_at) VALUES (?,?,?,?,?,?)').bind(await sha(tok), org.id, id, b.role, b.label || '', now()).run();
           await audit(env, org.id, id, who.user.id, 'link', b.role); return J({ url: '/go/' + tok }); }   // the address is shown once; only its hash is kept
-        if (sub === 'links' && M === 'DELETE' && rest) { if (!can('operator')) return err('لا تملك الصلاحية', 403); await T.prepare('UPDATE links SET revoked_at = ? WHERE event_id = ? AND substr(token_hash,1,16) = ?').bind(now(), id, rest).run(); return J({ ok: true }); }
+        if (sub === 'links' && M === 'DELETE' && rest) { if (!can('operator')) return err('لا تملك الصلاحية', 403); await T.prepare('UPDATE links SET revoked_at = ? WHERE event_id = ? AND substr(token_hash,1,16) = ?').bind(now(), id, rest).run();
+          await env.ROOM.get(env.ROOM.idFromName(id + ':live')).fetch(new Request('https://room/kick', { method: 'POST' })).catch(() => {});   // a screen already open by that link is cut off now, not at its next reload
+          await audit(env, org.id, id, who.user.id, 'unlink', rest); return J({ ok: true }); }
       }
       return err('لا يوجد', 404);
-    } catch (e) { return err('خطأ في الخادم: ' + (e && e.message || e), 500); }
+    } catch (e) { console.log('error', e && e.stack || e); return err('خطأ في الخادم', 500); }
   },
+};
+// what the browser is told with every answer: do not guess types, do not show the site inside another site, do not pass our addresses on
+// (a screen's link carries its key), stay on https. The files of an organisation (/m/) are data: opened by themselves they run nothing.
+const GUARD = { 'X-Content-Type-Options': 'nosniff', 'X-Frame-Options': 'SAMEORIGIN', 'Referrer-Policy': 'same-origin', 'Strict-Transport-Security': 'max-age=31536000; includeSubDomains', 'Permissions-Policy': 'camera=(), microphone=(), geolocation=(), payment=()' };
+export default {
+  scheduled: (e, env, ctx) => main.scheduled(e, env, ctx),
+  async fetch(req, env, ctx) { const r = await main.fetch(req, env, ctx); if (r.status === 101 || r.webSocket) return r;
+    const h = new Headers(r.headers); for (const [k, v] of Object.entries(GUARD)) h.set(k, v); if (new URL(req.url).pathname.startsWith('/m/')) h.set('Content-Security-Policy', "default-src 'none'; style-src 'unsafe-inline'; sandbox");
+    return new Response(r.body, { status: r.status, statusText: r.statusText, headers: h }); },
 };

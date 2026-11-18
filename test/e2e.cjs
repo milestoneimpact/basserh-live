@@ -46,7 +46,7 @@ const ok = (c, m) => { console.log((c ? '✓ ' : '✗ ') + m); if (!c) process.e
   // the hall: every screen in its own browser context, opened by its link only
   const open = async (u, w, h, name) => { const c = await b.newContext({ viewport: { width: w, height: h } }); const pg = await c.newPage(); pg.on('pageerror', e => errs.push(name + ': ' + e.message)); pg.on('dialog', d => d.accept()); await pg.goto(u); return pg; };
   const st = await open(L.stage, 1920, 1080, 'stage'); await st.click('#go'); const con = await open(L.console, 1440, 1000, 'console'); const tab = await open(L.tablet, 1024, 768, 'tablet'); const scr = await open(L.script, 900, 1000, 'script');
-  await con.waitForSelector('#order .cue');
+  await con.waitForSelector('#order .cue'); await con.click('#liveOn');   // the operator turns the screens on
   await con.waitForFunction(() => /كل الملفات محفوظة/.test(document.querySelector('#hall').textContent), null, { timeout: 200000 }); ok(true, 'console: ' + await con.textContent('#hall')); const scene = () => st.evaluate(() => document.querySelector('.sc.on')?.id); const shot = n => st.screenshot({ path: A + n + '.jpg', type: 'jpeg', quality: 70 });
   await st.waitForTimeout(1500); ok(await scene() === 'idle', 'stage: reception'); await shot('s1');
   await con.click('#next'); await st.waitForTimeout(1500); ok(await scene() === 'card' && (await st.textContent('#card .nm')) === 'أ. اسم المتحدث الأول', 'stage: the first speaker card'); await shot('s2');
@@ -70,7 +70,7 @@ const ok = (c, m) => { console.log((c ? '✓ ' : '✗ ') + m); if (!c) process.e
   ok(/8e1f26/i.test(await tab.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--accent'))), 'and on the tablet');
   // a stage link cannot command; a revoked link stops opening
   const sneaky = await st.evaluate(async () => { const e = new URLSearchParams(location.search).get('e'); const r = await fetch(`/api/run/${e}/cmd`, { method: 'POST', body: JSON.stringify({ type: 'go', id: 'in' }) }); return (await r.json()).state.cue; }); ok(sneaky !== 'in', 'a screen link cannot move the event');
-  await p.click('[data-rv] >> nth=0'); await p.waitForTimeout(600); const gone = await (await b.newContext()).request.get(L.stage, { maxRedirects: 0 }); ok(gone.status() === 410, 'a revoked link answers 410');
+  await p.click('[data-rv] >> nth=0'); await p.waitForFunction(() => /أُلغي الرابط/.test(document.querySelector('#toast').textContent)); await p.waitForTimeout(300); const gone = await (await b.newContext()).request.get(L.stage, { maxRedirects: 0 }); ok(gone.status() === 410, 'a revoked link answers 410');
   // another organisation sees nothing of this one
   const o2 = await (await fetch(B + '/api/admin/org', { method: 'POST', headers: { 'x-admin-key': AK, 'content-type': 'application/json' }, body: JSON.stringify({ name: 'اختبار آلي ٢', slug: 'u' + Date.now(), email: `x${Date.now()}@t.test` }) })).json();
   const c2 = await b.newContext(); const q = await c2.newPage(); await q.goto(B + o2.join); await q.waitForSelector('#new'); const evId = await p.evaluate(() => fetch('/api/events').then(r => r.json()).then(j => j.events[0].id));

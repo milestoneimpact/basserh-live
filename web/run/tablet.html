@@ -7,7 +7,7 @@ img{max-width:60vw;max-height:40vh}#btn{display:none;width:min(52vw,52vh);aspect
 <div id="idle"><img id="lg"><p id="nm"></p></div><div><button id="btn">تدشين</button><p id="hint" style="display:none">اضغط مطوّلاً ثانيتين</p></div>
 <script type="module">
 import { connect, paint, $, handsOf } from './run.js'; const link = await connect(), need = handsOf(link.doc); let t0 = 0, raf, H = null, holding = false, sent = 0;
-link.on((s, info) => { const I = paint(link, s), arm = !!s.armed && !s.launchedAt; H = info.hands; document.body.classList.toggle('arm', arm); $('#hint').style.display = arm ? '' : 'none'; $('#lg').src = I.logo; $('#lg').style.display = I.logo ? '' : 'none'; $('#nm').textContent = I.logo ? '' : link.doc.name;
+link.on((s, info) => { document.documentElement.style.visibility = s.live ? '' : 'hidden'; document.documentElement.style.background = '#000'; const I = paint(link, s), arm = !!s.live && !!s.armed && !s.launchedAt; H = info.hands; document.body.classList.toggle('arm', arm); $('#hint').style.display = arm ? '' : 'none'; $('#lg').src = I.logo; $('#lg').style.display = I.logo ? '' : 'none'; $('#nm').textContent = I.logo ? '' : link.doc.name;
   if (need > 1) $('#hint').textContent = H && H.held >= need ? 'أبقوا أيديكم' : `اضغطوا معاً وأبقوا أيديكم · ${(H ? H.held : 0).toLocaleString('ar-EG')} من ${need.toLocaleString('ar-EG')}`; if (!arm && holding) { up(); b.style.outline = ''; } });
 const b = $('#btn'), stop = () => { cancelAnimationFrame(raf); t0 = 0; b.style.setProperty('--p', '0%'); };
 // one guest: a press held for two seconds. Several guests: each holds on a device of their own, and the ring fills once all hands are down

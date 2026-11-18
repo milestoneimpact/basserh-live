@@ -8,7 +8,7 @@ export class Room {
   async take(req) {
     const raw = decodeURIComponent(req.headers.get('x-doc')), v = +req.headers.get('x-ver'); if (raw !== this.raw) { this.raw = raw; this.doc = JSON.parse(raw); await this.ctx.storage.put('doc', this.doc); }   // kept: the room wakes from sleep on a message, with no request
     const known = this.state && this.doc.cues.some(c => c.id === this.state.cue);
-    if (!this.state || !known) { this.state = initial(this.doc); await this.ctx.storage.put('state', this.state); }
+    if (!this.state || !known) { this.state = { ...initial(this.doc), live: v === 0 }; await this.ctx.storage.put('state', this.state); }   // a rehearsal (the draft) is on from the start; the hall waits for the operator
     if (v !== this.ver) { this.ver = v; await this.ctx.storage.put('ver', v); this.cast({ reload: v }); }   // screens read the new version
   }
   cast(o) { const t = JSON.stringify(o); for (const ws of this.ctx.getWebSockets()) { try { ws.send(t); } catch {} } }
@@ -27,6 +27,7 @@ export class Room {
     const next = reduce(this.doc, this.state, cmd, Date.now(), trusted); if (next !== this.state) { this.state = next; await this.ctx.storage.put('state', next); this.cast({ state: next, now: Date.now(), peers: this.peers() }); }
   }
   async fetch(req) {
+    if (new URL(req.url).pathname === '/kick') { for (const ws of this.ctx.getWebSockets()) { try { ws.close(4001, 'renew'); } catch {} } return Response.json({ ok: true }); }
     await this.take(req); const role = req.headers.get('x-role'), url = new URL(req.url);
     if (url.pathname.endsWith('/state')) return Response.json({ state: this.state, now: Date.now(), peers: this.peers() });
     if (url.pathname.endsWith('/cmd')) { await this.apply(await req.json().catch(() => null), role); return Response.json({ state: this.state, now: Date.now() }); }
