@@ -48,9 +48,12 @@ const BLANK = name => ({ name, lang: 'ar', date: '', identity: { before: { logo:
 async function site(env, req, path) {
   if (env.ASSETS) return env.ASSETS.fetch(new Request(new URL(path, req.url), req));
   let f = path === '/' ? 'index.html' : path.slice(1); if (f.endsWith('/')) f += 'index.html';
-  let o = await env.MEDIA.get('_site/' + f); if (!o && !/\.\w+$/.test(f)) o = await env.MEDIA.get('_site/' + f + '.html');
+  const range = req.headers.get('Range'), opt = range ? { range: req.headers } : {};   // a video is asked for in ranges (seeking, Safari)
+  let o = await env.MEDIA.get('_site/' + f, opt); if (!o && !/\.\w+$/.test(f)) o = await env.MEDIA.get('_site/' + f + '.html');
   if (!o) return new Response('لا يوجد', { status: 404, headers: { 'Content-Type': 'text/plain; charset=utf-8' } });
-  return new Response(o.body, { headers: { 'Content-Type': o.httpMetadata?.contentType || 'application/octet-stream', 'Cache-Control': /\.(woff2|png|jpg)$/.test(f) ? 'public, max-age=604800' : 'no-cache', ETag: o.httpEtag } });
+  const h = { 'Content-Type': o.httpMetadata?.contentType || 'application/octet-stream', 'Cache-Control': /\.(woff2|png|jpg|mp4)$/.test(f) ? 'public, max-age=86400' : 'no-cache', ETag: o.httpEtag, 'Accept-Ranges': 'bytes' };
+  if (range && o.range) { const r = o.range, st = 'suffix' in r ? o.size - r.suffix : (r.offset || 0), len = 'suffix' in r ? r.suffix : (r.length ?? o.size - st); return new Response(o.body, { status: 206, headers: { ...h, 'Content-Range': `bytes ${st}-${st + len - 1}/${o.size}`, 'Content-Length': String(len) } }); }
+  return new Response(o.body, { headers: { ...h, 'Content-Length': String(o.size) } });
 }
 export default {
   async fetch(req, env) {
@@ -79,6 +82,8 @@ export default {
         if (+b.credits > 0) await env.DB.prepare('UPDATE orgs SET credits = ? WHERE id = ?').bind(+b.credits, id).run();
         await audit(env, id, null, null, 'org', b.name); return J({ org: id, slug: s, join: await invite(env, u.email) });
       }
+      if (p === '/api/admin/leads' && M === 'GET') return J({ leads: (await env.DB.prepare('SELECT id, name, org, phone, email, kind, event_date, message, created_at, handled_at, mailed FROM leads ORDER BY id DESC LIMIT 200').all()).results, mail: !!(env.RESEND_KEY && env.CONTACT_TO) });
+      if (p === '/api/admin/leads' && M === 'PATCH') { const b = await req.json(); await env.DB.prepare('UPDATE leads SET handled_at = ? WHERE id = ?').bind(b.handled ? now() : null, b.id).run(); return J({ ok: true }); }
       if (p === '/api/admin/site' && M === 'PUT') { const f = url.searchParams.get('path') || ''; if (!/^[\w./-]+$/.test(f) || f.includes('..')) return err('مسار غير صالح'); await env.MEDIA.put('_site/' + f, req.body, { httpMetadata: { contentType: req.headers.get('Content-Type') || 'application/octet-stream' } }); return J({ ok: true }); }
       if (p === '/api/admin/org' && M === 'PATCH') {   // the plan of an organisation: limits, the paid period, activation days added
         const b = await req.json(), o = await env.DB.prepare('SELECT * FROM orgs WHERE id = ?').bind(b.id).first(); if (!o) return err('لا يوجد', 404);
@@ -101,6 +106,17 @@ export default {
         const first = await env.DB.prepare('SELECT o.slug FROM members m JOIN orgs o ON o.id = m.org_id WHERE m.user_id = ? LIMIT 1').bind(u.id).first();
         return new Response(null, { status: 302, headers: { Location: '/' + (first ? first.slug : 'login'), 'Set-Cookie': setCookie('sid', t, 30) } });
       }
+      // ----- the public page's contact form: kept in the database for the owner's page, and mailed to the owner when a mail service is set
+      // (secrets CONTACT_TO and RESEND_KEY; the address is never in a page). A hidden field and a limit per address keep robots out.
+      if (p === '/api/contact' && M === 'POST') { const b = await req.json().catch(() => ({})), ip = req.headers.get('CF-Connecting-IP') || 'local', cut = (v, n) => String(v || '').trim().slice(0, n);
+        if (b.website) return J({ ok: true });   // the hidden field: only a robot fills it
+        const name = cut(b.name, 80), phone = cut(b.phone, 30), email = cut(b.email, 120); if (name.length < 2) return err('اكتب الاسم'); if (!phone && !email) return err('اكتب الجوال أو البريد لنتواصل معكم'); if (email && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return err('البريد غير صحيح');
+        if ((await env.DB.prepare('SELECT COUNT(*) AS n FROM leads WHERE ip = ? AND created_at > ?').bind(ip, new Date(Date.now() - 36e5).toISOString()).first()).n >= 5) return err('وصلتنا طلباتكم. سنتواصل معكم قريباً.', 429);
+        const L = { name, org: cut(b.org, 120), phone, email, kind: cut(b.kind, 40), date: cut(b.date, 20), message: cut(b.message, 2000) }; let mailed = 0;
+        if (env.RESEND_KEY && env.CONTACT_TO) { try { const r = await fetch('https://api.resend.com/emails', { method: 'POST', headers: { Authorization: 'Bearer ' + env.RESEND_KEY, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ from: env.CONTACT_FROM || 'Basserh Live <onboarding@resend.dev>', to: [env.CONTACT_TO], reply_to: email || undefined, subject: `طلب جديد من ${name}${L.org ? ' · ' + L.org : ''}`,
+            text: `الاسم: ${name}\nالجهة: ${L.org}\nالجوال: ${phone}\nالبريد: ${email}\nنوع المناسبة: ${L.kind}\nالموعد المتوقع: ${L.date}\n\n${L.message}\n\nمن نموذج التواصل في ${url.origin}` }) }); mailed = r.ok ? 1 : 0; } catch {} }
+        await env.DB.prepare('INSERT INTO leads (name, org, phone, email, kind, event_date, message, ip, created_at, mailed) VALUES (?,?,?,?,?,?,?,?,?,?)').bind(name, L.org, phone, email, L.kind, L.date, L.message, ip, now(), mailed).run(); return J({ ok: true }); }
       // ----- passkeys: add one while signed in; sign in with one from the gate (the device offers the passkeys it holds for this site)
       if (p.startsWith('/api/passkey/')) { const b = M === 'POST' ? await req.json().catch(() => ({})) : {};
         // the browser names the site it signed for; it must be this site (or localhost in development, where the server answers under the route's name)

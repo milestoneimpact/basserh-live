@@ -9,6 +9,7 @@
     "test": "node --test test/engine.test.mjs",
     "test:e2e": "node test/e2e.cjs",
     "seed": "node tools/seed_tenant.mjs tenants/wamy",
+    "promo": "node promo/build.mjs",
     "profile": "THEME=basserh node profile/build.mjs",
     "deploy": "./deploy.sh"
   },

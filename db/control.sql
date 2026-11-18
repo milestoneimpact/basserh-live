@@ -14,3 +14,4 @@ CREATE TABLE sessions (token_hash TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERE
 CREATE TABLE IF NOT EXISTS passkeys (cred_id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id), spki TEXT NOT NULL, alg INTEGER NOT NULL, label TEXT, created_at TEXT NOT NULL, last_used_at TEXT);
 CREATE TABLE IF NOT EXISTS challenges (challenge TEXT PRIMARY KEY, user_id TEXT, expires_at TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS login_fail (ip TEXT PRIMARY KEY, n INTEGER NOT NULL, until TEXT);
+CREATE TABLE IF NOT EXISTS leads (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, org TEXT, phone TEXT, email TEXT, kind TEXT, event_date TEXT, message TEXT, ip TEXT, created_at TEXT NOT NULL, handled_at TEXT, mailed INTEGER NOT NULL DEFAULT 0);
