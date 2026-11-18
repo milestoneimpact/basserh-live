@@ -5,6 +5,10 @@ main = "worker/index.js"
 compatibility_date = "2025-09-01"
 routes = [{ pattern = "live.basserh.com", custom_domain = true }]
 
+# the nightly copy of every database into the bucket (_backup/), 23:20 UTC
+[triggers]
+crons = ["20 23 * * *"]
+
 [[d1_databases]]
 binding = "DB"
 database_name = "basserh-live"
@@ -25,3 +29,7 @@ class_name = "Tenant"
 [[migrations]]
 tag = "v1"
 new_sqlite_classes = ["Room", "Tenant"]
+
+# mail goes out through Cloudflare Email Service (the domain is onboarded in the dashboard: Email Service, Email Sending)
+[[send_email]]
+name = "EMAIL"

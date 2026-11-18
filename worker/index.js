@@ -28,6 +28,14 @@ async function me(req, env) {
 // the organisation a request works in (header x-org, else the person's first), and the person's role in it
 const orgOf = (who, req) => { const s = req.headers.get('x-org-slug'); return s ? who.orgs.find(o => o.slug === s) : who.orgs[0]; };   // each organisation works under its own address: /<slug>
 const audit = (env, org, ev, user, action, detail = '') => tdb(env, org).prepare('INSERT INTO audit (org_id, event_id, user_id, action, detail, at) VALUES (?,?,?,?,?,?)').bind(org, ev, user, action, detail, now()).run();
+// one way out for every message: Cloudflare Email Service when the worker has the binding (EMAIL), else Resend (RESEND_KEY). 1 = sent
+async function mail(env, m) { const from = env.MAIL_FROM || 'noreply@basserh.com';
+  try { if (env.EMAIL) { await env.EMAIL.send({ from: { email: from, name: 'بصيرة · استوديو اللقاءات' }, to: m.to, replyTo: m.replyTo, subject: m.subject, text: m.text, html: m.html }); return 1; }
+    if (env.RESEND_KEY) return (await fetch('https://api.resend.com/emails', { method: 'POST', headers: { Authorization: 'Bearer ' + env.RESEND_KEY, 'Content-Type': 'application/json' }, body: JSON.stringify({ from: env.CONTACT_FROM || `Basserh Live <${from}>`, to: [m.to], reply_to: m.replyTo, subject: m.subject, text: m.text, html: m.html }) })).ok ? 1 : 0;
+  } catch (x) { console.log('mail', x.message); } return 0; }
+// the invitation by mail: the same one time link the page shows, so the owner need not copy it by hand
+const mailJoin = (env, origin, email, join, orgName) => mail(env, { to: email, subject: `دعوة إلى استوديو اللقاءات · ${orgName}`, text: `السلام عليكم،\n\nدُعيتم إلى ${orgName} في استوديو اللقاءات. الدخول من هذا الرابط، ويُستعمل مرة واحدة خلال 14 يوماً:\n${origin + join}\n\nبصيرة`,
+  html: `<div dir="rtl" style="font-family:Tahoma,Arial,sans-serif;font-size:16px;line-height:1.9;color:#1F2A2E;max-width:520px"><p>السلام عليكم،</p><p>دُعيتم إلى <b>${orgName.replace(/[<>&]/g, '')}</b> في استوديو اللقاءات.</p><p><a href="${origin + join}" style="display:inline-block;background:#B88A3D;color:#fff;text-decoration:none;padding:10px 26px;border-radius:8px">الدخول إلى الاستوديو</a></p><p style="font-size:13px;color:#777">الرابط يُستعمل مرة واحدة خلال 14 يوماً.</p><p>بصيرة</p></div>` });
 async function invite(env, email, days = 14) { const code = rid(28); await env.DB.prepare('INSERT INTO login_codes (code_hash, email, expires_at) VALUES (?,?,?)').bind(await sha(code), email, new Date(Date.now() + days * 864e5).toISOString()).run(); return '/join/' + code; }
 // a session of 30 days for a user; returns the cookie
 async function session(env, uid) { const t = rid(32); await env.DB.prepare('INSERT INTO sessions (token_hash, user_id, expires_at, created_at) VALUES (?,?,?,?)').bind(await sha(t), uid, new Date(Date.now() + 30 * 864e5).toISOString(), now()).run(); return setCookie('sid', t, 30); }
@@ -55,8 +63,35 @@ async function site(env, req, path) {
   if (range && o.range) { const r = o.range, st = 'suffix' in r ? o.size - r.suffix : (r.offset || 0), len = 'suffix' in r ? r.suffix : (r.length ?? o.size - st); return new Response(o.body, { status: 206, headers: { ...h, 'Content-Range': `bytes ${st}-${st + len - 1}/${o.size}`, 'Content-Length': String(len) } }); }
   return new Response(o.body, { headers: { ...h, 'Content-Length': String(o.size) } });
 }
+// every object of the bucket under a prefix (an organisation's folder, an event's folder)
+async function listAll(env, prefix) { const out = []; let cursor; do { const r = await env.MEDIA.list({ prefix, cursor, limit: 1000 }); out.push(...r.objects); cursor = r.truncated ? r.cursor : null; } while (cursor); return out; }
+// the files of an event that no document needs any more (neither the draft nor the published version) leave the bucket and the index.
+// A file younger than an hour is left alone: it may belong to an upload still on its way into the draft.
+async function sweep(env, T, org, ev) {
+  const docs = [JSON.parse(ev.draft)]; if (ev.published_version) { const v = await T.prepare('SELECT doc FROM event_versions WHERE event_id = ? AND version = ?').bind(ev.id, ev.published_version).first(); if (v) docs.push(JSON.parse(v.doc)); }
+  const need = new Set(); for (const d of docs) { for (const m of Object.values(d.media || {})) if (m.src) need.add(m.src); for (const k of ['before', 'after']) if (d.identity && d.identity[k] && d.identity[k].logo) need.add(d.identity[k].logo); }
+  const base = `${org}/${ev.id}/`, old = Date.now() - 36e5, gone = [];
+  for (const o of await listAll(env, base)) { const f = o.key.slice(base.length), top = f.includes('/') ? f.split('/')[0] + '/' : f; if (!need.has(top) && o.uploaded.getTime() < old) gone.push(o.key); }
+  for (let i = 0; i < gone.length; i += 500) await env.MEDIA.delete(gone.slice(i, i + 500));
+  if (gone.length) { const { results } = await T.prepare('SELECT id, r2_key FROM media WHERE event_id = ?').bind(ev.id).all(); const dead = results.filter(r => gone.includes(r.r2_key)); for (const r of dead) await T.prepare('DELETE FROM media WHERE id = ?').bind(r.id).run(); }
+  return gone.length;
+}
+// an organisation as one document: who it is, its people, and everything in its own database (files are listed, not included)
+async function exportOrg(env, id) { const org = await env.DB.prepare('SELECT * FROM orgs WHERE id = ?').bind(id).first(); if (!org) return null;
+  const members = (await env.DB.prepare('SELECT u.email, u.name, m.role FROM members m JOIN users u ON u.id = m.user_id WHERE m.org_id = ?').bind(id).all()).results, data = await tdb(env, id).dump();
+  data.links = data.links.map(l => ({ ...l, token_hash: undefined })); return { exported_at: now(), org, members, ...data, files: (await listAll(env, id + '/')).map(o => ({ key: o.key, bytes: o.size })) }; }
+// the nightly copy: the control database and every organisation, as JSON in the bucket (_backup/<day>/), kept for 14 days
+async function backup(env) { const day = now().slice(0, 10), orgs = (await env.DB.prepare('SELECT id FROM orgs').all()).results, ctl = {};
+  for (const t of ['orgs', 'users', 'members', 'passkeys', 'leads']) ctl[t] = (await env.DB.prepare(`SELECT * FROM ${t}`).all()).results;
+  await env.MEDIA.put(`_backup/${day}/control.json`, JSON.stringify(ctl)); for (const o of orgs) await env.MEDIA.put(`_backup/${day}/${o.id}.json`, JSON.stringify(await exportOrg(env, o.id)));
+  const keep = new Date(Date.now() - 14 * 864e5).toISOString().slice(0, 10), old = (await listAll(env, '_backup/')).filter(o => o.key.split('/')[1] < keep).map(o => o.key); for (let i = 0; i < old.length; i += 500) await env.MEDIA.delete(old.slice(i, i + 500));
+  return { day, orgs: orgs.length, removed: old.length }; }
+let backupDay = '';
 export default {
-  async fetch(req, env) {
+  async scheduled(event, env, ctx) { ctx.waitUntil(backup(env)); },
+  async fetch(req, env, ctx) {
+    // without a cron trigger the copy still happens: the first request of each day finds no copy for that day and makes it
+    const day = now().slice(0, 10); if (ctx && backupDay !== day) { backupDay = day; ctx.waitUntil(env.MEDIA.head(`_backup/${day}/control.json`).then(h => h || backup(env)).catch(() => { backupDay = ''; })); }
     const url = new URL(req.url), p = url.pathname, M = req.method;
     try {
       // ----- the platform owner signs in with the password once, then with a passkey; five wrong passwords lock the address for 15 minutes
@@ -80,9 +115,17 @@ export default {
         // the organisation's own database is born here, with its first event
         await tdb(env, id).prepare('INSERT INTO events (id, org_id, slug, name, status, draft, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?)').bind('e_' + id.slice(2) + rid(8), id, 'first-' + rid(4), 'لقاؤكم الأول', 'draft', JSON.stringify(STARTER()), now(), now()).run();
         if (+b.credits > 0) await env.DB.prepare('UPDATE orgs SET credits = ? WHERE id = ?').bind(+b.credits, id).run();
-        await audit(env, id, null, null, 'org', b.name); return J({ org: id, slug: s, join: await invite(env, u.email) });
+        await audit(env, id, null, null, 'org', b.name); const join = await invite(env, u.email); return J({ org: id, slug: s, join, mailed: await mailJoin(env, url.origin, u.email, join, b.name) });
       }
-      if (p === '/api/admin/leads' && M === 'GET') return J({ leads: (await env.DB.prepare('SELECT id, name, org, phone, email, kind, event_date, message, created_at, handled_at, mailed FROM leads ORDER BY id DESC LIMIT 200').all()).results, mail: !!(env.RESEND_KEY && env.CONTACT_TO) });
+      // ----- an organisation's data as a file; its end; the copies
+      if (p === '/api/admin/export' && M === 'GET') { const d = await exportOrg(env, url.searchParams.get('org')); if (!d) return err('لا يوجد', 404); return new Response(JSON.stringify(d, null, 1), { headers: { 'Content-Type': 'application/json; charset=utf-8', 'Content-Disposition': `attachment; filename="${d.org.slug}-${now().slice(0, 10)}.json"` } }); }
+      if (p === '/api/admin/org' && M === 'DELETE') {   // gone for good: its files, its database, its place among the organisations. The address must be typed to confirm
+        const b = await req.json(), o = await env.DB.prepare('SELECT * FROM orgs WHERE id = ?').bind(b.id).first(); if (!o) return err('لا يوجد', 404); if (b.confirm !== o.slug) return err('اكتب عنوان الجهة للتأكيد');
+        const keys = (await listAll(env, o.id + '/')).map(x => x.key); for (let i = 0; i < keys.length; i += 500) await env.MEDIA.delete(keys.slice(i, i + 500));
+        await tdb(env, o.id).wipe(); await env.DB.batch([env.DB.prepare('DELETE FROM members WHERE org_id = ?').bind(o.id), env.DB.prepare('DELETE FROM orgs WHERE id = ?').bind(o.id)]); return J({ ok: true, files: keys.length }); }
+      if (p === '/api/admin/backup' && M === 'POST') return J(await backup(env));
+      if (p === '/api/admin/backup' && M === 'GET') { const days = [...new Set((await listAll(env, '_backup/')).map(o => o.key.split('/')[1]))].sort(); return J({ days, last: days[days.length - 1] || null }); }
+      if (p === '/api/admin/leads' && M === 'GET') return J({ leads: (await env.DB.prepare('SELECT id, name, org, phone, email, kind, event_date, message, created_at, handled_at, mailed FROM leads ORDER BY id DESC LIMIT 200').all()).results, mail: !!((env.EMAIL || env.RESEND_KEY) && env.CONTACT_TO) });
       if (p === '/api/admin/leads' && M === 'PATCH') { const b = await req.json(); await env.DB.prepare('UPDATE leads SET handled_at = ? WHERE id = ?').bind(b.handled ? now() : null, b.id).run(); return J({ ok: true }); }
       if (p === '/api/admin/site' && M === 'PUT') { const f = url.searchParams.get('path') || ''; if (!/^[\w./-]+$/.test(f) || f.includes('..')) return err('مسار غير صالح'); await env.MEDIA.put('_site/' + f, req.body, { httpMetadata: { contentType: req.headers.get('Content-Type') || 'application/octet-stream' } }); return J({ ok: true }); }
       if (p === '/api/admin/org' && M === 'PATCH') {   // the plan of an organisation: limits, the paid period, activation days added
@@ -113,9 +156,8 @@ export default {
         const name = cut(b.name, 80), phone = cut(b.phone, 30), email = cut(b.email, 120); if (name.length < 2) return err('اكتب الاسم'); if (!phone && !email) return err('اكتب الجوال أو البريد لنتواصل معكم'); if (email && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return err('البريد غير صحيح');
         if ((await env.DB.prepare('SELECT COUNT(*) AS n FROM leads WHERE ip = ? AND created_at > ?').bind(ip, new Date(Date.now() - 36e5).toISOString()).first()).n >= 5) return err('وصلتنا طلباتكم. سنتواصل معكم قريباً.', 429);
         const L = { name, org: cut(b.org, 120), phone, email, kind: cut(b.kind, 40), date: cut(b.date, 20), message: cut(b.message, 2000) }; let mailed = 0;
-        if (env.RESEND_KEY && env.CONTACT_TO) { try { const r = await fetch('https://api.resend.com/emails', { method: 'POST', headers: { Authorization: 'Bearer ' + env.RESEND_KEY, 'Content-Type': 'application/json' },
-          body: JSON.stringify({ from: env.CONTACT_FROM || 'Basserh Live <onboarding@resend.dev>', to: [env.CONTACT_TO], reply_to: email || undefined, subject: `طلب جديد من ${name}${L.org ? ' · ' + L.org : ''}`,
-            text: `الاسم: ${name}\nالجهة: ${L.org}\nالجوال: ${phone}\nالبريد: ${email}\nنوع المناسبة: ${L.kind}\nالموعد المتوقع: ${L.date}\n\n${L.message}\n\nمن نموذج التواصل في ${url.origin}` }) }); mailed = r.ok ? 1 : 0; } catch {} }
+        if (env.CONTACT_TO) mailed = await mail(env, { to: env.CONTACT_TO, replyTo: email || undefined, subject: `طلب جديد من ${name}${L.org ? ' · ' + L.org : ''}`,
+          text: `الاسم: ${name}\nالجهة: ${L.org}\nالجوال: ${phone}\nالبريد: ${email}\nنوع المناسبة: ${L.kind}\nالموعد المتوقع: ${L.date}\n\n${L.message}\n\nمن نموذج التواصل في ${url.origin}` });
         await env.DB.prepare('INSERT INTO leads (name, org, phone, email, kind, event_date, message, ip, created_at, mailed) VALUES (?,?,?,?,?,?,?,?,?,?)').bind(name, L.org, phone, email, L.kind, L.date, L.message, ip, now(), mailed).run(); return J({ ok: true }); }
       // ----- passkeys: add one while signed in; sign in with one from the gate (the device offers the passkeys it holds for this site)
       if (p.startsWith('/api/passkey/')) { const b = M === 'POST' ? await req.json().catch(() => ({})) : {};
@@ -189,11 +231,20 @@ export default {
       const org = orgOf(who, req); if (!org) return err('لا توجد جهة لهذا الحساب', 403);
       const can = lvl => ROLES[org.role] >= ROLES[lvl], T = tdb(env, org.id);   // T: this organisation's own database
       if (p === '/api/members' && M === 'GET') { const { results } = await env.DB.prepare('SELECT u.email, u.name, m.role FROM members m JOIN users u ON u.id = m.user_id WHERE m.org_id = ?').bind(org.id).all(); return J({ members: results }); }
+      if (p === '/api/members' && M === 'DELETE') {   // the owner removes a person; the last owner stays
+        if (!can('owner')) return err('للمالك فقط', 403); const b = await req.json(), u = await env.DB.prepare('SELECT id FROM users WHERE email = ?').bind(String(b.email || '').toLowerCase()).first(); if (!u) return err('لا يوجد', 404);
+        const owners = (await env.DB.prepare('SELECT user_id FROM members WHERE org_id = ? AND role = ?').bind(org.id, 'owner').all()).results; if (owners.length === 1 && owners[0].user_id === u.id) return err('لا تبقى الجهة بلا مالك');
+        await env.DB.prepare('DELETE FROM members WHERE org_id = ? AND user_id = ?').bind(org.id, u.id).run(); await audit(env, org.id, null, who.user.id, 'member_removed', b.email); return J({ ok: true }); }
+      if (p === '/api/audit' && M === 'GET') {   // what was done in the organisation, and by whom
+        if (!can('owner')) return err('للمالك فقط', 403); const { results } = await T.prepare('SELECT a.event_id, a.user_id, a.action, a.detail, a.at, e.name AS event FROM audit a LEFT JOIN events e ON e.id = a.event_id ORDER BY a.id DESC LIMIT 200').all();
+        const ids = [...new Set(results.map(r => r.user_id).filter(Boolean))], who2 = {}; for (const i of ids) { const u = await env.DB.prepare('SELECT email FROM users WHERE id = ?').bind(i).first(); who2[i] = u ? u.email : ''; }
+        return J({ audit: results.map(r => ({ ...r, by: who2[r.user_id] || (r.user_id ? '' : 'بصيرة') })), usage: (await T.prepare('SELECT COALESCE(SUM(bytes),0) AS b FROM media').first()).b, limit_mb: org.storage_limit_mb }); }
       if (p === '/api/members' && M === 'POST') {   // the owner adds a person: returns the link to hand to them
         if (!can('owner')) return err('للمالك فقط', 403); const b = await req.json(); if (!(b.role in ROLES)) return err('دور غير معروف');
         const u = await userFor(env, b.email, b.name); if (!u) return err('بريد غير صالح');
+        if (b.role !== 'owner') { const ow = (await env.DB.prepare('SELECT user_id FROM members WHERE org_id = ? AND role = ?').bind(org.id, 'owner').all()).results; if (ow.length === 1 && ow[0].user_id === u.id) return err('لا تبقى الجهة بلا مالك'); }
         await env.DB.prepare('INSERT INTO members (org_id, user_id, role) VALUES (?,?,?) ON CONFLICT (org_id, user_id) DO UPDATE SET role = excluded.role').bind(org.id, u.id, b.role).run();
-        await audit(env, org.id, null, who.user.id, 'member', `${u.email} ${b.role}`); return J({ join: await invite(env, u.email) });
+        await audit(env, org.id, null, who.user.id, 'member', `${u.email} ${b.role}`); const join = await invite(env, u.email); return J({ join, mailed: await mailJoin(env, url.origin, u.email, join, org.name) });
       }
       if (p === '/api/events' && M === 'GET') { const { results } = await T.prepare('SELECT id, slug, name, status, published_version, updated_at FROM events WHERE org_id = ? AND status != ? ORDER BY updated_at DESC').bind(org.id, 'archived').all(); return J({ events: results, org }); }
       if (p === '/api/events' && M === 'POST') {
@@ -214,13 +265,13 @@ export default {
           await T.prepare('UPDATE events SET draft = ?, name = ?, updated_at = ? WHERE id = ?').bind(JSON.stringify(doc), doc.name || ev.name, now(), id).run(); return J({ ok: true, problems: problems(doc) }); }
         if (!sub && M === 'DELETE') { if (!can('owner')) return err('للمالك فقط', 403); await T.prepare('UPDATE events SET status = ?, updated_at = ? WHERE id = ?').bind('archived', now(), id).run(); await audit(env, org.id, id, who.user.id, 'archive'); return J({ ok: true }); }
         if (sub === 'publish' && M === 'POST') {   // freeze the draft as the next version: the screens of the hall read this one
-          if (!can('editor')) return err('لا تملك صلاحية الاعتماد', 403); const doc = JSON.parse(ev.draft), bad = problems(doc); if (bad.length) return J({ error: 'أكمل النواقص قبل الاعتماد', problems: bad }, 422);
+          if (!can('editor')) return err('لا تملك صلاحية الاعتماد', 403); if (org.paid_until && org.paid_until < now()) return err('انتهى اشتراك الجهة', 402); const doc = JSON.parse(ev.draft), bad = problems(doc); if (bad.length) return J({ error: 'أكمل النواقص قبل الاعتماد', problems: bad }, 422);
           const v = (ev.published_version || 0) + 1; await T.batch([T.prepare('INSERT INTO event_versions (event_id, version, doc, published_by, published_at) VALUES (?,?,?,?,?)').bind(id, v, ev.draft, who.user.id, now()),
             T.prepare('UPDATE events SET published_version = ?, status = ?, updated_at = ? WHERE id = ?').bind(v, 'published', now(), id)]);
-          await audit(env, org.id, id, who.user.id, 'publish', 'v' + v); return J({ version: v });
+          await audit(env, org.id, id, who.user.id, 'publish', 'v' + v); const swept = await sweep(env, T, org.id, { ...ev, published_version: v }).catch(() => 0); return J({ version: v, swept });
         }
         if (sub === 'activate' && M === 'POST') {   // one activation day: from the morning of the chosen day (the browser's own midnight) for 24 hours, plus the evening before for the hall's set up
-          if (!can('owner')) return err('التفعيل لمالك الحساب', 403); const b = await req.json(), from = new Date(b.from); if (isNaN(from) || from.getTime() < Date.now() - 864e5) return err('تاريخ غير صالح');
+          if (!can('owner')) return err('التفعيل لمالك الحساب', 403); if (org.paid_until && org.paid_until < now()) return err('انتهى اشتراك الجهة', 402); const b = await req.json(), from = new Date(b.from); if (isNaN(from) || from.getTime() < Date.now() - 864e5) return err('تاريخ غير صالح');
           if (!ev.published_version) return err('اعتمد نسخة أولاً'); if (ev.active_until && ev.active_until > now()) return err('اللقاء مفعّل حتى ' + ev.active_until.slice(0, 10));
           const o = await env.DB.prepare('UPDATE orgs SET credits = credits - 1 WHERE id = ? AND credits > 0 RETURNING credits').bind(org.id).first(); if (!o) return err('لا أيام تفعيل في رصيدكم. تواصلوا معنا لإضافة يوم.', 402);
           const a = new Date(from.getTime() - 6 * 36e5).toISOString(), z = new Date(from.getTime() + 24 * 36e5).toISOString();

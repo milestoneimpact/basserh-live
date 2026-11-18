@@ -12,14 +12,14 @@ const ok = (c, m) => { console.log((c ? '✓ ' : '✗ ') + m); if (!c) process.e
   await p.goto(B + '/admin.html'); await p.waitForSelector('#pw'); await p.fill('#pw', 'wrong'); await p.click('#pwIn'); await p.waitForTimeout(600); ok(!!(await p.$('#pw')), 'a wrong password does not open the owner\'s page');
   await p.fill('#pw', AK); await p.click('#pwIn'); await p.waitForSelector('#pkAdd'); ok(true, 'the owner signed in with the password');
   await p.click('#pkAdd'); await p.waitForFunction(() => /أُضيف مفتاح المرور/.test(document.querySelector('#toast').textContent)); ok(true, 'the owner added a passkey');
-  await p.goto(B + '/api/logout'); await p.goto(B + '/admin.html'); await p.waitForSelector('#pkIn'); await p.click('#pkIn'); await p.waitForSelector('#pkAdd'); ok((await p.textContent('#pkAdd')).includes('مفاتيح المرور: 1'), 'signed out, then back in with the passkey alone');
+  await p.goto(B + '/api/logout'); await p.goto(B + '/admin.html'); await p.waitForSelector('#pkIn'); await p.click('#pkIn'); await p.waitForSelector('#pkAdd'); ok((await p.textContent('#pkAdd')).match(/مفاتيح المرور: [1-9]/), 'signed out, then back in with the passkey alone');
   ok((await p.$$('#rows tr')).length >= 1, 'the owner\'s page lists the organisations');
   // a member of an organisation
   const s = 'pk' + Date.now() % 1e6; await p.fill('#n', 'جهة مفتاح المرور'); await p.fill('#s', s); await p.fill('#e', s + '@t.test'); await p.click('#mk'); await p.waitForSelector('#join'); const join = await p.textContent('#join');
   await p.goto(B + '/api/logout'); await p.goto(join); await p.waitForSelector('#new'); await p.click('#pk'); await p.waitForFunction(() => /أُضيف مفتاح المرور/.test(document.querySelector('#toast').textContent)); ok(true, 'a member added a passkey in the studio');
   await p.goto(B + '/api/logout'); await p.waitForSelector('#pkIn');
   // two passkeys on this device now (the owner's and the member's): the authenticator answers with one; the server routes by it
-  await p.click('#pkIn'); await p.waitForFunction(() => location.pathname !== '/', null, { timeout: 15000 }); const where = new URL(p.url()).pathname; ok(where === '/' + s || where === '/admin.html', 'passkey sign in from the gate lands at ' + where);
+  await p.click('#pkIn'); await p.waitForFunction(() => !['/', '/login'].includes(location.pathname), null, { timeout: 15000 }); const where = new URL(p.url()).pathname; ok(where === '/' + s || /^\/admin/.test(where), 'passkey sign in from the gate lands at ' + where);
   // a stranger without a passkey of this site is refused
   const r = await ctx.request.post(B + '/api/passkey/login/finish', { data: { id: 'unknown', clientDataJSON: 'e30', authenticatorData: '', signature: '' } }); ok(r.status() === 403, 'an unknown passkey is refused (' + r.status() + ')');
   // five wrong passwords lock the address
