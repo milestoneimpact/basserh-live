@@ -5,6 +5,7 @@ import { initial, reduce } from '../web/engine/state.js';
 export { Room } from './room.js';
 export { Tenant } from './tenant.js';
 import { tdb, orgOfEvent } from './tenant.js';
+import { b64u, unb64u, newChallenge, clientData, verify } from './passkey.js';
 
 const J = (o, status = 200) => new Response(JSON.stringify(o), { status, headers: { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' } });
 const err = (msg, status = 400) => J({ error: msg }, status);
@@ -28,6 +29,10 @@ async function me(req, env) {
 const orgOf = (who, req) => { const s = req.headers.get('x-org-slug'); return s ? who.orgs.find(o => o.slug === s) : who.orgs[0]; };   // each organisation works under its own address: /<slug>
 const audit = (env, org, ev, user, action, detail = '') => tdb(env, org).prepare('INSERT INTO audit (org_id, event_id, user_id, action, detail, at) VALUES (?,?,?,?,?,?)').bind(org, ev, user, action, detail, now()).run();
 async function invite(env, email, days = 14) { const code = rid(28); await env.DB.prepare('INSERT INTO login_codes (code_hash, email, expires_at) VALUES (?,?,?)').bind(await sha(code), email, new Date(Date.now() + days * 864e5).toISOString()).run(); return '/join/' + code; }
+// a session of 30 days for a user; returns the cookie
+async function session(env, uid) { const t = rid(32); await env.DB.prepare('INSERT INTO sessions (token_hash, user_id, expires_at, created_at) VALUES (?,?,?,?)').bind(await sha(t), uid, new Date(Date.now() + 30 * 864e5).toISOString(), now()).run(); return setCookie('sid', t, 30); }
+// the platform owner as a person of the system (for sessions and passkeys); belongs to no organisation
+async function platform(env) { await env.DB.prepare('INSERT INTO users (id, email, name, created_at) VALUES (?,?,?,?) ON CONFLICT (id) DO NOTHING').bind('platform', 'platform@basserh', 'مالك المنصة', now()).run(); return 'platform'; }
 async function userFor(env, email, name) { email = String(email || '').trim().toLowerCase(); if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return null;
   let u = await env.DB.prepare('SELECT id FROM users WHERE email = ?').bind(email).first(); if (!u) { u = { id: 'u_' + rid() }; await env.DB.prepare('INSERT INTO users (id, email, name, created_at) VALUES (?,?,?,?)').bind(u.id, email, name || '', now()).run(); } return { id: u.id, email }; }
 // what a new organisation finds on its first visit: a small event already laid out, to edit instead of starting from an empty page
@@ -51,9 +56,17 @@ export default {
   async fetch(req, env) {
     const url = new URL(req.url), p = url.pathname, M = req.method;
     try {
+      // ----- the platform owner signs in with the password once, then with a passkey; five wrong passwords lock the address for 15 minutes
+      if (p === '/api/admin/login' && M === 'POST') { const ip = req.headers.get('CF-Connecting-IP') || 'local', f = await env.DB.prepare('SELECT n, until FROM login_fail WHERE ip = ?').bind(ip).first();
+        if (f && f.until && f.until > now()) return err('محاولات كثيرة. أعد المحاولة بعد ربع ساعة.', 429);
+        const b = await req.json().catch(() => ({})); if (!env.ADMIN_KEY || b.password !== env.ADMIN_KEY) { const n = (f && (!f.until || f.until > now()) ? f.n : 0) + 1; await env.DB.prepare('INSERT INTO login_fail (ip, n, until) VALUES (?,?,?) ON CONFLICT (ip) DO UPDATE SET n = excluded.n, until = excluded.until').bind(ip, n, n >= 5 ? new Date(Date.now() + 9e5).toISOString() : null).run(); return err('كلمة المرور غير صحيحة', 403); }
+        await env.DB.prepare('DELETE FROM login_fail WHERE ip = ?').bind(ip).run(); return new Response('{"ok":true}', { headers: { 'Content-Type': 'application/json', 'Set-Cookie': await session(env, await platform(env)) } }); }
+      const admin = p.startsWith('/api/admin/') && ((env.ADMIN_KEY && req.headers.get('x-admin-key') === env.ADMIN_KEY) || ((await me(req, env)) || {}).user?.id === 'platform');
+      if (p.startsWith('/api/admin/') && !admin) return err('غير مصرح', 403);
+      if (p === '/api/admin/me') return J({ ok: true, passkeys: (await env.DB.prepare('SELECT COUNT(*) AS n FROM passkeys WHERE user_id = ?').bind('platform').first()).n });
+      // the pages of the site kept in the bucket (_site/): pushed by tools/push_site.mjs when the deploy cannot carry static files itself
       // ----- the platform owner: a new organisation and the link that signs its owner in
       if (p === '/api/admin/org' && M === 'POST') {
-        if (!env.ADMIN_KEY || req.headers.get('x-admin-key') !== env.ADMIN_KEY) return err('غير مصرح', 403);
         const b = await req.json(), s = slug(b.slug || b.name); if (!b.name || !s) return err('اسم الجهة ومعرّفها مطلوبان');
         if (await env.DB.prepare('SELECT 1 FROM orgs WHERE slug = ?').bind(s).first()) return err('المعرّف مستعمل');
         const u = await userFor(env, b.email, b.owner); if (!u) return err('بريد المالك غير صالح');
@@ -65,8 +78,6 @@ export default {
         if (+b.credits > 0) await env.DB.prepare('UPDATE orgs SET credits = ? WHERE id = ?').bind(+b.credits, id).run();
         await audit(env, id, null, null, 'org', b.name); return J({ org: id, slug: s, join: await invite(env, u.email) });
       }
-      if (p.startsWith('/api/admin/') && (!env.ADMIN_KEY || req.headers.get('x-admin-key') !== env.ADMIN_KEY)) return err('غير مصرح', 403);
-      // the pages of the site kept in the bucket (_site/): pushed by tools/push_site.mjs when the deploy cannot carry static files itself
       if (p === '/api/admin/site' && M === 'PUT') { const f = url.searchParams.get('path') || ''; if (!/^[\w./-]+$/.test(f) || f.includes('..')) return err('مسار غير صالح'); await env.MEDIA.put('_site/' + f, req.body, { httpMetadata: { contentType: req.headers.get('Content-Type') || 'application/octet-stream' } }); return J({ ok: true }); }
       if (p === '/api/admin/org' && M === 'PATCH') {   // the plan of an organisation: limits, the paid period, activation days added
         const b = await req.json(), o = await env.DB.prepare('SELECT * FROM orgs WHERE id = ?').bind(b.id).first(); if (!o) return err('لا يوجد', 404);
@@ -75,7 +86,6 @@ export default {
       }
       if (p === '/api/admin/invite' && M === 'POST') { const b = await req.json(), u = await userFor(env, b.email); if (!u) return err('بريد غير صالح'); await env.DB.prepare('INSERT INTO members (org_id, user_id, role) VALUES (?,?,?) ON CONFLICT (org_id, user_id) DO NOTHING').bind(b.org, u.id, 'owner').run(); return J({ join: await invite(env, u.email) }); }
       if (p === '/api/admin/orgs' && M === 'GET') {
-        if (!env.ADMIN_KEY || req.headers.get('x-admin-key') !== env.ADMIN_KEY) return err('غير مصرح', 403);
         const { results } = await env.DB.prepare('SELECT o.*, (SELECT GROUP_CONCAT(u.email) FROM members m JOIN users u ON u.id = m.user_id WHERE m.org_id = o.id AND m.role = ?) AS owners FROM orgs o ORDER BY created_at DESC').bind('owner').all();
         // usage comes from each organisation's own database
         return J({ orgs: await Promise.all(results.map(async o => { const [[c], [b], active] = await tdb(env, o.id).batch([{ sql: 'SELECT COUNT(*) AS n FROM events WHERE status != ?', params: ['archived'] }, { sql: 'SELECT COALESCE(SUM(bytes),0) AS b FROM media', params: [] }, { sql: 'SELECT name, active_from, active_until FROM events WHERE active_until > ? ORDER BY active_from', params: [now()] }]); return { ...o, events: c.n, bytes: b.b, active }; })) });
@@ -90,6 +100,28 @@ export default {
         const first = await env.DB.prepare('SELECT o.slug FROM members m JOIN orgs o ON o.id = m.org_id WHERE m.user_id = ? LIMIT 1').bind(u.id).first();
         return new Response(null, { status: 302, headers: { Location: '/' + (first ? first.slug : ''), 'Set-Cookie': setCookie('sid', t, 30) } });
       }
+      // ----- passkeys: add one while signed in; sign in with one from the gate (the device offers the passkeys it holds for this site)
+      if (p.startsWith('/api/passkey/')) { const b = M === 'POST' ? await req.json().catch(() => ({})) : {};
+        // the browser names the site it signed for; it must be this site (or localhost in development, where the server answers under the route's name)
+        const site = o => { const h = new URL(o).hostname; if (o !== url.origin && h !== 'localhost') throw new Error('العنوان غير مطابق'); return h; };
+        const take = async c => { const r = await env.DB.prepare('DELETE FROM challenges WHERE challenge = ? AND expires_at > ? RETURNING user_id').bind(c, now()).first(); if (!r) throw new Error('انتهت صلاحية المحاولة'); return r; };
+        const issue = async uid => { const c = newChallenge(); await env.DB.prepare('INSERT INTO challenges (challenge, user_id, expires_at) VALUES (?,?,?)').bind(c, uid, new Date(Date.now() + 3e5).toISOString()).run(); return c; };
+        try {
+          if (p === '/api/passkey/register/start') { const who = await me(req, env); if (!who) return err('سجّل الدخول أولاً', 401);
+            return J({ challenge: await issue(who.user.id), rp: { name: 'بصيرة' }, user: { id: b64u(new TextEncoder().encode(who.user.id)), name: who.user.email, displayName: who.user.name || who.user.email } }); }
+          if (p === '/api/passkey/register/finish') { const who = await me(req, env); if (!who) return err('سجّل الدخول أولاً', 401); const cd = JSON.parse(new TextDecoder().decode(unb64u(b.clientDataJSON)));
+            const ch = await take(cd.challenge); if (ch.user_id !== who.user.id) return err('المحاولة لا تخص هذا الحساب'); site(cd.origin); clientData(unb64u(b.clientDataJSON), 'webauthn.create', cd.challenge, cd.origin);
+            if (![-7, -257].includes(b.alg) || !b.publicKey || !b.id) return err('هذا الجهاز لا يقدّم مفتاحاً مدعوماً');
+            await env.DB.prepare('INSERT INTO passkeys (cred_id, user_id, spki, alg, label, created_at) VALUES (?,?,?,?,?,?)').bind(b.id, who.user.id, b.publicKey, b.alg, String(b.label || '').slice(0, 60), now()).run(); return J({ ok: true }); }
+          if (p === '/api/passkey/login/start') return J({ challenge: await issue(null) });
+          if (p === '/api/passkey/login/finish') { const k = await env.DB.prepare('SELECT * FROM passkeys WHERE cred_id = ?').bind(b.id).first(); if (!k) return err('مفتاح المرور غير مسجّل هنا', 403);
+            const cdj = unb64u(b.clientDataJSON), cd = JSON.parse(new TextDecoder().decode(cdj)); await take(cd.challenge); const rpId = site(cd.origin); clientData(cdj, 'webauthn.get', cd.challenge, cd.origin);
+            if (!(await verify({ spki: unb64u(k.spki), alg: k.alg, authenticatorData: unb64u(b.authenticatorData), clientDataJSON: cdj, signature: unb64u(b.signature), rpId }))) return err('توقيع غير صحيح', 403);
+            await env.DB.prepare('UPDATE passkeys SET last_used_at = ? WHERE cred_id = ?').bind(now(), b.id).run();
+            const first = k.user_id === 'platform' ? null : await env.DB.prepare('SELECT o.slug FROM members m JOIN orgs o ON o.id = m.org_id WHERE m.user_id = ? LIMIT 1').bind(k.user_id).first();
+            return new Response(JSON.stringify({ to: k.user_id === 'platform' ? '/admin.html' : '/' + (first ? first.slug : '') }), { headers: { 'Content-Type': 'application/json', 'Set-Cookie': await session(env, k.user_id) } }); }
+        } catch (e) { return err(e.message || 'تعذّر التحقق', 400); }
+        return err('لا يوجد', 404); }
       if (p === '/api/logout') return new Response(null, { status: 302, headers: { Location: '/', 'Set-Cookie': setCookie('sid', '', 0) } });
       // ----- a link of one screen: opens that page of that event, with no account
       if (p.startsWith('/go/')) {

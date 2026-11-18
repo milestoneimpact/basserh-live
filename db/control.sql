@@ -11,3 +11,6 @@ CREATE TABLE members (org_id TEXT NOT NULL REFERENCES orgs(id), user_id TEXT NOT
 -- sign in by a link sent to the email; sessions are stored hashed
 CREATE TABLE login_codes (code_hash TEXT PRIMARY KEY, email TEXT NOT NULL, expires_at TEXT NOT NULL, used_at TEXT);
 CREATE TABLE sessions (token_hash TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id), expires_at TEXT NOT NULL, created_at TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS passkeys (cred_id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id), spki TEXT NOT NULL, alg INTEGER NOT NULL, label TEXT, created_at TEXT NOT NULL, last_used_at TEXT);
+CREATE TABLE IF NOT EXISTS challenges (challenge TEXT PRIMARY KEY, user_id TEXT, expires_at TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS login_fail (ip TEXT PRIMARY KEY, n INTEGER NOT NULL, until TEXT);

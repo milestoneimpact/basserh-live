@@ -30,7 +30,7 @@ main{max-width:1320px;margin:0 auto;padding:30px 34px 80px}
 .logo{height:86px;min-width:140px;border:1px dashed var(--line);border-radius:12px;display:grid;place-items:center;color:var(--mute);font-size:13px;padding:8px}.logo img{max-height:70px;max-width:220px}
 #gate{max-width:520px;margin:120px auto;text-align:center}
 </style></head><body>
-<header><div class="wm">بصيرة<i></i><span>BASSERH</span></div><span style="font:600 14px Plex;color:var(--gold2);margin-inline-start:6px">استوديو اللقاءات</span><span class="org" id="orgName"></span><span class="sp"></span><span id="saved" style="font-size:13px;color:var(--gold2)"></span><a href="#" id="home">لقاءاتي</a><a href="/api/logout">خروج</a></header>
+<header><div class="wm">بصيرة<i></i><span>BASSERH</span></div><span style="font:600 14px Plex;color:var(--gold2);margin-inline-start:6px">استوديو اللقاءات</span><span class="org" id="orgName"></span><span class="sp"></span><span id="saved" style="font-size:13px;color:var(--gold2)"></span><a href="#" id="pk" title="الدخول لاحقاً ببصمة هذا الجهاز أو رمزه، بلا رابط دعوة">إضافة مفتاح مرور</a><a href="#" id="home">لقاءاتي</a><a href="/api/logout">خروج</a></header>
 <main id="app"></main><div id="toast"></div>
 <script type="module">
 import { SCENES, problems } from './engine/config.js';
@@ -179,6 +179,10 @@ async function run() { const b = $('#body'), L = { stage: 'الشاشة الكب
 // ---------- start
 $('#home').onclick = e => { e.preventDefault(); home(); };
 ME = await api('/api/me', { soft: true });
-if (!ME.user) app.innerHTML = '<div id="gate"><img src="brand/mark.png" alt="بصيرة" style="height:150px;margin-bottom:18px"><div class="k">بصيرة · استوديو اللقاءات</div><h2 style="font:900 34px Kufi;color:var(--deep);margin:10px 0">الدخول برابط الدعوة</h2><p style="color:var(--mute)">افتح الرابط الذي وصلك من مالك الحساب. الرابط يُستعمل مرة واحدة ويبقيك داخلاً ثلاثين يوماً على هذا الجهاز.</p></div>';
+if (!ME.user) app.innerHTML = '<div id="gate"><img src="brand/mark.png" alt="بصيرة" style="height:150px;margin-bottom:18px"><div class="k">بصيرة · استوديو اللقاءات</div><h2 style="font:900 34px Kufi;color:var(--deep);margin:10px 0">الدخول برابط الدعوة</h2><p style="color:var(--mute)">افتح الرابط الذي وصلك من مالك الحساب. الرابط يُستعمل مرة واحدة ويبقيك داخلاً ثلاثين يوماً على هذا الجهاز.</p><button class="btn gold" id="pkIn" style="margin-top:14px;padding:12px 28px;font-size:17px">الدخول بمفتاح المرور</button></div>';
 else home();
+// passkeys: add one once signed in; sign in with it next time
+import('./passkey.js').then(PK => { const add = $('#pk'), inb = $('#pkIn'); if (!PK.supported()) { add.style.display = 'none'; if (inb) inb.style.display = 'none'; return; }
+  if (!ME.user) add.style.display = 'none'; add.onclick = async e => { e.preventDefault(); try { await PK.register(); toast('أُضيف مفتاح المرور لهذا الجهاز'); } catch (x) { toast(x.name === 'NotAllowedError' ? 'أُلغيت العملية' : x.message); } };
+  if (inb) inb.onclick = async () => { try { const r = await PK.login(); location.href = r.to; } catch (x) { toast(x.name === 'NotAllowedError' ? 'أُلغيت العملية' : x.message); } }; });
 </script></body></html>
