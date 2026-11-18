@@ -45,6 +45,11 @@ const adm = (p, m = 'GET', b) => fetch(B + '/api/admin/' + p, { method: m, heade
   await mp.fill('#evName', 'ملتقى المعرفة الثاني'); await mp.waitForFunction(() => /حُفظ$/.test(document.querySelector('#saved').textContent));
   await o.click('[data-add="title"]'); await o.waitForSelector('#dlg'); ok((await o.textContent('#dlg h3')).includes('عدّل زميل'), 'two people on one event: the second to save is told, nothing is overwritten silently');
   await o.click('#dlgNo'); await o.waitForFunction(() => document.querySelector('#evName')?.value === 'ملتقى المعرفة الثاني'); ok(await nc() === 7, 'choosing the colleague\'s version loads it');
+  // a file that will not play is refused at the door; an event is archived and brought back
+  await o.click('[data-t="media"]'); await o.setInputFiles('#fi', { name: 'broken.mp4', mimeType: 'video/mp4', buffer: Buffer.from('this is not a video at all') }); await o.waitForFunction(() => /لا يعمل في المتصفح/.test(document.querySelector('#toast').textContent), null, { timeout: 25000 });
+  ok(await o.locator('.file').count() === 0, 'a video the browser cannot play is refused when it is uploaded, with the way to fix it');
+  await o.waitForFunction(() => !/يحفظ/.test(document.querySelector('#saved').textContent)); await o.click('#arch'); await o.click('#dlgOk'); await o.waitForSelector('details summary'); ok(await o.locator('.ev').count() === 1 && /المؤرشفة \(1\)/.test(await o.textContent('details summary')), 'an event is archived: it leaves the list and waits under «archived»');
+  await o.click('details summary'); await o.click('[data-un]'); await o.waitForFunction(() => document.querySelectorAll('.ev').length === 2); ok(true, 'and it is brought back with one button');
   // the platform owner renews it
   const org = (await (await adm('orgs')).json()).orgs.find(x => x.slug === slug), r = await (await adm('password', 'POST', { org: org.id, email: mail })).json();
   ok(await tryIn('my-own-pass-2026') === 403 && await tryIn(r.password) === 200, 'renewed by the platform owner: the old one is refused, the new one opens');

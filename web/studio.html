@@ -57,9 +57,9 @@ const $ = (s, r = document) => r.querySelector(s), app = $('#app'), esc = s => S
 const toast = t => { const e = $('#toast'); e.textContent = t; e.classList.add('on'); clearTimeout(toast.t); toast.t = setTimeout(() => e.classList.remove('on'), 2600); };
 // each organisation works under its own address (/<slug>); the slug goes with every request
 const SLUG = (location.pathname.match(/^\/([a-z0-9][a-z0-9-]+)\/?$/) || [])[1] || '', ORG = SLUG ? { 'x-org-slug': SLUG } : {};
-const api = async (path, opt = {}) => { const r = await fetch(path, { ...opt, headers: { ...ORG, ...(opt.body && typeof opt.body === 'string' ? { 'Content-Type': 'application/json' } : {}), ...(opt.headers || {}) } }); const j = await r.json().catch(() => ({})); if (!r.ok && !opt.soft) { toast(j.error || 'تعذّر الطلب'); throw Object.assign(new Error(j.error), { data: j }); } return j; };
+const api = async (path, opt = {}) => { const r = await fetch(path, { ...opt, headers: { ...ORG, ...(opt.body && typeof opt.body === 'string' ? { 'Content-Type': 'application/json' } : {}), ...(opt.headers || {}) } }); const j = await r.json().catch(() => ({})); if (r.status === 401 && ME && ME.user && path !== '/api/login') { toast('انتهت جلستك. ادخل من جديد.'); setTimeout(() => location.reload(), 1200); throw new Error('session'); } if (!r.ok && !opt.soft) { toast(j.error || 'تعذّر الطلب'); throw Object.assign(new Error(j.error), { data: j }); } return j; };
 const nid = p => p + Math.random().toString(36).slice(2, 7);
-let hearAC = null, pvTall = false;
+let hearAC = null, pvTall = false, logoFor = 'before';
 // the preview of one cue: the stage page in «solo», after the saves on their way have landed
 function pv(id) { clearTimeout(st0); st0 = setTimeout(() => { line = line.then(() => { const f = document.querySelector('#pv iframe'); if (f && E) f.src = `/run/stage.html?e=${E.id}&solo=${id}&v=${Date.now()}`; }); }, 620); } let st0;
 let ME, E = null, doc = null, base = '', tab = 'cues', sel = null, probs = [];
@@ -79,17 +79,20 @@ const hist = () => { const u = $('#undo'), r = $('#redo'); if (u) u.disabled = !
 function travel(from, to) { if (!from.length) return; to.push(snap); snap = from.pop(); snapAt = 0; doc = JSON.parse(snap); if (!doc.cues.some(c => c.id === sel)) sel = doc.cues[0]?.id; save(true); draw(); }
 addEventListener('keydown', e => { if (!E || !(e.ctrlKey || e.metaKey) || e.key.toLowerCase() !== 'z' || /INPUT|TEXTAREA|SELECT/.test(e.target.tagName)) return; e.preventDefault(); e.shiftKey ? travel(redoS, undoS) : travel(undoS, redoS); });
 let st, line = Promise.resolve();   // line: the saves on their way, in order
-const save = (silent) => { if (silent !== true) mark(); $('#saved').textContent = 'يحفظ…'; clearTimeout(st); st = setTimeout(() => { line = line.then(async () => { if (!E) return; let r = await api('/api/events/' + E.id, { method: 'PUT', body: JSON.stringify(doc), headers: { 'x-rev': E.rev || '' }, soft: true });
+let dirty = false; addEventListener('beforeunload', e => { if (dirty) { e.preventDefault(); e.returnValue = ''; } });
+const save = (silent) => { if (silent !== true) mark(); dirty = true; $('#saved').textContent = 'يحفظ…'; clearTimeout(st); st = setTimeout(() => { line = line.then(async () => { if (!E) return; let r = await api('/api/events/' + E.id, { method: 'PUT', body: JSON.stringify(doc), headers: { 'x-rev': E.rev || '' }, soft: true });
   // a colleague saved the same event meanwhile: nothing is overwritten without a choice
   if (r.conflict) { $('#saved').textContent = 'لم يُحفظ'; const mine = await ask({ title: 'عدّل زميل هذا اللقاء أثناء عملك', text: 'حُفظت نسخة أحدث من نسختك. اختر ما يبقى.', ok: 'اعتماد تعديلاتي', no: 'تحميل نسخة الزميل' }); if (!mine) return open(E.id, tab);
     r = await api('/api/events/' + E.id, { method: 'PUT', body: JSON.stringify(doc), headers: { 'x-force': '1' } }); }
-  if (r.error) { $('#saved').textContent = 'لم يُحفظ'; return toast(r.error); } E.rev = r.rev; probs = r.problems; $('#saved').textContent = 'حُفظ'; steps(); const n = $('.tabs .n'); if (n) { n.textContent = probs.length; n.style.display = probs.length ? '' : 'none'; } }).catch(() => { $('#saved').textContent = 'لم يُحفظ'; }); }, 500); };
+  if (r.error) { $('#saved').textContent = 'لم يُحفظ'; return toast(r.error); } E.rev = r.rev; probs = r.problems; dirty = false; $('#saved').textContent = 'حُفظ'; steps(); const n = $('.tabs .n'); if (n) { n.textContent = probs.length; n.style.display = probs.length ? '' : 'none'; } }).catch(() => { $('#saved').textContent = 'لم يُحفظ · يعيد المحاولة'; setTimeout(() => { if (dirty && E) save(true); }, 4000); }); }, 500); };
 
 // ---------- home: the events of the organisation
-async function home() { E = null; const { events, org } = await api('/api/events'); $('#orgName').textContent = org.name;
+async function home() { E = null; const { events, org, archived = [] } = await api('/api/events'); $('#orgName').textContent = org.name;
   app.innerHTML = `<div class="hero"><div><div class="k">${esc(org.name)}</div><h2>لقاءاتكم</h2></div><div style="display:flex;gap:10px"><button class="btn" id="team">الفريق</button><button class="btn pri" id="new">لقاء جديد</button></div></div>
   <div class="cards">${events.map(e => `<div class="ev" data-id="${e.id}"><span class="pill ${e.published_version ? '' : 'd'}">${e.published_version ? 'معتمد · النسخة ' + e.published_version : 'مسودة'}</span><h3 style="margin-top:10px">${esc(e.name)}</h3><p>آخر تعديل ${new Date(e.updated_at).toLocaleDateString('ar', { day: 'numeric', month: 'long' })}</p></div>`).join('') || '<div class="panel" style="grid-column:1/-1;text-align:center;color:var(--mute)">لا لقاءات بعد. ابدأ بلقاء جديد.</div>'}</div>
   <p style="color:var(--mute);font-size:13px;margin-top:22px">اللقاءات: ${events.length} من ${org.events_limit} · أيام التفعيل في رصيدكم: <b style="color:var(--gold)">${org.credits}</b> · البناء والبروفة بلا تفعيل، ويوم التفعيل يفتح شاشات القاعة</p>`;
+  if (archived.length) { const box = document.createElement('div'); box.innerHTML = `<details style="margin-top:22px"><summary style="cursor:pointer;color:var(--mute);font:600 14px Plex">اللقاءات المؤرشفة (${archived.length})</summary><div style="margin-top:10px">${archived.map(e => `<div class="vrow" style="grid-template-columns:1fr auto"><b>${esc(e.name)}</b><button class="btn sm" data-un="${e.id}">استرجاعه</button></div>`).join('')}</div></details>`; app.appendChild(box);
+    box.querySelectorAll('[data-un]').forEach(x => x.onclick = async () => { try { await api(`/api/events/${x.dataset.un}/unarchive`, { method: 'POST' }); toast('عاد اللقاء إلى لقاءاتكم'); home(); } catch {} }); }
   app.querySelectorAll('.ev').forEach(c => c.onclick = () => open(c.dataset.id));
   $('#new').onclick = async () => { const opts = [...TEMPLATES.map(t => ({ k: t.id, name: t.name, about: t.about, n: t.cues + ' فقرات' })), ...(events.length ? [{ k: 'copy', name: 'نسخة من «' + events[0].name + '»', about: 'فقراته وأشخاصه وهويته كما هي، وتعدّل ما تغيّر.', n: 'آخر لقاء' }] : [])];
     const a = await ask({ title: 'لقاء جديد', text: 'سمِّ اللقاء واختر ما تبدأ منه. كل شيء قابل للتعديل بعد ذلك.', input: { placeholder: 'اسم اللقاء' }, ok: 'إنشاء اللقاء', wide: true,
@@ -100,7 +103,7 @@ async function home() { E = null; const { events, org } = await api('/api/events
   $('#team').onclick = team;
 }
 async function team() { const { members } = await api('/api/members'); const R = { owner: 'مالك', editor: 'محرّر', operator: 'مشغّل', viewer: 'مطّلع' };
-  const A = { publish: 'اعتماد نسخة', activate: 'تفعيل يوم', member: 'عضو', member_removed: 'إزالة عضو', create: 'إنشاء لقاء', archive: 'أرشفة لقاء', link: 'رابط شاشة', unlink: 'إلغاء رابط', restore: 'استرجاع نسخة', password: 'تجديد كلمة مرور', org: 'إنشاء الجهة', plan: 'تعديل الباقة' };
+  const A = { publish: 'اعتماد نسخة', activate: 'تفعيل يوم', member: 'عضو', member_removed: 'إزالة عضو', create: 'إنشاء لقاء', archive: 'أرشفة لقاء', link: 'رابط شاشة', unarchive: 'استرجاع لقاء', unlink: 'إلغاء رابط', restore: 'استرجاع نسخة', password: 'تجديد كلمة مرور', org: 'إنشاء الجهة', plan: 'تعديل الباقة' };
   const log = await fetch('/api/audit', { headers: ORG }).then(r => r.ok ? r.json() : null);
   app.innerHTML = `<div class="hero"><h2>الفريق</h2></div><div class="panel" style="max-width:760px">${members.map(m => `<div class="link" style="grid-template-columns:1fr 130px auto"><span dir="ltr" style="text-align:right">${esc(m.email)}</span>${log ? `<select data-role="${esc(m.email)}">${Object.entries(R).map(([k, v]) => `<option value="${k}" ${k === m.role ? 'selected' : ''}>${v}</option>`).join('')}</select><button class="btn sm" data-rm="${esc(m.email)}">إزالة</button>` : `<span class="pill">${R[m.role]}</span><span></span>`}</div>`).join('')}
   <h3 style="margin-top:24px;font-size:17px">إضافة عضو</h3><div class="row" style="margin-top:10px;grid-template-columns:1.3fr 1fr 120px auto"><input type="email" id="mEmail" placeholder="البريد" dir="ltr"><input type="text" id="mPw" placeholder="كلمة مرور له (اختياري)" dir="ltr" autocomplete="off"><select id="mRole">${Object.entries(R).map(([k, v]) => `<option value="${k}" ${k === 'operator' ? 'selected' : ''}>${v}</option>`).join('')}</select><button class="btn pri" id="mAdd">إنشاء رابط الدخول</button></div><div id="mOut"></div></div>
@@ -125,11 +128,12 @@ function steps() { const el = $('#steps'); if (!el || !doc) return; const ppl = 
 const med = k => doc.media[k], src = f => (f ? base + f : '');
 function draw() {
   app.innerHTML = `<div class="hero"><div><div class="k">${E.published_version ? 'معتمد · النسخة ' + E.published_version : 'مسودة'}</div><input type="text" id="evName" value="${esc(doc.name)}" style="font:900 30px Kufi;border:0;background:none;padding:0;color:var(--deep);width:640px"></div>
-    <div style="display:flex;gap:10px;align-items:center"><button class="btn ic" id="undo" title="تراجع (Ctrl+Z)">↶</button><button class="btn ic" id="redo" title="إعادة (Ctrl+Shift+Z)">↷</button><button class="btn" id="reh">بروفة</button><button class="btn gold" id="pub">اعتماد النسخة</button></div></div><div id="steps"></div>
+    <div style="display:flex;gap:10px;align-items:center"><button class="btn sm bad" id="arch" title="يخرج اللقاء من لقاءاتكم ويفسح مكاناً لغيره، ويبقى محفوظاً لاسترجاعه">أرشفة</button><button class="btn ic" id="undo" title="تراجع (Ctrl+Z)">↶</button><button class="btn ic" id="redo" title="إعادة (Ctrl+Shift+Z)">↷</button><button class="btn" id="reh">بروفة</button><button class="btn gold" id="pub">اعتماد النسخة</button></div></div><div id="steps"></div>
   <div class="tabs">${[['cues', 'الفقرات'], ['people', 'الأشخاص'], ['media', 'الملفات'], ['identity', 'الهوية'], ['run', 'الاعتماد والشاشات']].map(([k, t]) => `<button data-t="${k}" class="${k === tab ? 'on' : ''}">${t}${k === 'run' ? `<span class="n" style="${probs.length ? '' : 'display:none'}">${probs.length}</span>` : ''}</button>`).join('')}</div><div id="body"></div>`;
   app.querySelectorAll('.tabs button').forEach(b => b.onclick = () => { tab = b.dataset.t; draw(); });
   $('#evName').oninput = e => { doc.name = e.target.value; save(); };
   $('#reh').onclick = () => { localStorage.setItem('reh:' + E.id, '1'); steps(); window.open(`/run/preview.html?e=${E.id}`, '_blank'); };   // every screen and the console in one page, on the draft
+  $('#arch').onclick = async () => { if (!(await ask({ title: 'أرشفة اللقاء', text: `«${doc.name}» يخرج من لقاءاتكم ويفسح مكاناً للقاء جديد. ملفاته ونسخه محفوظة، ويُسترجع من «اللقاءات المؤرشفة».`, ok: 'أرشفة', danger: true }))) return; clearTimeout(st); await line; try { await api('/api/events/' + E.id, { method: 'DELETE' }); dirty = false; toast('أُرشف اللقاء'); home(); } catch {} };
   $('#undo').onclick = () => travel(undoS, redoS); $('#redo').onclick = () => travel(redoS, undoS); hist(); steps();
   $('#pub').onclick = publish; ({ cues, people, media, identity, run })[tab]();
 }
@@ -212,16 +216,21 @@ async function upload(file, note) {
       const cv = Object.assign(document.createElement('canvas'), { width: Math.round(vp.width), height: Math.round(vp.height) }); await pg.render({ canvasContext: cv.getContext('2d'), viewport: vp }).promise;
       const blob = await new Promise(r => cv.toBlob(r, 'image/jpeg', .9)); const q = { kind: 'slides', name, n }; if (id) q.slides = id; id = (await put(q, blob, 'image/jpeg')).id; }
     doc.media[key] = { kind: 'slides', name: name.replace(/\.pdf$/i, ''), src: id + '/', count: pdf.numPages };
-  } else if (file.type.startsWith('video/')) { note(`${name}: يُرفع…`); const r = file.size > 20 * 1048576 ? await putBig(file, note) : await put({ kind: 'video', name }, file, file.type);
-    const length = await new Promise(res => { const v = document.createElement('video'); v.preload = 'metadata'; v.onloadedmetadata = () => res(Math.round(v.duration)); v.onerror = () => res(0); v.src = URL.createObjectURL(file); });
-    doc.media[key] = { kind: 'video', name: name.replace(/\.\w+$/, ''), src: r.src, length };
+    { const v1 = (await pdf.getPage(1)).getViewport({ scale: 1 }), ratio = v1.width / v1.height; if (Math.abs(ratio - 16 / 9) > .12) toast(`«${name}» ليس بقياس 16:9، فستظهر حوله حواف على الشاشة الكبرى`); }
+  } else if (file.type.startsWith('video/')) { note(`${name}: يُفحص…`);
+    const probe = await new Promise(res => { const v = document.createElement('video'); v.preload = 'metadata'; v.muted = true; const t = setTimeout(() => res({ ok: false }), 15000); v.onloadedmetadata = () => { clearTimeout(t); res({ ok: v.videoWidth > 0, length: Math.round(v.duration), w: v.videoWidth, h: v.videoHeight }); }; v.onerror = () => { clearTimeout(t); res({ ok: false }); }; v.src = URL.createObjectURL(file); });
+    if (!probe.ok) throw new Error(`«${name}» لا يعمل في المتصفح. حوّله إلى MP4 بترميز H.264 ثم ارفعه.`);
+    if (file.size > 1500 * 1048576) throw new Error(`«${name}» أكبر من 1.5 غيغابايت. اضغطه قبل الرفع ليُحفظ سريعاً على أجهزة القاعة.`);
+    note(`${name}: يُرفع…`); const r = file.size > 20 * 1048576 ? await putBig(file, note) : await put({ kind: 'video', name }, file, file.type); const length = probe.length;
+    if (probe.h > probe.w) toast(`«${name}» فيديو طولي: استعمله نسخةً للشاشات الطولية في فقرته`); else if (file.size > 400 * 1048576) toast(`«${name}» كبير (${Math.round(file.size / 1048576)} ميغا): افتحوا شاشات القاعة مبكراً ليكتمل حفظه`);
+    doc.media[key] = { kind: 'video', name: name.replace(/\.\w+$/, ''), src: r.src, length, w: probe.w, h: probe.h };
   } else if (file.type.startsWith('image/')) { note(`${name}: يُرفع…`); const r = await put({ kind: 'image', name }, file, file.type); doc.media[key] = { kind: 'image', name: name.replace(/\.\w+$/, ''), src: r.src }; }
   else throw new Error('نوع الملف غير مدعوم: فيديو، صورة، أو PDF'); save(); return key;
 }
 function media() { const b = $('#body'), used = k => doc.cues.some(c => c.media === k);
   b.innerHTML = `<div class="panel" style="max-width:960px"><div class="drop" id="drop"><b style="font-family:Kufi;color:var(--deep);font-size:18px">اسحب الملفات هنا، أو <a href="#" id="pick">اختر من جهازك</a></b><br>فيديو (MP4)، صورة، أو عرض تقديمي بصيغة PDF يتحول إلى شرائح<div id="note" style="margin-top:8px;color:var(--green);font-weight:600"></div></div><input type="file" id="fi" multiple hidden accept="video/*,image/*,application/pdf">
   ${Object.entries(doc.media).map(([k, m]) => `<div class="file"><span class="ic">${m.kind === 'slides' ? `<img src="${src(m.src)}s-1.jpg">` : m.kind === 'image' ? `<img src="${src(m.src)}">` : '▶'}</span><span><input type="text" data-m="${k}" value="${esc(m.name)}" style="border:0;padding:0;font:700 16px Kufi"><small style="color:var(--mute)">${KIND[m.kind]}${m.count ? ' · ' + m.count + ' شريحة' : ''}${m.length ? ' · ' + Math.floor(m.length / 60) + ':' + String(m.length % 60).padStart(2, '0') : ''}${used(k) ? ' · مستعمل في فقرة' : ''}</small></span><span></span><button class="btn sm bad" data-rm="${k}">إزالة</button></div>`).join('') || '<p style="color:var(--mute);text-align:center">لا ملفات بعد.</p>'}</div>`;
-  const note = t => $('#note').textContent = t, go = async files => { for (const f of files) { try { await upload(f, note); } catch (e) { toast(e.message); } } media(); toast('اكتمل الرفع'); };
+  const note = t => $('#note').textContent = t, go = async files => { const bad = []; for (const f of files) { try { await upload(f, note); } catch (e) { bad.push(e.message); } } if (tab !== 'media' || !$('#drop')) { toast(bad[0] || 'اكتمل الرفع'); return; } media(); if (bad.length) { const n = $('#note'); n.style.color = 'var(--bad)'; n.textContent = bad.join(' · '); toast(bad[0]); } else toast('اكتمل الرفع'); };   // what was refused stays written under the drop area
   $('#pick').onclick = e => { e.preventDefault(); $('#fi').click(); }; $('#fi').onchange = e => go([...e.target.files]);
   const d = $('#drop'); d.ondragover = e => { e.preventDefault(); d.classList.add('hot'); }; d.ondragleave = () => d.classList.remove('hot'); d.ondrop = e => { e.preventDefault(); d.classList.remove('hot'); go([...e.dataTransfer.files]); };
   b.querySelectorAll('[data-m]').forEach(i => i.oninput = () => { doc.media[i.dataset.m].name = i.value; save(); });
@@ -244,8 +253,8 @@ function identity() { const b = $('#body'), has = !!doc.identity.after, C = { bg
   const snd = () => { doc.sound = { pack: $('#spk').value, on: Object.fromEntries([...b.querySelectorAll('[data-mom]')].map(i => [i.dataset.mom, i.checked])) }; save(); }; $('#spk').onchange = () => { snd(); hear('cue'); }; b.querySelectorAll('[data-mom]').forEach(i => i.onchange = snd);
   const hear = k => { const pack = $('#spk').value; if (pack === 'none') return toast('اختر طابعاً للصوت أولاً'); hearAC = hearAC || new (window.AudioContext || window.webkitAudioContext)(); hearAC.resume(); k === 'launch' ? SFX.launch(hearAC, pack, 'countdown', { reveal: 3, count: 3 }, 0) : SFX.play(hearAC, pack, k); }; b.querySelectorAll('[data-hear]').forEach(x => x.onclick = () => hear(x.dataset.hear));
   b.querySelectorAll('[data-i]').forEach(i => i.onchange = () => { doc.identity[i.dataset.i].colors[i.dataset.c] = i.value; save(); identity(); });
-  let target; b.querySelectorAll('[data-logo]').forEach(x => x.onclick = () => { target = x.dataset.logo; $('#lf').click(); });
-  $('#lf').onchange = async e => { const f = e.target.files[0]; if (!f) return; const r = await put({ kind: 'image', name: f.name }, f, f.type); doc.identity[target].logo = r.src; save(); identity(); };
+  b.querySelectorAll('[data-logo]').forEach(x => x.onclick = () => { logoFor = x.dataset.logo; $('#lf').click(); });   // which logo is being chosen is kept outside this drawing, so a redraw of the tab between the choice and the upload loses nothing
+  $('#lf').onchange = async e => { const f = e.target.files[0]; if (!f) return; const which = doc.identity[logoFor] ? logoFor : 'before'; const r = await put({ kind: 'image', name: f.name }, f, f.type); doc.identity[which].logo = r.src; save(); if (tab === 'identity') identity(); };
 }
 
 // ---------- approval and the links of the screens

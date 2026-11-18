@@ -296,7 +296,7 @@ const main = {
         await env.DB.prepare('INSERT INTO members (org_id, user_id, role) VALUES (?,?,?) ON CONFLICT (org_id, user_id) DO UPDATE SET role = excluded.role').bind(org.id, u.id, b.role).run();
         await audit(env, org.id, null, who.user.id, 'member', `${u.email} ${b.role}`); const join = await invite(env, u.email); return J({ join, mailed: await mailJoin(env, url.origin, u.email, join, org.name) });
       }
-      if (p === '/api/events' && M === 'GET') { const { results } = await T.prepare('SELECT id, slug, name, status, published_version, updated_at FROM events WHERE org_id = ? AND status != ? ORDER BY updated_at DESC').bind(org.id, 'archived').all(); return J({ events: results, org }); }
+      if (p === '/api/events' && M === 'GET') { const { results } = await T.prepare('SELECT id, slug, name, status, published_version, updated_at FROM events WHERE org_id = ? ORDER BY updated_at DESC').bind(org.id).all(); return J({ events: results.filter(e => e.status !== 'archived'), archived: results.filter(e => e.status === 'archived'), org }); }
       if (p === '/api/events' && M === 'POST') {
         if (!can('editor')) return err('لا تملك صلاحية الإنشاء', 403); const b = await req.json(); if (!b.name) return err('اسم اللقاء مطلوب');
         const n = (await T.prepare('SELECT COUNT(*) AS n FROM events WHERE org_id = ? AND status != ?').bind(org.id, 'archived').first()).n;
@@ -320,6 +320,8 @@ const main = {
           const d = JSON.parse((await T.prepare('SELECT doc FROM event_versions WHERE event_id = ? AND version = ?').bind(id, ev.published_version).first()).doc), log = r.log || [], end = log.length ? (r.state && r.state.live ? Date.now() : log[log.length - 1].t) : 0, rows = [];
           log.forEach((x, i) => { if (x.k !== 'cue') return; const nx = log.slice(i + 1).find(y => y.k === 'cue' || y.k === 'off'), c = d.cues.find(q => q.id === x.id); rows.push({ title: c ? c.title : x.id, type: c ? c.type : '', at: x.t, ms: (nx ? nx.t : end) - x.t, planned: c ? (+c.dur || 0) * 60000 : 0 }); });
           const on = log.find(x => x.k === 'on'), la = log.find(x => x.k === 'launch'); return J({ name: d.name, version: ev.published_version, from: on ? on.t : (rows[0] ? rows[0].at : 0), to: end, launchAt: la ? la.t : 0, running: !!(r.state && r.state.live), rows }); }
+        if (sub === 'unarchive' && M === 'POST') { if (!can('owner')) return err('للمالك فقط', 403); const n = (await T.prepare('SELECT COUNT(*) AS n FROM events WHERE org_id = ? AND status != ?').bind(org.id, 'archived').first()).n; if (n >= org.events_limit) return err(`باقتكم تسمح بـ ${org.events_limit} لقاء. أرشفوا لقاءً آخر أولاً.`, 402);
+          await T.prepare('UPDATE events SET status = ?, updated_at = ? WHERE id = ?').bind(ev.published_version ? 'published' : 'draft', now(), id).run(); await audit(env, org.id, id, who.user.id, 'unarchive'); return J({ ok: true }); }
         if (sub === 'versions' && M === 'GET') { const { results } = await T.prepare('SELECT version, published_by, published_at FROM event_versions WHERE event_id = ? ORDER BY version DESC LIMIT 50').bind(id).all(), names = {};
           for (const u of new Set(results.map(r => r.published_by).filter(Boolean))) { const x = await env.DB.prepare('SELECT email FROM users WHERE id = ?').bind(u).first(); names[u] = x ? x.email : ''; }
           return J({ versions: results.map(r => ({ version: r.version, at: r.published_at, by: names[r.published_by] || '' })), current: ev.published_version }); }
