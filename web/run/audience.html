@@ -2,9 +2,9 @@
 <!-- The page in the hands of the audience (one link for everyone, usually behind a QR code on the screens): the programme of the event,
      the cue on now, and a question to send. It is told only what the audience may know: no moderator's words, and nothing of a new
      identity before the launch has shown it. It asks the server every few seconds; it holds no connection open. -->
-<html lang="ar" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>برنامج اللقاء</title><link rel="stylesheet" href="../app.css">
+<html lang="ar" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>برنامج اللقاء</title><link rel="stylesheet" href="../app.css"><link rel="stylesheet" href="../fonts/brand.css">
 <style>
-body{background:var(--bg,#F6F1E6);color:var(--ink,#14211E);transition:background .8s,color .8s;min-height:100vh}main{max-width:620px;margin:0 auto;padding:22px 16px 60px}
+header h1,#nowT,.it b,#send{font-family:var(--ft,Kufi)!important}body{background:var(--bg,#F6F1E6);color:var(--ink,#14211E);transition:background .8s,color .8s;min-height:100vh}main{max-width:620px;margin:0 auto;padding:22px 16px 60px}
 header{text-align:center;padding:14px 0 8px}header img{max-height:84px;max-width:60%}header h1{font:900 24px/1.5 Kufi;color:var(--accent,#0F5A4E);margin-top:10px}
 .card{background:color-mix(in srgb,var(--bg,#F6F1E6) 55%,#fff);border:1px solid color-mix(in srgb,var(--gold,#C2A063) 40%,transparent);border-radius:18px;padding:18px;margin-top:14px;box-shadow:0 10px 26px rgba(0,0,0,.06)}
 .k{font:600 13px Plex;color:var(--gold,#C2A063);letter-spacing:.06em}#nowT{font:900 26px/1.5 Kufi;color:var(--accent,#0F5A4E)}#nowW{color:color-mix(in srgb,var(--ink,#14211E) 70%,transparent);font-size:15px}
@@ -27,7 +27,7 @@ const Q = new URLSearchParams(location.search), E = Q.get('e'), DR = Q.has('draf
 async function pull() { let r, d; try { r = await fetch(`/api/run/${E}/pub${DR}`); d = await r.json(); } catch { return; }
   if (!r.ok) { $('main').innerHTML = `<p style="text-align:center;margin-top:30vh;font:600 20px Plex;color:#888">${esc(d.error || 'تعذّر فتح الصفحة')}</p>`; return; }
   const key = JSON.stringify(d); if (key === last) return; last = key;
-  for (const [k, v] of Object.entries({ bg: d.colors.bg, ink: d.colors.ink, accent: d.colors.accent, gold: d.colors.gold })) if (v) document.documentElement.style.setProperty('--' + k, v);
+  for (const [k, v] of Object.entries({ bg: d.colors.bg, ink: d.colors.ink, accent: d.colors.accent, gold: d.colors.gold, ft: d.font })) if (v) document.documentElement.style.setProperty('--' + k, v);
   document.title = d.name; $('#nm').textContent = d.name; const lg = $('#lg'); if (d.logo) { if (lg.getAttribute('src') !== d.logo) lg.src = d.logo; lg.style.display = ''; } else lg.style.display = 'none';
   const at = d.cues.findIndex(c => c.id === d.cue), cur = d.cues[at]; $('#wait').style.display = d.live ? 'none' : ''; $('#nowC').style.display = d.live && cur ? '' : 'none'; if (cur) { $('#nowT').textContent = cur.title; $('#nowW').textContent = cur.who; }
   $('#list').innerHTML = d.cues.map((c, i) => `<div class="it${d.live && at >= 0 && i < at ? ' done' : ''}${d.live && i === at ? ' now' : ''}"><i>${d.live && at >= 0 && i < at ? '✓' : i + 1}</i><span><b>${esc(c.title)}</b>${c.who ? `<small>${esc(c.who)}</small>` : ''}</span></div>`).join('') || '<p style="opacity:.6">يُعلن البرنامج قريباً.</p>';

@@ -31,6 +31,11 @@ export const LAUNCH = { video: 'فيديو كشف مرفوع', countdown: 'عد�
 export const GESTURES = { hold: 'ضغطة مطوّلة', swipe: 'سحب للتدشين', tap: 'ضغطة واحدة' };
 export const gestureOf = ev => { const c = (ev.cues || []).find(c => c.type === 'launch'); return handsOf(ev) > 1 ? 'hold' : (c && GESTURES[c.gesture] ? c.gesture : 'hold'); };   // several hands always hold together
 // what moves quietly behind the scenes of text, and how a title or a name arrives
+// the typeface of the screens: the default (Cairo) or one of the bundled Arabic families (fonts/brand.css); `seen` are the names a website may call it
+export const FONTS = { cairo: { label: 'القاهرة (الافتراضي)', css: 'Kufi', seen: ['cairo'] }, tajawal: { label: 'تجوال', css: "'Tajawal'", seen: ['tajawal'] }, almarai: { label: 'المراعي', css: "'Almarai'", seen: ['almarai'] },
+  plex: { label: 'آي بي إم بلكس', css: "'IBM Plex Sans Arabic'", seen: ['ibm plex sans arabic', 'ibm plex arabic', 'ibmplexsansarabic'] }, kufi: { label: 'نوتو كوفي', css: "'Noto Kufi Arabic'", seen: ['noto kufi arabic', 'droid arabic kufi', 'kufi'] },
+  amiri: { label: 'أميري', css: "'Amiri'", seen: ['amiri', 'scheherazade', 'traditional arabic', 'naskh'] }, readex: { label: 'ريدكس', css: "'Readex Pro'", seen: ['readex pro', 'readex', 'lexend'] }, messiri: { label: 'المسيري', css: "'El Messiri'", seen: ['el messiri', 'elmessiri'] } };
+export const fontCss = I => ((I && FONTS[I.font]) || FONTS.cairo).css + ',Kufi,sans-serif';
 export const AMBIENT = { none: 'ساكنة', glow: 'ضوء هادئ', lines: 'خطوط هندسية', dust: 'ذرّات متصاعدة' };
 export const TEXTIN = { fade: 'دفعة واحدة', words: 'كلمة كلمة', rise: 'صعود الأسطر' };
 export const PULSE = [0, 1, 1.8, 2.4, 2.9, 3.3, 3.6];   // the beats of the «pulse» reveal: closer and closer, then the strike at 4

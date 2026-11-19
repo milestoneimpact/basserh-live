@@ -3,7 +3,7 @@
      the big screen (follows every cue), a side screen (?side: names and titles, never the slides or the videos),
      and a fixed logo screen (?logo: the logo alone, whatever the cue; it joins the others at the launch only).
      ?mute: inside the studio's preview (no sound, no click to start, not counted among the hall's devices). -->
-<html lang="ar" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>الشاشة</title><link rel="stylesheet" href="../app.css">
+<html lang="ar" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>الشاشة</title><link rel="stylesheet" href="../app.css"><link rel="stylesheet" href="../fonts/brand.css">
 <style>
 html,body{height:100%;overflow:hidden;background:#000}
 /* the canvas takes the shape of the screen: 1080 on its short side, as long as the screen on the other; --k shrinks the type on narrow ones */
@@ -60,6 +60,8 @@ video,.sl{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;ba
 @keyframes flash{0%{opacity:0}18%{opacity:1}100%{opacity:0}}@keyframes gone{to{opacity:0}}
 @keyframes rin{0%{opacity:0;transform:scale(.84);filter:blur(14px)}100%{opacity:1;transform:none;filter:none}}
 @keyframes curA{to{transform:translateX(101%)}}@keyframes curB{to{transform:translateX(-101%)}}
+/* the organisation's own typeface on every text of its screens */
+#st,#st .big,#st .nm,#st .hon,#st .sub,#rev .cd b{font-family:var(--ft,Kufi)}
 #black{position:absolute;inset:0;background:#000;opacity:0;pointer-events:none;transition:opacity .8s;z-index:9}#black.on{opacity:1}
 /* the operator has not turned the screens on: nothing of the event is drawn at all */
 body.dark #st{visibility:hidden}
@@ -140,7 +142,8 @@ function apply(s, info) {
   const c = cueOf(D, s.cue), I = paint(link, s), m = M(c), P = c.person ? D.people[c.person] : null; $('#black').classList.toggle('on', !!s.black);
   { const need = handsOf(D), h = $('#hands'); if (need > 1) { const held = (info && info.hands && info.hands.held) || 0; if (h.children.length !== need) h.innerHTML = '<b></b>'.repeat(need); [...h.children].forEach((b, i) => b.classList.toggle('on', i < held)); } else h.innerHTML = ''; }
   const drawn = c.type === 'launch' && launchStyle(c) !== 'video' && s.launchedAt;
-  const isVideo = !drawn && m && m.kind === 'video' && ['loop', 'video', 'launch'].includes(c.type) && !((SIDE || LOGO) && c.type !== 'launch');
+  const over = c.type === 'launch' && s.launchedAt && m && m.kind === 'video' && (v.duration || m.length) && (link.now() - s.launchedAt) / 1000 >= (v.duration || m.length) - .05;   // the reveal video has ended: the logo stays, no update brings its last frame back
+  const isVideo = !drawn && !over && m && m.kind === 'video' && ['loop', 'video', 'launch'].includes(c.type) && !((SIDE || LOGO) && c.type !== 'launch');
   if (isVideo) { const u = link.base + m.src; if (v.dataset.src !== u) { v.dataset.src = u; store.url(u).then(o => { if (v.dataset.src === u) v.src = o; }); } v.loop = c.type === 'loop'; show('vid'); }
   else { if (!v.paused) v.pause();
     if (drawn) reveal(c, s);

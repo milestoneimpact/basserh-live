@@ -1,6 +1,6 @@
 // What every screen of a running event shares: the event document, the live state from the event's room, the server clock.
 import { identityNow, shown, slidesOf, pausable, reduce } from '../engine/state.js';
-import { cueOf, launchTimes, launchStyle, handsOf, gestureOf, launchOf } from '../engine/config.js';
+import { cueOf, launchTimes, launchStyle, handsOf, gestureOf, launchOf, fontCss } from '../engine/config.js';
 export { identityNow, shown, slidesOf, pausable, cueOf, launchTimes, launchStyle, handsOf, gestureOf };
 export const $ = (s, r = document) => r.querySelector(s);
 export const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
@@ -41,7 +41,7 @@ export async function connect() {
 // the identity of the moment as CSS variables (the one revealed by the launch once it has happened)
 let again = 0;
 export function paint(link, s, root = document.documentElement) { const now = link.now(), k = identityNow(link.doc, s, now), I = link.doc.identity[k] || link.doc.identity.before, c = I.colors || {};
-  for (const [n, v] of Object.entries({ bg: c.bg || '#F6F1E6', ink: c.ink || '#14211E', accent: c.accent || '#0F5A4E', gold: c.gold || '#C2A063' })) root.style.setProperty('--' + n, v);
+  for (const [n, v] of Object.entries({ bg: c.bg || '#F6F1E6', ink: c.ink || '#14211E', accent: c.accent || '#0F5A4E', gold: c.gold || '#C2A063' })) root.style.setProperty('--' + n, v); root.style.setProperty('--ft', fontCss(I));
   // the reveal is still ahead (a countdown is running): come back at its moment
   if (s.launchedAt && k === 'before' && link.doc.identity.after) { clearTimeout(again); again = setTimeout(link.poke, Math.max(30, s.launchedAt + launchTimes(link.doc).reveal * 1000 - now + 20)); }
   return { key: k, logo: I.logo ? link.base + I.logo : '' }; }
