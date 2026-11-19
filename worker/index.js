@@ -1,6 +1,6 @@
 // The studio's server: organisations, people, events, files, links for the screens, and one room (Durable Object) per event.
 // Every query carries the organisation of the signed in person; a screen link opens one event only.
-import { problems, SCENES } from '../web/engine/config.js';
+import { problems, SCENES, launchTimes } from '../web/engine/config.js';
 import { initial, reduce } from '../web/engine/state.js';
 export { Room } from './room.js';
 export { Tenant } from './tenant.js';
@@ -15,7 +15,7 @@ const sha = async t => [...new Uint8Array(await crypto.subtle.digest('SHA-256', 
 const cookies = req => Object.fromEntries((req.headers.get('Cookie') || '').split(/;\s*/).filter(Boolean).map(c => { const i = c.indexOf('='); return [c.slice(0, i), c.slice(i + 1)]; }));
 const setCookie = (k, v, days) => `${k}=${v}; Path=/; HttpOnly; SameSite=Lax; Secure; Max-Age=${days * 86400}`;
 const ROLES = { owner: 3, editor: 2, operator: 1, viewer: 0 };
-const LINK_ROLES = ['stage', 'side', 'logo', 'tablet', 'console', 'script', 'clicker'];   // console: operator commands; tablet: the launch press only
+const LINK_ROLES = ['stage', 'side', 'logo', 'tablet', 'console', 'script', 'clicker', 'audience'];   // audience: one link for everyone in the hall (the programme, a question), it sees nothing else   // console: operator commands; tablet: the launch press only
 const slug = s => String(s || '').trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 40);
 
 async function me(req, env) {
@@ -255,6 +255,22 @@ const main = {
             return J({ error: why, prep: { name: d.name, files } }, 402); }
           return err(why, 402); }
         const doc = rehearse ? JSON.parse(ev.draft) : JSON.parse((await T.prepare('SELECT doc FROM event_versions WHERE event_id = ? AND version = ?').bind(evId, ver).first()).doc);
+        // ----- the audience's page: the programme and where it stands. Never the moderator's words, nor a cue or a logo of the new identity before the launch has revealed it
+        if (role === 'audience' && !['pub', 'ask'].includes(seg[4])) return err('لا صلاحية', 403);
+        const theRoom = () => env.ROOM.get(env.ROOM.idFromName(evId + (rehearse ? ':draft' : ':live')));
+        if (seg[4] === 'pub') { const st = ((await (await theRoom().fetch(new Request('https://room/log'))).json().catch(() => ({}))).state) || {}, launched = !!st.launchedAt && Date.now() >= st.launchedAt + launchTimes(doc).reveal * 1000, hasL = doc.cues.some(c => c.type === 'launch');
+          const I = launched && doc.identity.after ? doc.identity.after : doc.identity.before, off = Array.isArray(st.off) ? st.off : doc.cues.filter(c => c.off).map(c => c.id), ord = Array.isArray(st.order) && st.order.length === doc.cues.length ? st.order.map(i => doc.cues.find(c => c.id === i)).filter(Boolean) : doc.cues;
+          const shownCues = ord.filter(c => !off.includes(c.id) && ['title', 'speaker', 'video', 'slides', 'launch'].includes(c.type) && (launched || !hasL || !c.after)).map(c => ({ id: c.id, title: c.title, who: c.person && doc.people[c.person] ? [doc.people[c.person].honorific, doc.people[c.person].name].filter(Boolean).join(' · ') : '' }));
+          const cur = st.live ? st.cue : null, curC = cur && doc.cues.find(c => c.id === cur), hid = curC && curC.after && hasL && !launched;
+          return J({ name: doc.name, live: !!st.live, cue: hid ? null : cur, ask: !(doc.audience && doc.audience.ask === false), logo: I.logo ? `/m/${ev.org_id}/${ev.id}/${I.logo}` : '', colors: I.colors || {}, cues: shownCues }); }
+        if (seg[4] === 'ask' && M === 'POST') { if (doc.audience && doc.audience.ask === false) return err('الأسئلة مغلقة في هذا اللقاء', 403); const b = await req.json().catch(() => ({})), text = String(b.text || '').replace(/\s+/g, ' ').trim().slice(0, 300), name = String(b.name || '').replace(/\s+/g, ' ').trim().slice(0, 60); if (text.length < 3) return err('اكتب سؤالك');
+          const ip = req.headers.get('CF-Connecting-IP') || 'local', recent = (await T.prepare('SELECT COUNT(*) AS n FROM questions WHERE event_id = ? AND ip = ? AND at > ?').bind(evId, ip, new Date(Date.now() - 6e4).toISOString()).first()).n; if (recent >= 3) return err('وصلتنا أسئلتك. انتظر دقيقة قبل سؤال آخر.', 429);
+          if ((await T.prepare('SELECT COUNT(*) AS n FROM questions WHERE event_id = ? AND at > ?').bind(evId, new Date(Date.now() - 6e4).toISOString()).first()).n >= 40) return err('أسئلة كثيرة الآن. حاول بعد دقيقة.', 429);   // the whole hall: forty a minute, whatever addresses they come from
+          if ((await T.prepare('SELECT COUNT(*) AS n FROM questions WHERE event_id = ?').bind(evId).first()).n >= 2000) return err('اكتمل عدد الأسئلة في هذا اللقاء', 429);
+          await T.prepare('INSERT INTO questions (event_id, text, name, ip, at) VALUES (?,?,?,?,?)').bind(evId, text, name, ip, now()).run(); return J({ ok: true }); }
+        if (seg[4] === 'questions') { if (role !== 'console') return err('للمشغّل فقط', 403);
+          if (M === 'POST') { const b = await req.json().catch(() => ({})); if (!['new', 'shown', 'hidden'].includes(b.state)) return err('حالة غير معروفة'); await T.prepare('UPDATE questions SET state = ? WHERE id = ? AND event_id = ?').bind(b.state, +b.id, evId).run(); return J({ ok: true }); }
+          return J({ questions: (await T.prepare("SELECT id, text, name, at, state FROM questions WHERE event_id = ? AND state != 'hidden' ORDER BY id DESC LIMIT 100").bind(evId).all()).results }); }
         if (seg[4] === 'config') return J({ doc: { ...doc, id: evId }, role, label, version: ver, base: `/m/${ev.org_id}/${ev.id}/` });   // label: the name the organisation gave this screen's link
         if (seg[4] === 'ws' || seg[4] === 'state' || seg[4] === 'cmd') {
           const room = env.ROOM.get(env.ROOM.idFromName(evId + (rehearse ? ':draft' : ':live'))), h = new Headers(req.headers);

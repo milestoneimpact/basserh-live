@@ -258,7 +258,7 @@ function identity() { const b = $('#body'), has = !!doc.identity.after, C = { bg
 }
 
 // ---------- approval and the links of the screens
-async function run() { const b = $('#body'), L = { stage: 'الشاشة الكبرى', side: 'شاشة جانبية (أسماء وعناوين)', logo: 'شاشة شعار ثابتة', tablet: 'جهاز ضيف الشرف', console: 'لوحة المشغّل', script: 'صفحة مدير الجلسة', clicker: 'مقلّب الشرائح (جوال المتحدث)' }; probs = problems(doc);
+async function run() { const b = $('#body'), L = { stage: 'الشاشة الكبرى', side: 'شاشة جانبية (أسماء وعناوين)', logo: 'شاشة شعار ثابتة', tablet: 'جهاز ضيف الشرف', console: 'لوحة المشغّل', script: 'صفحة مدير الجلسة', clicker: 'مقلّب الشرائح (جوال المتحدث)', audience: 'صفحة الحضور (رابط واحد للجميع)' }; probs = problems(doc);
   const { links } = await api(`/api/events/${E.id}/links`);
   b.innerHTML = `<div class="split" style="grid-template-columns:1fr 1fr"><div class="panel"><h3 style="font-size:19px;color:var(--deep);margin-bottom:12px">جاهزية اللقاء</h3>${probs.length ? probs.map(p => `<div class="prob">${esc(p)}</div>`).join('') : '<div class="okb">اللقاء مكتمل ويمكن اعتماده.</div>'}
     <p style="color:var(--mute);font-size:14px">«بروفة» تشغّل المسودة في غرفة مستقلة لا يراها أحد. «اعتماد النسخة» يجمّد المسودة، وتقرؤها شاشات القاعة فوراً، وتبقى المسودة قابلة للتعديل بجانبها.</p>

@@ -25,7 +25,7 @@ export const initial = ev => ({ cue: ids(ev)[0], cueAt: Date.now(), armed: false
 function setCue(ev, s, n, now, { restart = false } = {}) {
   if (!cueOf(ev, n)) return s;
   if (n === s.cue && !restart) return s;
-  const o = { ...s, cue: n, cueAt: now, paused: null }, p = pos(ev, s, n), a = armOf(ev), l = launchOf(ev);
+  const o = { ...s, cue: n, cueAt: now, paused: null, q: null }, p = pos(ev, s, n), a = armOf(ev), l = launchOf(ev);
   if (p >= 1 && pos(ev, s, s.cue) < 1) o.beganAt = now; else if (p < 1) o.beganAt = null;
   if (l) {
     const pA = pos(ev, s, a), pL = pos(ev, s, l);
@@ -59,6 +59,7 @@ export function reduce(ev, s, cmd, now = Date.now(), trusted = false) {
   else if (cmd.type === 'seek') o = pausable(ev, s.cue) ? { ...s, cueAt: Math.min(s.paused || now, s.cueAt - (+cmd.d || 0) * 1000) } : s;
   else if (cmd.type === 'black') o = { ...s, black: !!cmd.on };
   else if (cmd.type === 'dim') { const set = new Set(s.dim || []); if (['main', 'side', 'logo'].includes(cmd.kind)) { cmd.on ? set.add(cmd.kind) : set.delete(cmd.kind); o = { ...s, dim: [...set] }; } }   // the operator puts out one kind of screen (the logo screens, the side ones) and leaves the others
+  else if (cmd.type === 'show') { const t = String(cmd.text || '').trim().slice(0, 300); o = t ? { ...s, q: { text: t, name: String(cmd.name || '').trim().slice(0, 60) } } : (s.q ? { ...s, q: null } : s); }   // a question from the audience on the big screen, until the operator takes it off or the cue changes
   else if (cmd.type === 'ident') o = { ...s, identAt: now };   // every screen shows its own name for a few seconds, so the operator matches the list to the walls
   else if (cmd.type === 'live') o = !!cmd.on === !!s.live ? s : { ...s, live: !!cmd.on, cueAt: cmd.on ? now : s.cueAt, paused: null };   // turning on starts the cue on show from its beginning
   else if (cmd.type === 'note') { const t = String(cmd.text || '').trim().slice(0, 120); o = t ? { ...s, note: { text: t, at: now } } : (s.note ? { ...s, note: null } : s); }   // a word from the operator to the moderator's page
