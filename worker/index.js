@@ -1,6 +1,6 @@
 // The studio's server: organisations, people, events, files, links for the screens, and one room (Durable Object) per event.
 // Every query carries the organisation of the signed in person; a screen link opens one event only.
-import { problems, SCENES, launchTimes, FONTS, fontCss } from '../web/engine/config.js';
+import { problems, SCENES, launchTimes, FONTS, fontCss, shape } from '../web/engine/config.js';
 import { initial, reduce } from '../web/engine/state.js';
 export { Room } from './room.js';
 export { Tenant } from './tenant.js';
@@ -44,17 +44,23 @@ async function pwHash(pw, salt = hex(crypto.getRandomValues(new Uint8Array(16)))
   return salt + ':' + hex(await crypto.subtle.deriveBits({ name: 'PBKDF2', hash: 'SHA-256', salt: new TextEncoder().encode(salt), iterations: 100000 }, k, 256)); }
 const pwOk = async (pw, kept) => { if (!kept || !pw) return false; const a = await pwHash(pw, kept.split(':')[0]); let d = a.length ^ kept.length; for (let i = 0; i < a.length; i++) d |= a.charCodeAt(i) ^ kept.charCodeAt(i % kept.length); return d === 0; };
 // a password a person can read out and type: four groups of four, no look-alike characters
+const DUMMY = 'a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1:' + '0'.repeat(64);   // an unknown email costs the same work as a known one
 const newPw = () => [0, 1, 2, 3].map(() => rid(4)).join('-');
 // five wrong attempts from one address close the door for fifteen minutes (the owner's page and the studio share the count)
 async function locked(env, ip) { const f = await env.DB.prepare('SELECT n, until FROM login_fail WHERE ip = ?').bind(ip).first(); return f && f.until && f.until > now() ? null : { n: f && !f.until ? f.n : 0 }; }
 const failed = (env, ip, n, limit = 5) => env.DB.prepare('INSERT INTO login_fail (ip, n, until) VALUES (?,?,?) ON CONFLICT (ip) DO UPDATE SET n = excluded.n, until = excluded.until').bind(ip, n + 1, n + 1 >= limit ? new Date(Date.now() + 9e5).toISOString() : null).run();
+// the open connections of an organisation's events are closed: each comes back by its own right, and whoever lost it does not
+async function kickOrg(env, orgId) { try { const { results } = await tdb(env, orgId).prepare("SELECT id FROM events WHERE status != 'archived' ORDER BY updated_at DESC LIMIT 12").all(); await Promise.all(results.flatMap(e => [':live', ':draft'].map(k => env.ROOM.get(env.ROOM.idFromName(e.id + k)).fetch(new Request('https://room/kick', { method: 'POST' })).catch(() => {})))); } catch {} }
+// an organisation that exists (asked of the control database once, then remembered): no database is ever opened for a made up id
+const PUB = new Map();   // the audience's answer, kept three seconds for each event
+const ORGS = new Map(); async function orgExists(env, id) { const t = ORGS.get(id); if (t && Date.now() - t < 6e5) return true; const o = await env.DB.prepare('SELECT 1 AS x FROM orgs WHERE id = ?').bind(id).first(); if (o) ORGS.set(id, Date.now()); return !!o; }
 const padd = (env, action, detail = '') => env.DB.prepare('INSERT INTO platform_audit (action, detail, at) VALUES (?,?,?)').bind(action, String(detail).slice(0, 300), now()).run().catch(() => {});   // the platform owner's own record
 const KEEP = 180;   // days a device stays signed in: a device that entered once is not asked again for half a year, unless it signs out or the password is renewed
 async function session(env, uid) { const t = rid(32); await env.DB.prepare('INSERT INTO sessions (token_hash, user_id, expires_at, created_at) VALUES (?,?,?,?)').bind(await sha(t), uid, new Date(Date.now() + KEEP * 864e5).toISOString(), now()).run(); return setCookie('sid', t, KEEP); }
 // the platform owner as a person of the system (for sessions and passkeys); belongs to no organisation
 async function platform(env) { await env.DB.prepare('INSERT INTO users (id, email, name, created_at) VALUES (?,?,?,?) ON CONFLICT (id) DO NOTHING').bind('platform', 'platform@basserh', 'مالك المنصة', now()).run(); return 'platform'; }
 async function userFor(env, email, name) { email = String(email || '').trim().toLowerCase(); if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return null;
-  let u = await env.DB.prepare('SELECT id FROM users WHERE email = ?').bind(email).first(); if (!u) { u = { id: 'u_' + rid() }; await env.DB.prepare('INSERT INTO users (id, email, name, created_at) VALUES (?,?,?,?)').bind(u.id, email, name || '', now()).run(); } return { id: u.id, email }; }
+  let u = await env.DB.prepare('SELECT id FROM users WHERE email = ?').bind(email).first(), fresh = false; if (!u) { fresh = true; u = { id: 'u_' + rid() }; await env.DB.prepare('INSERT INTO users (id, email, name, created_at) VALUES (?,?,?,?)').bind(u.id, email, name || '', now()).run(); } return { id: u.id, email, fresh }; }   // fresh: created by this very call
 // what a new organisation finds on its first visit: a small event already laid out, to edit instead of starting from an empty page
 const STARTER = () => ({ ...BLANK('لقاؤكم الأول'), people: { p1: { name: 'اسم المتحدث', honorific: 'الصفة' } },
   cues: [{ id: 'in', type: 'loop', title: 'الاستقبال', at: 'فتح الأبواب', dur: 15, moderator: [], fixed: true },
@@ -69,7 +75,8 @@ async function site(env, req, path) {
   if (env.ASSETS) return env.ASSETS.fetch(new Request(new URL(path, req.url), req));
   let f = path === '/' ? 'index.html' : path.slice(1); if (f.endsWith('/')) f += 'index.html';
   const range = req.headers.get('Range'), opt = range ? { range: req.headers } : {};   // a video is asked for in ranges (seeking, Safari)
-  let o = await env.MEDIA.get('_site/' + f, opt); if (!o && !/\.\w+$/.test(f)) o = await env.MEDIA.get('_site/' + f + '.html');
+  const inm = req.headers.get('If-None-Match'); let o = await env.MEDIA.get('_site/' + f, opt); if (!o && !/\.\w+$/.test(f)) o = await env.MEDIA.get('_site/' + f + '.html');
+  if (o && inm && !range && inm.replace(/^W\//, '') === o.httpEtag) return new Response(null, { status: 304, headers: { ETag: o.httpEtag, 'Cache-Control': /\.(woff2|png|jpg|mp4)$/.test(f) ? 'public, max-age=86400' : 'no-cache' } });
   if (!o) return new Response('لا يوجد', { status: 404, headers: { 'Content-Type': 'text/plain; charset=utf-8' } });
   const h = { 'Content-Type': o.httpMetadata?.contentType || 'application/octet-stream', 'Cache-Control': /\.(woff2|png|jpg|mp4)$/.test(f) ? 'public, max-age=86400' : 'no-cache', ETag: o.httpEtag, 'Accept-Ranges': 'bytes' };
   if (range && o.range) { const r = o.range, st = 'suffix' in r ? o.size - r.suffix : (r.offset || 0), len = 'suffix' in r ? r.suffix : (r.length ?? o.size - st); return new Response(o.body, { status: 206, headers: { ...h, 'Content-Range': `bytes ${st}-${st + len - 1}/${o.size}`, 'Content-Length': String(len) } }); }
@@ -79,9 +86,9 @@ async function site(env, req, path) {
 const hexOf = c => { c = c.trim().toLowerCase(); let m = c.match(/^#([0-9a-f]{3})$/); if (m) return '#' + m[1].split('').map(x => x + x).join(''); m = c.match(/^#([0-9a-f]{6})/); if (m) return '#' + m[1]; m = c.match(/^rgba?\(\s*(\d+)[\s,]+(\d+)[\s,]+(\d+)/); return m ? '#' + [1, 2, 3].map(i => Math.min(255, +m[i]).toString(16).padStart(2, '0')).join('') : null; };
 const hsl = h => { const r = parseInt(h.slice(1, 3), 16) / 255, g = parseInt(h.slice(3, 5), 16) / 255, b = parseInt(h.slice(5, 7), 16) / 255, mx = Math.max(r, g, b), mn = Math.min(r, g, b), l = (mx + mn) / 2, d = mx - mn; let hu = 0; if (d) hu = mx === r ? ((g - b) / d) % 6 : mx === g ? (b - r) / d + 2 : (r - g) / d + 4; return { h: (hu * 60 + 360) % 360, s: d ? d / (1 - Math.abs(2 * l - 1)) : 0, l }; };
 const shade = (h, k) => '#' + [1, 3, 5].map(i => Math.round(Math.max(0, Math.min(255, parseInt(h.slice(i, i + 2), 16) * k))).toString(16).padStart(2, '0')).join('');
-async function grab(u, max, ms = 8000) { const c = new AbortController(), t = setTimeout(() => c.abort(), ms); try { const r = await fetch(u, { signal: c.signal, redirect: 'follow', headers: { 'User-Agent': 'Mozilla/5.0 (compatible; brand-reader)', Accept: '*/*' } }); if (!r.ok) return null; const len = +r.headers.get('Content-Length') || 0; if (len > max) return null; const buf = await r.arrayBuffer(); return buf.byteLength > max ? null : { buf, type: (r.headers.get('Content-Type') || '').split(';')[0].trim().toLowerCase(), url: r.url }; } catch { return null; } finally { clearTimeout(t); } }
+async function grab(u, max, ms = 8000) { const c = new AbortController(), t = setTimeout(() => c.abort(), ms); try { let r, at = u; for (let hop = 0; hop < 4; hop++) { if (!publicUrl(at)) return null; r = await fetch(at, { signal: c.signal, redirect: 'manual', headers: { 'User-Agent': 'Mozilla/5.0 (compatible; brand-reader)', Accept: '*/*' } }); if (r.status >= 300 && r.status < 400 && r.headers.get('Location')) { at = new URL(r.headers.get('Location'), at).href; continue; } break; } if (!r || !r.ok) return null; const len = +r.headers.get('Content-Length') || 0; if (len > max) return null; const buf = await r.arrayBuffer(); return buf.byteLength > max ? null : { buf, type: (r.headers.get('Content-Type') || '').split(';')[0].trim().toLowerCase(), url: at }; } catch { return null; } finally { clearTimeout(t); } }
 // only a public web address: no address by number, no local or internal name
-const publicUrl = raw => { let u; try { u = new URL(/^https?:\/\//i.test(raw) ? raw : 'https://' + raw); } catch { return null; } const h = u.hostname.toLowerCase(); if (!/^https?:$/.test(u.protocol) || !h.includes('.') || /^[\d.]+$/.test(h) || h.includes(':') || /(^|\.)(localhost|local|internal|lan|home|corp|test|invalid)$/.test(h) || u.port && !['80', '443'].includes(u.port)) return null; return u; };
+const publicUrl = raw => { let u; try { u = new URL(/^https?:\/\//i.test(raw) ? raw : 'https://' + raw); } catch { return null; } const h = u.hostname.toLowerCase().replace(/\.+$/, ''); if (/(^|\.)(nip\.io|sslip\.io|localtest\.me|lvh\.me)$/.test(h)) return null; if (!/^https?:$/.test(u.protocol) || !h.includes('.') || /^[\d.]+$/.test(h) || h.includes(':') || /(^|\.)(localhost|local|internal|lan|home|corp|test|invalid)$/.test(h) || u.port && !['80', '443'].includes(u.port)) return null; return u; };
 async function readBrand(raw) { const u = publicUrl(String(raw || '').trim()); if (!u) return { error: 'عنوان الموقع غير صالح' }; const page = await grab(u.href, 2e6); if (!page || !/html/.test(page.type)) return { error: 'تعذّر فتح الموقع. تحقق من العنوان، أو أدخل الهوية يدوياً.' };
   const html = new TextDecoder().decode(page.buf), base = page.url, abs = x => { try { const y = new URL(x.replace(/&amp;/g, '&'), base); return publicUrl(y.href) ? y.href : null; } catch { return null; } }, attr = (tag, n) => { const m = tag.match(new RegExp('\\s' + n + '\\s*=\\s*("([^"]*)"|\'([^\']*)\'|([^\\s>]+))', 'i')); return m ? (m[2] ?? m[3] ?? m[4] ?? '') : ''; };
   const tags = n => html.match(new RegExp('<' + n + '\\b[^>]*>', 'gi')) || [], links = tags('link'), metas = tags('meta'), imgs = tags('img');
@@ -114,7 +121,7 @@ async function listAll(env, prefix) { const out = []; let cursor; do { const r =
 // the files of an event that no document needs any more (neither the draft nor the published version) leave the bucket and the index.
 // A file younger than an hour is left alone: it may belong to an upload still on its way into the draft.
 async function sweep(env, T, org, ev) {
-  const docs = [JSON.parse(ev.draft)]; if (ev.published_version) { const v = await T.prepare('SELECT doc FROM event_versions WHERE event_id = ? AND version = ?').bind(ev.id, ev.published_version).first(); if (v) docs.push(JSON.parse(v.doc)); }
+  const docs = [JSON.parse(ev.draft)]; for (const v of (await T.prepare('SELECT doc FROM event_versions WHERE event_id = ? ORDER BY version DESC LIMIT 60').bind(ev.id).all()).results) { try { docs.push(JSON.parse(v.doc)); } catch {} }
   const need = new Set(); for (const d of docs) { for (const m of Object.values(d.media || {})) if (m.src) need.add(m.src); for (const k of ['before', 'after']) if (d.identity && d.identity[k] && d.identity[k].logo) need.add(d.identity[k].logo); }
   const base = `${org}/${ev.id}/`, old = Date.now() - 36e5, gone = [];
   for (const o of await listAll(env, base)) { const f = o.key.slice(base.length), top = f.includes('/') ? f.split('/')[0] + '/' : f; if (!need.has(top) && o.uploaded.getTime() < old) gone.push(o.key); }
@@ -145,7 +152,11 @@ const main = {
         if (f && f.until && f.until > now()) return err('محاولات كثيرة. أعد المحاولة بعد ربع ساعة.', 429);
         const b = await req.json().catch(() => ({})); if (!env.ADMIN_KEY || b.password !== env.ADMIN_KEY) { const n = (f && (!f.until || f.until > now()) ? f.n : 0) + 1; await env.DB.prepare('INSERT INTO login_fail (ip, n, until) VALUES (?,?,?) ON CONFLICT (ip) DO UPDATE SET n = excluded.n, until = excluded.until').bind(ip, n, n >= 5 ? new Date(Date.now() + 9e5).toISOString() : null).run(); return err('كلمة المرور غير صحيحة', 403); }
         await env.DB.prepare('DELETE FROM login_fail WHERE ip = ?').bind(ip).run(); await padd(env, 'owner_login', req.headers.get('CF-Connecting-IP') || ''); return new Response('{"ok":true}', { headers: { 'Content-Type': 'application/json', 'Set-Cookie': await session(env, await platform(env)) } }); }
-      const admin = p.startsWith('/api/admin/') && ((env.ADMIN_KEY && req.headers.get('x-admin-key') === env.ADMIN_KEY) || ((await me(req, env)) || {}).user?.id === 'platform');
+      // a change asked from another site's page is refused (the cookie alone is not enough)
+      if (!['GET', 'HEAD', 'OPTIONS'].includes(M) && req.headers.get('Origin') && req.headers.get('Origin') !== url.origin) return err('طلب من موقع آخر', 403);
+      let admin = false; if (p.startsWith('/api/admin/')) { const hk = req.headers.get('x-admin-key');
+        if (hk != null && p !== '/api/admin/login') { const kip = (req.headers.get('CF-Connecting-IP') || 'local') + '|key', kf = await locked(env, kip); if (!kf) return err('محاولات كثيرة. حاول بعد ربع ساعة.', 429); if (env.ADMIN_KEY && hk.length === env.ADMIN_KEY.length && (await sha(hk)) === (await sha(env.ADMIN_KEY))) admin = true; else { await failed(env, kip, kf.n, 10); return err('غير مصرح', 403); } }
+        else admin = ((await me(req, env)) || {}).user?.id === 'platform'; }
       if (p.startsWith('/api/admin/') && !admin) return err('غير مصرح', 403);
       if (p === '/api/admin/me') return J({ ok: true, passkeys: (await env.DB.prepare('SELECT COUNT(*) AS n FROM passkeys WHERE user_id = ?').bind('platform').first()).n });
       // the pages of the site kept in the bucket (_site/): pushed by tools/push_site.mjs when the deploy cannot carry static files itself
@@ -197,17 +208,18 @@ const main = {
       // ----- signing in by a link (no password): the link is used once and opens a session of 30 days
       if (p === '/api/login' && M === 'POST') {   // the studio's gate: email and password
         const b = await req.json().catch(() => ({})); let u = null;
-        const ip = (req.headers.get('CF-Connecting-IP') || 'local') + '|' + (b.slug ? String(b.slug).slice(0, 60) : 'login'), f = await locked(env, ip); if (!f) return err('محاولات كثيرة. حاول بعد ربع ساعة.', 429);   // counted per address and per door
+        const byDoor = !!b.slug && !b.email, mail = String(b.email || '').trim().toLowerCase().slice(0, 120), ip = (req.headers.get('CF-Connecting-IP') || 'local') + '|' + (byDoor ? String(b.slug).slice(0, 60) : 'login'), f = await locked(env, ip); if (!f) return err('محاولات كثيرة. حاول بعد ربع ساعة.', 429);   // counted per address and per door
         // and the door itself: twenty wrong passwords from anywhere close it for a quarter of an hour, so guessing from many addresses gains nothing
-        const door = '*|' + (b.slug ? String(b.slug).slice(0, 60) : 'login'), fd = b.slug ? await locked(env, door) : { n: 0 }; if (!fd) return err('محاولات كثيرة على هذا العنوان. حاول بعد ربع ساعة، أو ادخل بمفتاح المرور.', 429);
+        const door = byDoor ? '*|' + String(b.slug).slice(0, 60) : '@|' + mail, fd = await locked(env, door); if (!fd) return err('محاولات كثيرة على هذا العنوان. حاول بعد ربع ساعة، أو ادخل بمفتاح المرور.', 429);
         // at an organisation's own address the password is enough: it is tried against the members of that organisation only
         if (b.slug && !b.email) { const { results } = await env.DB.prepare("SELECT u.id, u.pw FROM users u JOIN members m ON m.user_id = u.id JOIN orgs o ON o.id = m.org_id WHERE o.slug = ? AND u.pw IS NOT NULL ORDER BY CASE m.role WHEN 'owner' THEN 0 ELSE 1 END LIMIT 8").bind(String(b.slug)).all();
           for (const x of results) if (await pwOk(String(b.password || ''), x.pw)) { u = x; break; }
           if (!u) { await failed(env, ip, f.n); await failed(env, door, fd.n, 20); return err('كلمة المرور غير صحيحة', 403); } }
         else { u = await env.DB.prepare('SELECT id, pw FROM users WHERE email = ?').bind(String(b.email || '').trim().toLowerCase()).first();
-          if (!(await pwOk(String(b.password || ''), u && u.pw)) || u.id === 'platform') { await failed(env, ip, f.n); return err('البريد أو كلمة المرور غير صحيحة', 403); } }
-        if (b.slug) { await env.DB.prepare('DELETE FROM login_fail WHERE ip IN (?, ?)').bind(ip, door).run(); const on = await env.DB.prepare('SELECT name FROM orgs WHERE slug = ?').bind(String(b.slug)).first(); return new Response(JSON.stringify({ ok: true, to: '/' + b.slug, name: on ? on.name : '' }), { headers: { 'Content-Type': 'application/json', 'Set-Cookie': await session(env, u.id) } }); }
-        await env.DB.prepare('DELETE FROM login_fail WHERE ip = ?').bind(ip).run(); const first = await env.DB.prepare('SELECT o.slug FROM members m JOIN orgs o ON o.id = m.org_id WHERE m.user_id = ? LIMIT 1').bind(u.id).first();
+          if (!(await pwOk(String(b.password || ''), u ? u.pw : DUMMY)) || !u || u.id === 'platform') { await failed(env, ip, f.n); await failed(env, door, fd.n, 20); return err('البريد أو كلمة المرور غير صحيحة', 403); } }
+        await env.DB.prepare('DELETE FROM login_fail WHERE ip IN (?, ?)').bind(ip, door).run();
+        if (b.slug) { const on = await env.DB.prepare('SELECT name FROM orgs WHERE slug = ?').bind(String(b.slug)).first(); return new Response(JSON.stringify({ ok: true, to: '/' + b.slug, name: on ? on.name : '' }), { headers: { 'Content-Type': 'application/json', 'Set-Cookie': await session(env, u.id) } }); }
+        const first = await env.DB.prepare('SELECT o.slug FROM members m JOIN orgs o ON o.id = m.org_id WHERE m.user_id = ? LIMIT 1').bind(u.id).first();
         return new Response(JSON.stringify({ ok: true, to: '/' + (first ? first.slug : 'login') }), { headers: { 'Content-Type': 'application/json', 'Set-Cookie': await session(env, u.id) } }); }
       if (p === '/api/password' && M === 'POST') {   // a signed in member sets a password of their own
         const w = await me(req, env); if (!w || !w.user || w.user.id === 'platform') return err('ادخل أولاً', 401); const b = await req.json().catch(() => ({})), pw = String(b.password || ''); if (pw.length < 8) return err('كلمة المرور ثمانية أحرف على الأقل');
@@ -234,7 +246,7 @@ const main = {
       // ----- passkeys: add one while signed in; sign in with one from the gate (the device offers the passkeys it holds for this site)
       if (p.startsWith('/api/passkey/')) { const b = M === 'POST' ? await req.json().catch(() => ({})) : {};
         // the browser names the site it signed for; it must be this site (or localhost in development, where the server answers under the route's name)
-        const site = o => { const h = new URL(o).hostname; if (o !== url.origin && h !== 'localhost') throw new Error('العنوان غير مطابق'); return h; };
+        const site = o => { const h = new URL(o).hostname; if (o !== url.origin && !(h === 'localhost' && env.LOCAL === '1')) throw new Error('العنوان غير مطابق'); /* «localhost» only on a developer's machine (the dev server is started with LOCAL=1), never on the deployed site */ return h; };
         const take = async c => { const r = await env.DB.prepare('DELETE FROM challenges WHERE challenge = ? AND expires_at > ? RETURNING user_id').bind(c, now()).first(); if (!r) throw new Error('انتهت صلاحية المحاولة'); return r; };
         const issue = async uid => { const c = newChallenge(); await env.DB.prepare('INSERT INTO challenges (challenge, user_id, expires_at) VALUES (?,?,?)').bind(c, uid, new Date(Date.now() + 3e5).toISOString()).run(); return c; };
         try {
@@ -257,19 +269,20 @@ const main = {
         return new Response(null, { status: 302, headers: { Location: '/login', 'Set-Cookie': setCookie('sid', '', 0) } }); }
       // ----- a link of one screen: opens that page of that event, with no account
       if (p.startsWith('/go/')) {
-        const tok = p.slice(4), l = /^[a-z0-9]{12}\.[a-z0-9]+$/.test(tok) ? await tdb(env, 'o_' + tok.slice(0, 12)).prepare('SELECT event_id, role FROM links WHERE token_hash = ? AND revoked_at IS NULL').bind(await sha(tok)).first() : null;
+        const tok = p.slice(4), l = /^[a-z0-9]{12}\.[a-z0-9]+$/.test(tok) && await orgExists(env, 'o_' + tok.slice(0, 12)) ? await tdb(env, 'o_' + tok.slice(0, 12)).prepare('SELECT event_id, role FROM links WHERE token_hash = ? AND revoked_at IS NULL').bind(await sha(tok)).first() : null;
         if (!l) return new Response('هذا الرابط أُلغي. اطلب رابطاً جديداً من منظّم اللقاء.', { status: 410, headers: { 'Content-Type': 'text/plain; charset=utf-8' } });
         return new Response(null, { status: 302, headers: { Location: `/run/${['side', 'logo'].includes(l.role) ? 'stage' : l.role}.html?e=${l.event_id}${['side', 'logo'].includes(l.role) ? '&' + l.role : ''}`, 'Set-Cookie': setCookie('lk_' + l.event_id, tok, 30) } });
       }
       // ----- the running event (screens): who is asking, the document, the files, the room
       if (p.startsWith('/api/run/') || p.startsWith('/m/')) {
         const seg = p.split('/'), evId = p.startsWith('/m/') ? seg[3] : seg[3];
-        if (!/^e_[a-z0-9]{20}$/.test(evId)) return err('لا يوجد', 404); const T = tdb(env, orgOfEvent(evId));
+        if (!/^e_[a-z0-9]{20}$/.test(evId) || !(await orgExists(env, orgOfEvent(evId)))) return err('لا يوجد', 404); const T = tdb(env, orgOfEvent(evId));
         const ev = await T.prepare('SELECT id, org_id, draft, published_version, active_from, active_until FROM events WHERE id = ?').bind(evId).first(); if (!ev) return err('لا يوجد', 404);
         let role = null; const tok = cookies(req)['lk_' + evId];
         let label = ''; if (tok) { const l = await T.prepare('SELECT role, label FROM links WHERE token_hash = ? AND event_id = ? AND revoked_at IS NULL').bind(await sha(tok), evId).first(); if (l) { role = l.role; label = l.label || ''; } }
-        const who = await me(req, env), mem = who && who.orgs.find(o => o.id === ev.org_id); if (mem) role = ROLES[mem.role] >= 1 ? 'console' : (role || 'stage');
+        const who = await me(req, env), mem = who && who.orgs.find(o => o.id === ev.org_id); if (mem) role = ROLES[mem.role] >= 1 ? 'console' : (role || 'viewer');
         if (!role) return err('افتح الشاشة من رابطها', 401);
+        if (role === 'audience' && p.startsWith('/m/')) { const pubDoc = ev.published_version ? JSON.parse((await T.prepare('SELECT doc FROM event_versions WHERE event_id = ? AND version = ?').bind(evId, ev.published_version).first()).doc) : null, okFiles = pubDoc ? ['before', 'after'].map(k => (pubDoc.identity[k] || {}).logo).filter(Boolean) : []; if (!okFiles.includes(decodeURIComponent(p.split('/').slice(4).join('/')))) return err('لا يوجد', 404); }
         if (p.startsWith('/m/')) {   // /m/<org>/<event>/<file>: the files of the event, in its own folder of the bucket
           const key = decodeURIComponent(p.slice(3)); if (!key.startsWith(ev.org_id + '/' + ev.id + '/')) return err('لا يوجد', 404);
           const range = req.headers.get('Range'), o = await env.MEDIA.get(key, range ? { range: req.headers } : {}); if (!o) return err('لا يوجد', 404);
@@ -294,11 +307,12 @@ const main = {
         // ----- the audience's page: the programme and where it stands. Never the moderator's words, nor a cue or a logo of the new identity before the launch has revealed it
         if (role === 'audience' && !['pub', 'ask'].includes(seg[4])) return err('لا صلاحية', 403);
         const theRoom = () => env.ROOM.get(env.ROOM.idFromName(evId + (rehearse ? ':draft' : ':live')));
-        if (seg[4] === 'pub') { const st = ((await (await theRoom().fetch(new Request('https://room/log'))).json().catch(() => ({}))).state) || {}, launched = !!st.launchedAt && Date.now() >= st.launchedAt + launchTimes(doc).reveal * 1000, hasL = doc.cues.some(c => c.type === 'launch');
+        if (seg[4] === 'pub') { const pk = evId + (rehearse ? ':d' : ':l') + ver, hit = PUB.get(pk); if (hit && Date.now() - hit.at < 3000) return new Response(hit.body, { headers: { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' } });
+          const st = ((await (await theRoom().fetch(new Request('https://room/log'))).json().catch(() => ({}))).state) || {}, launched = !!st.launchedAt && Date.now() >= st.launchedAt + launchTimes(doc).reveal * 1000, hasL = doc.cues.some(c => c.type === 'launch');
           const I = launched && doc.identity.after ? doc.identity.after : doc.identity.before, off = Array.isArray(st.off) ? st.off : doc.cues.filter(c => c.off).map(c => c.id), ord = Array.isArray(st.order) && st.order.length === doc.cues.length ? st.order.map(i => doc.cues.find(c => c.id === i)).filter(Boolean) : doc.cues;
           const shownCues = ord.filter(c => !off.includes(c.id) && ['title', 'speaker', 'video', 'slides', 'launch'].includes(c.type) && (launched || !hasL || !c.after)).map(c => ({ id: c.id, title: c.title, who: c.person && doc.people[c.person] ? [doc.people[c.person].honorific, doc.people[c.person].name].filter(Boolean).join(' · ') : '' }));
           const cur = st.live ? st.cue : null, curC = cur && doc.cues.find(c => c.id === cur), hid = curC && curC.after && hasL && !launched;
-          return J({ name: doc.name, live: !!st.live, cue: hid ? null : cur, ask: !(doc.audience && doc.audience.ask === false), logo: I.logo ? `/m/${ev.org_id}/${ev.id}/${I.logo}` : '', colors: I.colors || {}, font: fontCss(I), cues: shownCues }); }
+          const body = JSON.stringify({ name: doc.name, live: !!st.live, cue: hid ? null : cur, ask: !(doc.audience && doc.audience.ask === false), logo: I.logo ? `/m/${ev.org_id}/${ev.id}/${I.logo}` : '', colors: I.colors || {}, font: fontCss(I), cues: shownCues }); if (PUB.size > 500) PUB.clear(); PUB.set(pk, { at: Date.now(), body }); return new Response(body, { headers: { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' } }); }
         if (seg[4] === 'ask' && M === 'POST') { if (doc.audience && doc.audience.ask === false) return err('الأسئلة مغلقة في هذا اللقاء', 403); const b = await req.json().catch(() => ({})), text = String(b.text || '').replace(/\s+/g, ' ').trim().slice(0, 300), name = String(b.name || '').replace(/\s+/g, ' ').trim().slice(0, 60); if (text.length < 3) return err('اكتب سؤالك');
           const ip = req.headers.get('CF-Connecting-IP') || 'local', recent = (await T.prepare('SELECT COUNT(*) AS n FROM questions WHERE event_id = ? AND ip = ? AND at > ?').bind(evId, ip, new Date(Date.now() - 6e4).toISOString()).first()).n; if (recent >= 3) return err('وصلتنا أسئلتك. انتظر دقيقة قبل سؤال آخر.', 429);
           if ((await T.prepare('SELECT COUNT(*) AS n FROM questions WHERE event_id = ? AND at > ?').bind(evId, new Date(Date.now() - 6e4).toISOString()).first()).n >= 40) return err('أسئلة كثيرة الآن. حاول بعد دقيقة.', 429);   // the whole hall: forty a minute, whatever addresses they come from
@@ -307,7 +321,7 @@ const main = {
         if (seg[4] === 'questions') { if (role !== 'console') return err('للمشغّل فقط', 403);
           if (M === 'POST') { const b = await req.json().catch(() => ({})); if (!['new', 'shown', 'hidden'].includes(b.state)) return err('حالة غير معروفة'); await T.prepare('UPDATE questions SET state = ? WHERE id = ? AND event_id = ?').bind(b.state, +b.id, evId).run(); return J({ ok: true }); }
           return J({ questions: (await T.prepare("SELECT id, text, name, at, state FROM questions WHERE event_id = ? AND state != 'hidden' ORDER BY id DESC LIMIT 100").bind(evId).all()).results }); }
-        if (seg[4] === 'config') return J({ doc: { ...doc, id: evId }, role, label, version: ver, base: `/m/${ev.org_id}/${ev.id}/` });   // label: the name the organisation gave this screen's link
+        if (seg[4] === 'config') return J({ doc: ['console', 'script'].includes(role) ? { ...doc, id: evId } : { ...doc, id: evId, cues: doc.cues.map(c => ({ ...c, moderator: [] })) }, role, label, version: ver, base: `/m/${ev.org_id}/${ev.id}/` });   // label: the name the organisation gave this screen's link
         if (seg[4] === 'ws' || seg[4] === 'state' || seg[4] === 'cmd') {
           const room = env.ROOM.get(env.ROOM.idFromName(evId + (rehearse ? ':draft' : ':live'))), h = new Headers(req.headers);
           h.set('x-role', role); h.set('x-ver', String(ver)); // the room needs the rules only, not the texts
@@ -330,7 +344,7 @@ const main = {
       if (p === '/api/members' && M === 'DELETE') {   // the owner removes a person; the last owner stays
         if (!can('owner')) return err('للمالك فقط', 403); const b = await req.json(), u = await env.DB.prepare('SELECT id FROM users WHERE email = ?').bind(String(b.email || '').toLowerCase()).first(); if (!u) return err('لا يوجد', 404);
         const owners = (await env.DB.prepare('SELECT user_id FROM members WHERE org_id = ? AND role = ?').bind(org.id, 'owner').all()).results; if (owners.length === 1 && owners[0].user_id === u.id) return err('لا تبقى الجهة بلا مالك');
-        await env.DB.prepare('DELETE FROM members WHERE org_id = ? AND user_id = ?').bind(org.id, u.id).run(); await audit(env, org.id, null, who.user.id, 'member_removed', b.email); return J({ ok: true }); }
+        await env.DB.prepare('DELETE FROM members WHERE org_id = ? AND user_id = ?').bind(org.id, u.id).run(); await audit(env, org.id, null, who.user.id, 'member_removed', b.email); await kickOrg(env, org.id); return J({ ok: true }); }   // an open console of the removed person is cut off now
       if (p === '/api/audit' && M === 'GET') {   // what was done in the organisation, and by whom
         if (!can('owner')) return err('للمالك فقط', 403); const { results } = await T.prepare('SELECT a.event_id, a.user_id, a.action, a.detail, a.at, e.name AS event FROM audit a LEFT JOIN events e ON e.id = a.event_id ORDER BY a.id DESC LIMIT 200').all();
         const ids = [...new Set(results.map(r => r.user_id).filter(Boolean))], who2 = {}; for (const i of ids) { const u = await env.DB.prepare('SELECT email FROM users WHERE id = ?').bind(i).first(); who2[i] = u ? u.email : ''; }
@@ -346,7 +360,12 @@ const main = {
           await env.DB.batch([env.DB.prepare('UPDATE users SET pw = ? WHERE id = ?').bind(await pwHash(pw), u.id), env.DB.prepare('DELETE FROM sessions WHERE user_id = ?').bind(u.id)]); }
         if (b.role !== 'owner') { const ow = (await env.DB.prepare('SELECT user_id FROM members WHERE org_id = ? AND role = ?').bind(org.id, 'owner').all()).results; if (ow.length === 1 && ow[0].user_id === u.id) return err('لا تبقى الجهة بلا مالك'); }
         await env.DB.prepare('INSERT INTO members (org_id, user_id, role) VALUES (?,?,?) ON CONFLICT (org_id, user_id) DO UPDATE SET role = excluded.role').bind(org.id, u.id, b.role).run();
-        await audit(env, org.id, null, who.user.id, 'member', `${u.email} ${b.role}`); const join = await invite(env, u.email); return J({ join, mailed: await mailJoin(env, url.origin, u.email, join, org.name) });
+        await audit(env, org.id, null, who.user.id, 'member', `${u.email} ${b.role}`);
+        // the link signs its holder in as that person, everywhere that person belongs. So the owner who typed an address is given the link only for an account born in this call;
+        // someone who already has an account (here or in another organisation) is added, and enters the way they already do
+        const known = !u.fresh && !!(await env.DB.prepare('SELECT 1 AS x FROM users u WHERE u.id = ? AND (u.pw IS NOT NULL OR EXISTS (SELECT 1 FROM passkeys k WHERE k.user_id = u.id) OR EXISTS (SELECT 1 FROM sessions s WHERE s.user_id = u.id) OR EXISTS (SELECT 1 FROM members m WHERE m.user_id = u.id AND m.org_id != ?))').bind(u.id, org.id).first());
+        if (known || b.password) { await kickOrg(env, org.id); return J({ existing: known, join: null }); }
+        const join = await invite(env, u.email); return J({ join, mailed: await mailJoin(env, url.origin, u.email, join, org.name) });
       }
       if (p === '/api/events' && M === 'GET') { const { results } = await T.prepare('SELECT id, slug, name, status, published_version, updated_at FROM events WHERE org_id = ? ORDER BY updated_at DESC').bind(org.id).all(); return J({ events: results.filter(e => e.status !== 'archived'), archived: results.filter(e => e.status === 'archived'), org }); }
       if (p === '/api/events' && M === 'POST') {
@@ -354,8 +373,8 @@ const main = {
         const n = (await T.prepare('SELECT COUNT(*) AS n FROM events WHERE org_id = ? AND status != ?').bind(org.id, 'archived').first()).n;
         if (n >= org.events_limit) return err(`باقتكم تسمح بـ ${org.events_limit} لقاء. أرشفوا لقاءً أو رقّوا الباقة.`, 402);
         if (org.paid_until && org.paid_until < now()) return err('انتهى اشتراك الجهة', 402);
-        let doc = BLANK(b.name); if (b.doc && Array.isArray(b.doc.cues) && b.doc.identity && b.doc.identity.before) doc = { ...BLANK(b.name), ...b.doc, name: b.name };   // a template chosen in the studio
-        if (b.from) { const src = await T.prepare('SELECT draft FROM events WHERE id = ? AND org_id = ?').bind(b.from, org.id).first(); if (src) doc = { ...JSON.parse(src.draft), name: b.name }; }
+        let doc = BLANK(b.name); if (b.doc && !shape({ ...BLANK(b.name), ...b.doc, name: String(b.name) })) doc = { ...BLANK(b.name), ...b.doc, name: String(b.name) };   // a template chosen in the studio
+        if (b.from) { const src = await T.prepare('SELECT draft FROM events WHERE id = ? AND org_id = ?').bind(b.from, org.id).first(); if (src) { const d0 = JSON.parse(src.draft); doc = { ...d0, name: String(b.name), media: {}, cues: (d0.cues || []).map(c => { const x = { ...c }; delete x.media; delete x.mediaTall; return x; }), identity: { before: { ...d0.identity.before, logo: '' }, after: d0.identity.after ? { ...d0.identity.after, logo: '' } : null } }; } }
         const id = 'e_' + org.id.slice(2) + rid(8), s = (slug(b.slug) || 'event') + '-' + rid(4);
         await T.prepare('INSERT INTO events (id, org_id, slug, name, status, draft, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?)').bind(id, org.id, s, b.name, 'draft', JSON.stringify(doc), now(), now()).run();
         await audit(env, org.id, id, who.user.id, 'create', b.name); return J({ id });
@@ -364,7 +383,7 @@ const main = {
       if (m) {
         const [, id, sub, rest] = m, ev = await T.prepare('SELECT * FROM events WHERE id = ? AND org_id = ?').bind(id, org.id).first(); if (!ev) return err('لا يوجد', 404);
         if (!sub && M === 'GET') { const doc = JSON.parse(ev.draft); return J({ id, name: ev.name, status: ev.status, published_version: ev.published_version, active_from: ev.active_from, active_until: ev.active_until, credits: org.credits, rev: ev.updated_at, doc, problems: problems(doc), base: `/m/${org.id}/${id}/` }); }
-        if (!sub && M === 'PUT') { if (!can('editor')) return err('لا تملك صلاحية التعديل', 403); const doc = await req.json(); if (!doc || !Array.isArray(doc.cues)) return err('وثيقة غير صالحة');
+        if (!sub && M === 'PUT') { if (!can('editor')) return err('لا تملك صلاحية التعديل', 403); const doc = await req.json().catch(() => null), wrong = shape(doc); if (wrong) return err(wrong);
           const rev = req.headers.get('x-rev'); if (rev && rev !== ev.updated_at && !req.headers.get('x-force')) return J({ error: 'عدّل زميل هذا اللقاء أثناء عملك', conflict: true, rev: ev.updated_at }, 409);
           const at = now(); await T.prepare('UPDATE events SET draft = ?, name = ?, updated_at = ? WHERE id = ?').bind(JSON.stringify(doc), doc.name || ev.name, at, id).run(); return J({ ok: true, rev: at, problems: problems(doc) }); }
         // the published versions of the event, and a version brought back as the draft (the versions themselves never change)
@@ -402,8 +421,9 @@ const main = {
         if (sub === 'upload' && M === 'POST') { if (!can('editor')) return err('لا تملك صلاحية الرفع', 403); const b = await req.json();
           if (b.start) { const used = (await T.prepare('SELECT COALESCE(SUM(bytes),0) AS b FROM media WHERE org_id = ?').bind(org.id).first()).b; if (used + (+b.size || 0) > org.storage_limit_mb * 1048576) return err('امتلأت مساحة الجهة', 402);
             const ext = (String(b.name).match(/\.(\w{2,5})$/) || [, 'mp4'])[1].toLowerCase(), file = 'f' + rid(8) + '.' + ext, key = `${org.id}/${id}/${file}`, up = await env.MEDIA.createMultipartUpload(key, { httpMetadata: { contentType: b.type || 'video/mp4' } }); return J({ file, key, uploadId: up.uploadId }); }
-          if (b.done) { if (!String(b.key).startsWith(`${org.id}/${id}/`)) return err('لا يوجد', 404); await env.MEDIA.resumeMultipartUpload(b.key, b.uploadId).complete(b.parts);
-            await T.prepare('INSERT INTO media (id, org_id, event_id, kind, name, r2_key, bytes, created_at) VALUES (?,?,?,?,?,?,?,?)').bind('m_' + rid(), org.id, id, 'video', String(b.name).slice(0, 120), b.key, +b.size || 0, now()).run(); return J({ ok: true }); }
+          if (b.done) { if (!String(b.key).startsWith(`${org.id}/${id}/`)) return err('لا يوجد', 404); await env.MEDIA.resumeMultipartUpload(b.key, b.uploadId).complete(b.parts); const real = (await env.MEDIA.head(b.key))?.size || 0, used2 = (await T.prepare('SELECT COALESCE(SUM(bytes),0) AS b FROM media WHERE org_id = ?').bind(org.id).first()).b;
+            if (used2 + real > org.storage_limit_mb * 1048576) { await env.MEDIA.delete(b.key); return err('امتلأت مساحة الجهة', 402); }
+            await T.prepare('INSERT INTO media (id, org_id, event_id, kind, name, r2_key, bytes, created_at) VALUES (?,?,?,?,?,?,?,?)').bind('m_' + rid(), org.id, id, 'video', String(b.name).slice(0, 120), b.key, real, now()).run(); return J({ ok: true }); }
         }
         if (sub === 'upload' && M === 'PUT') { if (!can('editor')) return err('لا تملك صلاحية الرفع', 403); const q = url.searchParams, key = q.get('key'); if (!String(key).startsWith(`${org.id}/${id}/`)) return err('لا يوجد', 404);
           const part = await env.MEDIA.resumeMultipartUpload(key, q.get('uploadId')).uploadPart(+q.get('n'), req.body); return J({ partNumber: part.partNumber, etag: part.etag }); }
@@ -411,7 +431,7 @@ const main = {
           if (!can('editor')) return err('لا تملك صلاحية الرفع', 403);
           const q = url.searchParams, kind = q.get('kind'), name = (q.get('name') || 'file').slice(0, 120), size = +req.headers.get('Content-Length') || 0; if (!['video', 'image', 'slides'].includes(kind)) return err('نوع غير معروف');
           const used = (await T.prepare('SELECT COALESCE(SUM(bytes),0) AS b FROM media WHERE org_id = ?').bind(org.id).first()).b; if (used + size > org.storage_limit_mb * 1048576) return err('امتلأت مساحة الجهة', 402);
-          const mid = q.get('slides') || 'f' + rid(8), ext = (name.match(/\.(\w{2,5})$/) || [, kind === 'video' ? 'mp4' : 'jpg'])[1].toLowerCase();
+          if (q.get('slides') && !/^f[a-z0-9]{6,12}$/.test(q.get('slides'))) return err('معرّف غير صالح'); const mid = q.get('slides') || 'f' + rid(8), ext = (name.match(/\.(\w{2,5})$/) || [, kind === 'video' ? 'mp4' : 'jpg'])[1].toLowerCase();
           const file = kind === 'slides' ? `${mid}/s-${+q.get('n') || 1}.jpg` : `${mid}.${ext}`, key = `${org.id}/${id}/${file}`;
           await env.MEDIA.put(key, req.body, { httpMetadata: { contentType: req.headers.get('Content-Type') || 'application/octet-stream' } });
           await T.prepare('INSERT INTO media (id, org_id, event_id, kind, name, r2_key, bytes, created_at) VALUES (?,?,?,?,?,?,?,?)').bind('m_' + rid(), org.id, id, kind, name, key, size, now()).run();
@@ -426,7 +446,7 @@ const main = {
           await audit(env, org.id, id, who.user.id, 'unlink', rest); return J({ ok: true }); }
       }
       return err('لا يوجد', 404);
-    } catch (e) { console.log('error', e && e.stack || e); return err('خطأ في الخادم', 500); }
+    } catch (e) { const ref = rid(6); console.log('error', ref, req.method, new URL(req.url).pathname, e && e.stack || e); return J({ error: `حدث خطأ. أعيدوا المحاولة، وإن تكرر فأبلغوا بصيرة بهذا الرقم: ${ref}`, ref }, 500); }
   },
 };
 // what the browser is told with every answer: do not guess types, do not show the site inside another site, do not pass our addresses on

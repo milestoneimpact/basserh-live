@@ -9,9 +9,10 @@ export async function keep(list, onProgress = () => {}) {
   try { await navigator.storage?.persist?.(); } catch {}
   const st = Object.fromEntries(list.map(u => [u, { done: false, pct: 0 }]));
   for (const u of list) { if (await has(u)) { st[u] = { done: true, pct: 100 }; onProgress(st); continue; }
+    for (let go = 0; go < 4; go++) { if (go) { st[u] = { done: false, pct: 0, err: st[u].err, again: go }; onProgress(st); await new Promise(r => setTimeout(r, go * 2500)); }
     try { const r = await fetch(u); if (!r.ok) throw new Error(r.status); const total = +r.headers.get('Content-Length') || 0, rd = r.body.getReader(), parts = []; let got = 0, last = 0;
       for (;;) { const { done, value } = await rd.read(); if (done) break; parts.push(value); got += value.length; const pct = total ? Math.floor(got / total * 100) : 0; if (pct !== last) { last = pct; st[u].pct = pct; onProgress(st); } }
-      await tx('readwrite', s => s.put(new Blob(parts, { type: r.headers.get('Content-Type') || '' }), u)); st[u] = { done: true, pct: 100 };
-    } catch (e) { st[u] = { done: false, pct: 0, err: String(e.message || e) }; } onProgress(st); }
+      await tx('readwrite', s => s.put(new Blob(parts, { type: r.headers.get('Content-Type') || '' }), u)); st[u] = { done: true, pct: 100 }; break;
+    } catch (e) { st[u] = { done: false, pct: 0, err: /quota|storage/i.test(String(e)) ? 'لا مساحة كافية على هذا الجهاز' : /^\d+$/.test(String(e.message)) ? 'الخادم رد بخطأ ' + e.message : 'انقطع التنزيل' }; } } onProgress(st); }
   return st;
 }

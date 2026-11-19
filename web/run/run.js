@@ -40,8 +40,15 @@ export async function connect() {
 }
 // the identity of the moment as CSS variables (the one revealed by the launch once it has happened)
 let again = 0;
+// how far apart two colours are for the eye (WCAG): 1 is the same colour, 21 is black on white
+const rgb = h => { h = String(h || '').replace('#', ''); if (h.length === 3) h = h.split('').map(x => x + x).join(''); return [0, 2, 4].map(i => parseInt(h.slice(i, i + 2), 16) || 0); };
+export const lum = h => { const [r, g, b] = rgb(h).map(v => { v /= 255; return v <= .03928 ? v / 12.92 : ((v + .055) / 1.055) ** 2.4; }); return .2126 * r + .7152 * g + .0722 * b; };
+export const contrast = (a, b) => { const x = lum(a), y = lum(b); return (Math.max(x, y) + .05) / (Math.min(x, y) + .05); };
+const mix = (a, b, t) => '#' + rgb(a).map((v, i) => Math.round(v * t + rgb(b)[i] * (1 - t)).toString(16).padStart(2, '0')).join('');
 export function paint(link, s, root = document.documentElement) { const now = link.now(), k = identityNow(link.doc, s, now), I = link.doc.identity[k] || link.doc.identity.before, c = I.colors || {};
   for (const [n, v] of Object.entries({ bg: c.bg || '#F6F1E6', ink: c.ink || '#14211E', accent: c.accent || '#0F5A4E', gold: c.gold || '#C2A063' })) root.style.setProperty('--' + n, v); root.style.setProperty('--ft', fontCss(I));
+  { const bg = c.bg || '#F6F1E6', ink = contrast(c.ink || '#14211E', bg) < 3 ? (lum(bg) > .4 ? '#14211E' : '#F6F2E8') : (c.ink || '#14211E');   // the ink first: every fallback below leans on it
+    root.style.setProperty('--ink', ink); if (contrast(c.accent || '#0F5A4E', bg) < 2.2) root.style.setProperty('--accent', ink); if (contrast(c.gold || '#C2A063', bg) < 2.6) root.style.setProperty('--gold', mix(ink, bg, .72)); }
   // the reveal is still ahead (a countdown is running): come back at its moment
   if (s.launchedAt && k === 'before' && link.doc.identity.after) { clearTimeout(again); again = setTimeout(link.poke, Math.max(30, s.launchedAt + launchTimes(link.doc).reveal * 1000 - now + 20)); }
   return { key: k, logo: I.logo ? link.base + I.logo : '' }; }

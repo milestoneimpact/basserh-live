@@ -13,6 +13,10 @@ binding = "ASSETS"
 [triggers]
 crons = ["20 23 * * *"]
 
+# errors and requests are kept in Cloudflare's logs
+[observability]
+enabled = true
+
 [[d1_databases]]
 binding = "DB"
 database_name = "basserh-live"

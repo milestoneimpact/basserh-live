@@ -79,5 +79,7 @@ const NAMES = [['شركة الأفق', '#0B3D91', 'ملتقى الأفق الس�
   ok(seenLock.locked && !!seenLock.until && await tryDoor(X.slug, 'wrong-again') === 403 && !(await (await adm('orgs')).json()).orgs.find(o => o.slug === X.slug).door.locked, 'the platform owner sees the locked door on his page and opens it: the door answers again');
   // a password added by an owner cannot take over an account of another organisation
   const steal = await X.api('/api/members', 'POST', { email: `i1${t}@t.test`, role: 'editor', password: 'stolen-pass-123' }); ok(steal.status === 400, 'an owner cannot set a password for someone who already has an account elsewhere');
+  const inv = await X.api('/api/members', 'POST', { email: `i1${t}@t.test`, role: 'viewer' }); ok(inv.status === 200 && !inv.join && inv.existing === true, 'nor is he handed a sign in link for that person: the member is added, the link is not given');
+  const viewer = await X.api('/api/members', 'POST', { email: `fresh${t}@t.test`, role: 'viewer' }); ok(!!viewer.join, 'a person with no account anywhere still gets an invitation link');
   ok(!errs.length, 'page errors: ' + (errs.join(' | ') || 'none')); await b.close(); for (const o of orgs) await adm('org', 'DELETE', { id: o.org, confirm: o.slug });
 })().catch(e => { console.log('✗ ' + (e.stack || e)); process.exitCode = 1; });

@@ -8,10 +8,10 @@ export class Room {
   async take(req) {
     const raw = decodeURIComponent(req.headers.get('x-doc')), v = +req.headers.get('x-ver'); if (raw !== this.raw) { this.raw = raw; this.doc = JSON.parse(raw); await this.ctx.storage.put('doc', this.doc); }   // kept: the room wakes from sleep on a message, with no request
     const known = this.state && this.doc.cues.some(c => c.id === this.state.cue);
-    if (!this.state || !known) { this.state = { ...initial(this.doc), live: v === 0 }; await this.ctx.storage.put('state', this.state); }   // a rehearsal (the draft) is on from the start; the hall waits for the operator
+    if (!this.state || !known) { const was = this.state; this.state = { ...initial(this.doc), live: was ? !!was.live : v === 0, dim: was ? was.dim : undefined, launchedAt: was && this.doc.cues.some(c => c.type === 'launch') ? was.launchedAt : null }; await this.ctx.storage.put('state', this.state); }   // a rehearsal (the draft) is on from the start; the hall waits for the operator
     if (v !== this.ver) { this.ver = v; await this.ctx.storage.put('ver', v); this.cast({ reload: v }); }   // screens read the new version
   }
-  cast(o) { const t = JSON.stringify(o); for (const ws of this.ctx.getWebSockets()) { try { ws.send(t); } catch {} } }
+  cast(o, only) { const t = JSON.stringify(o); for (const ws of this.ctx.getWebSockets()) { if (only && (ws.deserializeAttachment() || {}).role !== only) continue; try { ws.send(t); } catch {} } }
   // the screens of the hall as they report themselves (which kind, what size, how many files they hold); kept with each connection, so it survives the room's sleep
   hall() { const d = {}; for (const ws of this.ctx.getWebSockets()) { const a = ws.deserializeAttachment() || {}; if (a.rep) d[a.rep.id] = a.rep; } return d; }
   // a launch by several hands: how many guests are holding their button now, and since when all of them are
@@ -40,13 +40,14 @@ export class Room {
     b.send(JSON.stringify({ state: this.state, now: Date.now(), peers: this.peers(), hall: this.hall(), hands: this.hands() })); this.cast({ peers: this.peers() });
     return new Response(null, { status: 101, webSocket: a });
   }
-  async webSocketMessage(ws, msg) { let m; try { m = JSON.parse(msg); } catch { return; } if (m.ping) return ws.send(JSON.stringify({ pong: m.ping, now: Date.now() }));
+  async webSocketMessage(ws, msg) { if (typeof msg !== 'string' || msg.length > 20000) return; let m; try { m = JSON.parse(msg); } catch { return; } if (m.ping) return ws.send(JSON.stringify({ pong: m.ping, now: Date.now() }));
     const role = (ws.deserializeAttachment() || {}).role;
     // the hall computer reports the files it holds locally; the operator sees it
-    if (m.report && /^[a-z0-9]{4,12}$/.test(m.report.id || '')) { const r = m.report, a = ws.deserializeAttachment() || {}; ws.serializeAttachment({ ...a, rep: { id: r.id, kind: ['main', 'side', 'logo'].includes(r.kind) ? r.kind : 'main', w: +r.w || 0, h: +r.h || 0, total: +r.total || 0, done: +r.done || 0, bad: +r.bad || 0, pct: +r.pct || 0, label: String(r.label || '').slice(0, 40), scene: String(r.scene || '').slice(0, 12), cue: String(r.cue || '').slice(0, 40), lag: Math.round(+r.lag || 0), err: String(r.err || '').slice(0, 90), ver: +r.ver || 0, t: +r.t || 0, at: Date.now() } }); return this.cast({ hall: this.hall() }); }
+    if (m.report && /^[a-z0-9]{4,12}$/.test(m.report.id || '')) { const r = m.report, a = ws.deserializeAttachment() || {}; if (!['stage', 'side', 'logo', 'console'].includes(role) || (a.rep && Date.now() - a.rep.at < 900)) return; ws.serializeAttachment({ ...a, rep: { id: r.id, kind: ['main', 'side', 'logo'].includes(r.kind) ? r.kind : 'main', w: +r.w || 0, h: +r.h || 0, total: +r.total || 0, done: +r.done || 0, bad: +r.bad || 0, pct: +r.pct || 0, label: String(r.label || '').slice(0, 40), scene: String(r.scene || '').slice(0, 12), cue: String(r.cue || '').slice(0, 40), lag: Math.round(+r.lag || 0), err: String(r.err || '').slice(0, 90), ver: +r.ver || 0, t: +r.t || 0, at: Date.now() } }); return this.cast({ hall: this.hall() }, 'console'); }
     if (m.hold !== undefined && (role === 'tablet' || role === 'console')) { const a = ws.deserializeAttachment() || {}; ws.serializeAttachment({ ...a, hold: m.hold ? (a.hold || Date.now()) : 0 }); return this.cast({ hands: this.hands() }); }
     // the hall computer ran the event from its keyboard while the network was down: its state is taken back if nobody moved the event meanwhile
-    if (m.adopt && (role === 'stage' || role === 'console') && this.state && m.adopt.base === this.state.ver && this.doc.cues.some(c => c.id === m.adopt.state.cue)) { this.state = { ...m.adopt.state, ver: this.state.ver + 1 }; await this.ctx.storage.put('state', this.state); return this.cast({ state: this.state, now: Date.now(), peers: this.peers() }); }
+    if (m.adopt && (role === 'stage' || role === 'console') && this.state && m.adopt.state && m.adopt.base === this.state.ver && this.doc.cues.some(c => c.id === m.adopt.state.cue)) { const a = m.adopt.state, num = x => (Number.isFinite(+x) && +x > 0 ? +x : null), hasL = this.doc.cues.some(c => c.type === 'launch');
+      this.state = { ...this.state, cue: String(a.cue), cueAt: num(a.cueAt) || Date.now(), slide: Math.max(0, Math.min(2000, Math.round(+a.slide) || 0)), paused: num(a.paused), black: !!a.black, armed: hasL && !!a.armed, launchedAt: hasL ? (num(a.launchedAt) || this.state.launchedAt) : null, q: null, ver: this.state.ver + 1 }; await this.ctx.storage.put('state', this.state); return this.cast({ state: this.state, now: Date.now(), peers: this.peers() }); }
     if (!this.doc) return; await this.apply(m.cmd, (ws.deserializeAttachment() || {}).role); }
   webSocketClose() { this.cast({ peers: this.peers(), hall: this.hall(), hands: this.hands() }); }
 }

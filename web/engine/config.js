@@ -76,6 +76,17 @@ export function problems(ev) {
   const why = orderProblem(ev, cues.map(c => c.id)); if (why) out.push(why);
   return out;
 }
+// what the server refuses to store at all (a sentence, or '' when the document may be kept): the wrong shape breaks the studio and the hall,
+// and an id, a file name or a colour that is not what it claims to be could carry markup into a page
+const KEY = /^[A-Za-z0-9][A-Za-z0-9_-]{0,39}$/, FILE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,79}\/?$/, HEX = /^#[0-9a-fA-F]{6}$/;
+export function shape(ev) { const obj = x => x && typeof x === 'object' && !Array.isArray(x);
+  if (!obj(ev) || !Array.isArray(ev.cues) || !obj(ev.identity) || !obj(ev.identity.before)) return 'وثيقة اللقاء غير صالحة';
+  if (JSON.stringify(ev).length > 600000) return 'وثيقة اللقاء أكبر من الحد (600 كيلوبايت). اختصروا نصوص مدير الجلسة.';
+  if (ev.name != null && typeof ev.name !== 'string') return 'اسم اللقاء غير صالح'; if (ev.cues.length > 300) return 'عدد الفقرات أكبر من الحد';
+  for (const c of ev.cues) { if (!obj(c) || !KEY.test(c.id || '') || typeof c.type !== 'string') return 'في اللقاء فقرة غير صالحة'; if (c.moderator != null && !(Array.isArray(c.moderator) && c.moderator.every(l => typeof l === 'string'))) return 'نص مدير الجلسة غير صالح'; for (const k of ['person', 'media', 'mediaTall']) if (c[k] != null && c[k] !== '' && !KEY.test(c[k])) return 'في اللقاء فقرة غير صالحة'; for (const k of ['title', 'text', 'at', 'url']) if (c[k] != null && typeof c[k] !== 'string') return 'في اللقاء فقرة غير صالحة'; }
+  for (const [n, o] of [['people', ev.people], ['media', ev.media]]) { if (o == null) continue; if (!obj(o)) return 'وثيقة اللقاء غير صالحة'; for (const [k, v] of Object.entries(o)) { if (!KEY.test(k) || !obj(v)) return n === 'people' ? 'في الأشخاص سجل غير صالح' : 'في الملفات سجل غير صالح'; if (n === 'media' && (!FILE.test(v.src || '') || !['video', 'image', 'slides'].includes(v.kind))) return 'في الملفات سجل غير صالح'; } }
+  for (const k of ['before', 'after']) { const I = ev.identity[k]; if (I == null) continue; if (!obj(I)) return 'هوية اللقاء غير صالحة'; if (I.logo && !FILE.test(I.logo)) return 'شعار الهوية غير صالح'; if (I.colors != null) { if (!obj(I.colors)) return 'ألوان الهوية غير صالحة'; for (const v of Object.values(I.colors)) if (v && !HEX.test(v)) return 'ألوان الهوية غير صالحة'; } }
+  return ''; }
 export const cueOf = (ev, id) => (ev.cues || []).find(c => c.id === id);
 export const armOf = ev => ((ev.cues || []).find(c => c.type === 'arm') || {}).id || null;
 export const launchOf = ev => ((ev.cues || []).find(c => c.type === 'launch') || {}).id || null;

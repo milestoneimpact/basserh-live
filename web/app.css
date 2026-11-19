@@ -7,6 +7,7 @@
 @font-face{font-family:Plex;src:url(fonts/cairo-arabic-600-normal.woff2);font-weight:600}
 @font-face{font-family:Plex;src:url(fonts/cairo-latin-400-normal.woff2);font-weight:400;unicode-range:U+0000-00FF}
 @font-face{font-family:Plex;src:url(fonts/cairo-latin-600-normal.woff2);font-weight:600;unicode-range:U+0000-00FF}
+@font-face{font-family:Kufi;src:url(fonts/cairo-latin-600-normal.woff2);font-weight:400 900;unicode-range:U+0000-00FF}
 @font-face{font-family:Corm;src:url(fonts/cinzel-latin-600-normal.woff2);font-weight:400 700}
 @font-face{font-family:Cinzel;src:url(fonts/cinzel-latin-400-normal.woff2);font-weight:400}
 :root{--night:#0E1114;--deep:#1F2A2E;--green:#1F2A2E;--leaf:#2E3D42;--cream:#E8D9BD;--paper:#F6F2E8;--gold:#B88A3D;--gold2:#D9B878;--ink:#0E1114;--mute:#6F7578;--line:#E4DAC6;--bad:#A8402F}
@@ -29,6 +30,7 @@ button,input,select,textarea{font:inherit;color:inherit}
 input[type=text],input[type=number],input[type=email],select,textarea{width:100%;border:1px solid var(--line);border-radius:12px;padding:10px 13px;background:#fff;outline:none;transition:border-color .15s,box-shadow .15s}input[type=text]:hover,input[type=number]:hover,input[type=email]:hover,select:hover,textarea:hover{border-color:#D3C4A4}
 input:focus,select:focus,textarea:focus{border-color:var(--gold);box-shadow:0 0 0 3px rgba(194,160,99,.18)}
 label{display:block;font:600 13px Plex;color:var(--mute);margin:14px 0 5px}
-h1,h2,h3{font-family:Kufi;margin:0}.k{font:600 13px Plex;letter-spacing:.12em;color:var(--gold)}
+h1,h2,h3{font-family:Kufi;margin:0}
+input[type=checkbox],input[type=radio]{accent-color:#B88A3D;width:18px;height:18px}a{color:#8E6626;text-underline-offset:3px}input[type=color]{border:1px solid var(--line);border-radius:10px;background:#fff}.k{font:600 13px Plex;letter-spacing:.12em;color:var(--gold)}
 #toast{position:fixed;left:50%;bottom:28px;transform:translateX(-50%);background:var(--deep);color:var(--cream);padding:10px 22px;border-radius:999px;font:600 15px Plex;opacity:0;transition:.25s;pointer-events:none;z-index:50}#toast.on{opacity:1}
 .wm{display:flex;align-items:center;gap:12px;font:900 24px Kufi;color:var(--cream)}.wm:before{content:'';width:1.5em;height:1.7em;background:url(brand/mark_light.png) center/contain no-repeat}.wm i{width:1px;height:24px;background:var(--gold)}.wm span{font:400 19px Cinzel;letter-spacing:.24em;direction:ltr}
