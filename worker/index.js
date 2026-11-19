@@ -49,7 +49,8 @@ const newPw = () => [0, 1, 2, 3].map(() => rid(4)).join('-');
 async function locked(env, ip) { const f = await env.DB.prepare('SELECT n, until FROM login_fail WHERE ip = ?').bind(ip).first(); return f && f.until && f.until > now() ? null : { n: f && !f.until ? f.n : 0 }; }
 const failed = (env, ip, n, limit = 5) => env.DB.prepare('INSERT INTO login_fail (ip, n, until) VALUES (?,?,?) ON CONFLICT (ip) DO UPDATE SET n = excluded.n, until = excluded.until').bind(ip, n + 1, n + 1 >= limit ? new Date(Date.now() + 9e5).toISOString() : null).run();
 const padd = (env, action, detail = '') => env.DB.prepare('INSERT INTO platform_audit (action, detail, at) VALUES (?,?,?)').bind(action, String(detail).slice(0, 300), now()).run().catch(() => {});   // the platform owner's own record
-async function session(env, uid) { const t = rid(32); await env.DB.prepare('INSERT INTO sessions (token_hash, user_id, expires_at, created_at) VALUES (?,?,?,?)').bind(await sha(t), uid, new Date(Date.now() + 30 * 864e5).toISOString(), now()).run(); return setCookie('sid', t, 30); }
+const KEEP = 180;   // days a device stays signed in: a device that entered once is not asked again for half a year, unless it signs out or the password is renewed
+async function session(env, uid) { const t = rid(32); await env.DB.prepare('INSERT INTO sessions (token_hash, user_id, expires_at, created_at) VALUES (?,?,?,?)').bind(await sha(t), uid, new Date(Date.now() + KEEP * 864e5).toISOString(), now()).run(); return setCookie('sid', t, KEEP); }
 // the platform owner as a person of the system (for sessions and passkeys); belongs to no organisation
 async function platform(env) { await env.DB.prepare('INSERT INTO users (id, email, name, created_at) VALUES (?,?,?,?) ON CONFLICT (id) DO NOTHING').bind('platform', 'platform@basserh', 'مالك المنصة', now()).run(); return 'platform'; }
 async function userFor(env, email, name) { email = String(email || '').trim().toLowerCase(); if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return null;
@@ -216,9 +217,9 @@ const main = {
         if (!c) return new Response('الرابط منتهٍ أو مستعمل. اطلب رابطاً جديداً من مالك الحساب.', { status: 410, headers: { 'Content-Type': 'text/plain; charset=utf-8' } });
         const u = await userFor(env, c.email), t = rid(32);
         await env.DB.batch([env.DB.prepare('UPDATE login_codes SET used_at = ? WHERE code_hash = ?').bind(now(), h),
-          env.DB.prepare('INSERT INTO sessions (token_hash, user_id, expires_at, created_at) VALUES (?,?,?,?)').bind(await sha(t), u.id, new Date(Date.now() + 30 * 864e5).toISOString(), now())]);
+          env.DB.prepare('INSERT INTO sessions (token_hash, user_id, expires_at, created_at) VALUES (?,?,?,?)').bind(await sha(t), u.id, new Date(Date.now() + KEEP * 864e5).toISOString(), now())]);
         const first = await env.DB.prepare('SELECT o.slug FROM members m JOIN orgs o ON o.id = m.org_id WHERE m.user_id = ? LIMIT 1').bind(u.id).first();
-        return new Response(null, { status: 302, headers: { Location: '/' + (first ? first.slug : 'login'), 'Set-Cookie': setCookie('sid', t, 30) } });
+        return new Response(null, { status: 302, headers: { Location: '/' + (first ? first.slug : 'login'), 'Set-Cookie': setCookie('sid', t, KEEP) } });
       }
       // ----- the public page's contact form: kept in the database for the owner's page, and mailed to the owner when a mail service is set
       // (secrets CONTACT_TO and RESEND_KEY; the address is never in a page). A hidden field and a limit per address keep robots out.
@@ -252,7 +253,8 @@ const main = {
             return new Response(JSON.stringify({ to: k.user_id === 'platform' ? '/admin.html' : '/' + (first ? first.slug : 'login') }), { headers: { 'Content-Type': 'application/json', 'Set-Cookie': await session(env, k.user_id) } }); }
         } catch (e) { return err(e.message || 'تعذّر التحقق', 400); }
         return err('لا يوجد', 404); }
-      if (p === '/api/logout') return new Response(null, { status: 302, headers: { Location: '/login', 'Set-Cookie': setCookie('sid', '', 0) } });
+      if (p === '/api/logout') { const t = cookies(req).sid; if (t) await env.DB.prepare('DELETE FROM sessions WHERE token_hash = ?').bind(await sha(t)).run();   // signing out ends the session itself, not only this browser's copy of it
+        return new Response(null, { status: 302, headers: { Location: '/login', 'Set-Cookie': setCookie('sid', '', 0) } }); }
       // ----- a link of one screen: opens that page of that event, with no account
       if (p.startsWith('/go/')) {
         const tok = p.slice(4), l = /^[a-z0-9]{12}\.[a-z0-9]+$/.test(tok) ? await tdb(env, 'o_' + tok.slice(0, 12)).prepare('SELECT event_id, role FROM links WHERE token_hash = ? AND revoked_at IS NULL').bind(await sha(tok)).first() : null;
