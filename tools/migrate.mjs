@@ -10,6 +10,9 @@ d1(['--command', 'CREATE TABLE IF NOT EXISTS schema_migrations (name TEXT PRIMAR
 const done = new Set(d1(['--command', 'SELECT name FROM schema_migrations'])[0].results.map(r => r.name));
 const files = fs.readdirSync(path.join(ROOT, 'db/migrations')).filter(f => /^\d{4}_[\w-]+\.sql$/.test(f)).sort();
 let n = 0; for (const f of files) { if (done.has(f)) continue;
-  if (flag !== '--mark') { d1(['--file', path.join('db/migrations', f)]); console.log('ran', f); } else console.log('marked', f);
+  if (flag !== '--mark') { try { d1(['--file', path.join('db/migrations', f)]); } catch (e) { if (!/duplicate column name/.test(String(e.stdout || e))) throw e;
+      // a column the server already added by itself: the file is run statement by statement, passing over what is already there
+      for (const q of fs.readFileSync(path.join(ROOT, 'db/migrations', f), 'utf8').replace(/^--.*$/gm, '').split(';').map(x => x.trim()).filter(Boolean)) try { d1(['--command', q]); } catch (x) { if (!/duplicate column name/.test(String(x.stdout || x))) throw x; } }
+    console.log('ran', f); } else console.log('marked', f);
   d1(['--command', `INSERT INTO schema_migrations (name, at) VALUES ('${f}', '${new Date().toISOString()}')`]); n++; }
 console.log(n ? `${where}: ${n} change(s) recorded` : `${where}: up to date (${files.length})`);
