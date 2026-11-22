@@ -28,7 +28,6 @@ const adm = (p, m = 'GET', b) => fetch(B + '/api/admin/' + p, { method: m, heade
   // expired subscription
   await adm('org', 'PATCH', { id: org.org, paid_until: '2020-01-01T00:00:00Z' });
   ok((await api(`/api/events/${ev.id}/publish`, 'POST')).status === 402, 'an expired subscription stops publishing');
-  ok((await api(`/api/events/${ev.id}/activate`, 'POST', { from: new Date().toISOString() })).status === 402, 'and stops activation');
   await adm('org', 'PATCH', { id: org.org, paid_until: null });
 
   // export

@@ -19,9 +19,9 @@ let pass = 0, fail = 0; const ok = (c, m) => { c ? pass++ : fail++; console.log(
   ok(r.ok && bd.includes('الاسم الأول') && !bd.includes('اسم تغيّر'), 'the organisation is back as it was that day');
   ok((await fetch(`${B}/m/${org.org}/${ev.id}/${logo.src}`, { headers: { cookie: sid } })).status === 200, 'and its file is there');
   // the hall pinned to its version
-  const st = await (await fetch(E + '/publish', { method: 'POST', headers: H, body: '{}' })).json(); await fetch(E + '/activate', { method: 'POST', headers: H, body: JSON.stringify({ from: new Date().toISOString() }) });
-  const p2 = await fetch(E + '/publish', { method: 'POST', headers: H, body: '{}' }), j2 = await p2.json(); ok(st.version === 1 && p2.status === 409 && j2.pinned === 1, 'an open hall keeps its version: a new one is refused without a yes');
-  const p3 = await (await fetch(E + '/publish', { method: 'POST', headers: H, body: '{"live":true}' })).json(); ok(p3.version === 2, 'with the yes, the new version goes to the hall');
+  const st = await (await fetch(E + '/publish', { method: 'POST', headers: H, body: '{}' })).json(); const p1 = await fetch(E + '/publish', { method: 'POST', headers: H, body: '{}' }); ok(p1.ok, 'while the hall is not running a new version goes through at once'); await fetch(`${B}/api/run/${ev.id}/cmd`, { method: 'POST', headers: H, body: JSON.stringify({ type: 'live', on: true }) });
+  const p2 = await fetch(E + '/publish', { method: 'POST', headers: H, body: '{}' }), j2 = await p2.json(); ok(st.version === 1 && p2.status === 409 && j2.pinned === 2, 'a running hall keeps its version: a new one is refused without a yes');
+  const p3 = await (await fetch(E + '/publish', { method: 'POST', headers: H, body: '{"live":true}' })).json(); ok(p3.version === 3, 'with the yes, the new version goes to the hall');
   const pk = await fetch(B + '/api/passkeys', { headers: { cookie: sid } }); ok(pk.ok && Array.isArray((await pk.json()).passkeys) && (await fetch(B + '/api/passkeys')).status === 401, 'a person lists their own passkeys; nobody else');
   await adm('org', 'DELETE', { id: org.org, confirm: org.slug });
   console.log(`restore: ${pass} ok, ${fail} fail`); process.exit(fail ? 1 : 0);
