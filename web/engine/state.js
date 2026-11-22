@@ -68,6 +68,10 @@ export function reduce(ev, s, cmd, now = Date.now(), trusted = false) {
   else if (cmd.type === 'assign') { const ok = m => !m || (ev.media && ev.media[m] && STATION_KINDS.includes(ev.media[m].kind)), list = (Array.isArray(cmd.ids) ? cmd.ids : [cmd.sid]).filter(x => stationOf(ev, x));
     if (list.length && ok(cmd.media)) { const st = { ...(s.st || {}) }; for (const x of list) st[x] = { ...(st[x] || {}), media: cmd.media || null, at: now }; o = { ...s, st }; } }
   else if (cmd.type === 'sreset') { const list = cmd.sid ? [cmd.sid] : (ev.stations || []).map(x => x.id); if (list.every(x => stationOf(ev, x))) { const st = { ...(s.st || {}) }; for (const x of list) st[x] = { ...(st[x] || {}), reset: now }; o = { ...s, st }; } }
+  // from the board, for the stations: a screen made to reload itself (one or all), the films' volume, a few words shown on every screen until a time
+  else if (cmd.type === 'sreload') { const list = cmd.sid ? [cmd.sid] : (ev.stations || []).map(x => x.id); if (list.every(x => stationOf(ev, x))) { const st = { ...(s.st || {}) }; for (const x of list) st[x] = { ...(st[x] || {}), reload: now }; o = { ...s, st }; } }
+  else if (cmd.type === 'vol') { const v = Math.round(Math.max(0, Math.min(1, +cmd.level || 0)) * 100) / 100; o = { ...s, vol: v }; }
+  else if (cmd.type === 'msg') { const t = String(cmd.text || '').trim().slice(0, 140), m = Math.max(1, Math.min(240, Math.round(+cmd.minutes || 15))); o = t ? { ...s, msg: { text: t, at: now, until: now + m * 60000 } } : (s.msg ? { ...s, msg: null } : s); }
   else if (cmd.type === 'sdark') { const list = cmd.sid ? [cmd.sid] : (ev.stations || []).map(x => x.id); if (list.every(x => stationOf(ev, x))) { const st = { ...(s.st || {}) }; for (const x of list) st[x] = { ...(st[x] || {}), dark: !!cmd.on }; o = { ...s, st }; } }
   else if (cmd.type === 'reset') o = { ...initial(ev), order: s.order, orderAt: s.orderAt, off: s.off, hide: s.hide, live: s.live, dim: s.dim };
   return o === s ? s : { ...o, ver: (s.ver || 0) + 1 };

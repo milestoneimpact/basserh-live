@@ -83,3 +83,12 @@ test('a station\'s schedule: the morning file, the evening file, and the operato
   assert.ok(pr({ ...e, stations: [{ id: 's1', name: 'x', media: 'a', schedule: [{ at: '25:00', media: 'b' }] }] }).length, 'a time that is not one');
   assert.ok(sh({ ...e, stations: [{ id: 's1', name: 'x', schedule: 'x' }] }));
 });
+test('the board\'s further control: a screen reloaded, the films\' volume, a message to every screen', () => {
+  const e = { name: 'x', mode: 'stations', identity: { before: { colors: {} } }, cues: [], media: { a: { kind: 'pdf', src: 'a.pdf' } }, stations: [{ id: 's1', name: 'x', media: 'a' }, { id: 's2', name: 'y', media: 'a' }] };
+  let s = initial(e); s = run(e, s, { type: 'sreload', sid: 's2' }); assert.ok(s.st.s2.reload && !(s.st.s1 || {}).reload); s = run(e, s, { type: 'sreload' }); assert.ok(s.st.s1.reload);
+  assert.equal(run(e, s, { type: 'sreload', sid: 'nope' }), s);
+  s = run(e, s, { type: 'vol', level: 0.4 }); assert.equal(s.vol, 0.4); s = run(e, s, { type: 'vol', level: 7 }); assert.equal(s.vol, 1);
+  s = run(e, s, { type: 'msg', text: '  يُغلق المعرض بعد ربع ساعة ', minutes: 20 }); assert.equal(s.msg.text, 'يُغلق المعرض بعد ربع ساعة'); assert.ok(s.msg.until - s.msg.at === 20 * 60000);
+  s = run(e, s, { type: 'msg', text: '' }); assert.equal(s.msg, null);
+  assert.equal(reduce(e, s, { type: 'vol', level: 0 }, 1e7, false), s, 'only the operator');
+});
