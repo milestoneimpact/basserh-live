@@ -10,10 +10,12 @@ let pass = 0, fail = 0; const ok = (c, m) => { c ? pass++ : fail++; console.log(
   ok(!(await p.$('#l')) && !(await p.$('#c')), 'the new organisation form has no limits to fill');
   await p.fill('#q', 'ad' + t); const shown = await p.$$eval('#rows tr[data-id]', r => r.filter(x => x.style.display !== 'none').length); ok(shown === 1, 'the search finds the organisation by its address');
   const row = `#rows tr[data-id="${org.org}"]`;
-  await p.click(`${row} [data-a="del"]`); await p.waitForSelector('#dlg'); await p.fill('#dlg [data-f="c"]', 'wrong'); await p.click('#dlgOk'); ok(/اكتب العنوان/.test(await p.textContent('#dlgE')) && !!(await p.$('#dlg')), 'delete asks for the address in the page\'s own dialog, and refuses a wrong one');
+  await p.selectOption(`${row} [data-m]`, "del"); await p.waitForSelector('#dlg'); await p.fill('#dlg [data-f="c"]', 'wrong'); await p.click('#dlgOk'); ok(/اكتب العنوان/.test(await p.textContent('#dlgE')) && !!(await p.$('#dlg')), 'delete asks for the address in the page\'s own dialog, and refuses a wrong one');
   await p.click('#dlgNo'); ok(!(await p.$('#dlg')), 'cancel closes it, nothing deleted');
-  await p.click(`${row} [data-a="off"]`); await p.click('#dlgOk'); await p.waitForFunction(id => /مطفأة/.test(document.querySelector(`#rows tr[data-id="${id}"]`)?.textContent || ''), org.org); ok(true, 'off: the row says «مطفأة»');
-  await p.fill('#q', 'ad' + t); await p.click(`${row} [data-a="off"]`); await p.waitForFunction(id => !/مطفأة/.test(document.querySelector(`#rows tr[data-id="${id}"]`)?.textContent || 'مطفأة'), org.org); ok(true, 'and back on with one press');
+  await p.selectOption(`${row} [data-m]`, "off"); await p.click('#dlgOk'); await p.waitForFunction(id => /مطفأة/.test(document.querySelector(`#rows tr[data-id="${id}"]`)?.textContent || ''), org.org); ok(true, 'off: the row says «مطفأة»');
+  await p.fill('#q', 'ad' + t); await p.selectOption(`${row} [data-m]`, "off"); await p.waitForFunction(id => !/مطفأة/.test(document.querySelector(`#rows tr[data-id="${id}"]`)?.textContent || 'مطفأة'), org.org); ok(true, 'and back on with one press');
+  await p.click(`${row} [data-a="card"]`); await p.click('#dlgOk'); await p.waitForSelector('#pPw'); const pw = (await p.textContent('#pPw')).trim(); ok(/^\d{8}$/.test(pw) && (await p.textContent('#pUrl')).includes('/' + org.slug), `«إرسال الدخول»: one card with the address and a password of eight digits (${pw.replace(/\d/g, '•')})`);
+  ok((await fetch(B + '/api/login', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ slug: org.slug, password: pw }) })).ok, 'and that password opens the organisation');
   ok(native === 0, 'no browser box was shown');
   // a hall link: not opened, then opened
   const sid = ((await fetch(B + org.join, { redirect: 'manual' })).headers.get('set-cookie') || '').split(';')[0], H = { cookie: sid, 'x-org-slug': org.slug, Origin: B, 'content-type': 'application/json' };

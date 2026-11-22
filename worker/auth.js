@@ -18,7 +18,7 @@ export async function pwHash(pw, salt = hex(crypto.getRandomValues(new Uint8Arra
 export const pwOk = async (pw, kept) => { if (!kept || !pw) return false; const a = await pwHash(pw, kept.split(':')[0]); let d = a.length ^ kept.length; for (let i = 0; i < a.length; i++) d |= a.charCodeAt(i) ^ kept.charCodeAt(i % kept.length); return d === 0; };
 // a password a person can read out and type: four groups of four, no look-alike characters
 export const DUMMY = 'a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1:' + '0'.repeat(64);   // an unknown email costs the same work as a known one
-export const newPw = () => [0, 1, 2, 3].map(() => rid(4)).join('-');
+export const newPw = () => [...crypto.getRandomValues(new Uint32Array(8))].map(x => x % 10).join('');   // eight digits: easy to read out and type on any phone; guessing is stopped by the lock after wrong tries
 // five wrong attempts from one address close the door for fifteen minutes (the owner's page and the studio share the count)
 export async function locked(env, ip) { const f = await env.DB.prepare('SELECT n, until FROM login_fail WHERE ip = ?').bind(ip).first(); return f && f.until && f.until > now() ? null : { n: f && !f.until ? f.n : 0 }; }
 export const failed = (env, ip, n, limit = 5) => env.DB.prepare('INSERT INTO login_fail (ip, n, until) VALUES (?,?,?) ON CONFLICT (ip) DO UPDATE SET n = excluded.n, until = excluded.until').bind(ip, n + 1, n + 1 >= limit ? new Date(Date.now() + 9e5).toISOString() : null).run();
