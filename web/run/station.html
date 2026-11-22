@@ -80,6 +80,10 @@ window.prepScreen = async cfg => { const P = cfg.prep; document.body.style.touch
   $('#pw').textContent = Object.values(st).every(x => x.done) ? 'الملف محفوظ على هذا الجهاز. تفتح المحطة وحدها في موعد التفعيل.' : 'لم يكتمل الحفظ. يعيد المحاولة تلقائياً.';
   setTimeout(() => { window.leaving = true; location.reload(); }, 5 * 60000); };
 
+// the page keeps a copy of itself and of what it loaded (sw.js), so a screen restarted with no network opens its station again
+if (navigator.serviceWorker) navigator.serviceWorker.register('/sw.js').then(() => navigator.serviceWorker.ready).then(() => setTimeout(() => { const seen = new Set([location.href]); for (const e of performance.getEntriesByType('resource')) if (e.name.startsWith(location.origin) && !/\/(api|m)\//.test(e.name)) seen.add(e.name.split('#')[0]);
+  for (const u of seen) fetch(u, { cache: 'no-store' }).catch(() => {}); }, 4000)).catch(() => {});
+try { localStorage.setItem('screen:url', location.pathname + location.search); } catch {}
 const link = await connect(), D = link.doc, Q = new URLSearchParams(location.search);
 // the hall's one link: the screen asks once which station it is (the operator's choice, kept on this device); #pick asks again
 const PK = 'pick:' + Q.get('e'); if (link.role === 'hall' && (location.hash === '#pick' || !stationOf(D, localStorage.getItem(PK)))) { await pick(); }
@@ -100,37 +104,50 @@ if (!S.thumbs) $('#bT').hidden = true;
 const readKey = S.qr ? link.read[sid] || null : null; if (readKey) $('#bQ').hidden = false;
 
 let book = null, host = null, pdf = null, cur = null, want = null, loading = false, last = 0, attract = false, seenReset = null, err = '', view = { z: 1, x: .5, y: .5 };
-const touch = () => { last = Date.now(); if (attract) { attract = false; $('#att').classList.add('off'); } report(); };
+const touch = () => { last = Date.now(); if (!sess && book) begin(); if (attract) { attract = false; $('#att').classList.add('off'); } report(); };
 addEventListener('pointerdown', touch, { capture: true });
-function setPage(n, N) { $('#pc').textContent = `صفحة ${n.toLocaleString('ar')} من ${N.toLocaleString('ar')}`; $('#pg').style.width = (n / N * 100) + '%';
+// ----- the measure: one session per visitor, from the first touch to the screen's rest. The pages seen and how long on each, the pages
+// brought closer, the links followed, the phone code asked for. Kept on this device until the server has it, so a cut network loses nothing
+let sess = null; const QK = 'visits:' + Q.get('e') + (link.draft ? ':d' : '');
+const queue = () => { try { return JSON.parse(localStorage.getItem(QK) || '[]'); } catch { return []; } }, setQueue = q => { try { localStorage.setItem(QK, JSON.stringify(q.slice(-3000))); } catch {} };
+function begin() { const t = Date.now(); sess = { id: Math.random().toString(36).slice(2, 10) + t.toString(36), station: sid, media: cur || '', start: t, pages: {}, zooms: {}, li: 0, lo: 0, qr: 0, pg: book ? book.page : 1, pgAt: t, zpg: 0 }; }
+function dwell(until) { if (!sess) return; const ms = Math.max(0, until - sess.pgAt); sess.pages[sess.pg] = (sess.pages[sess.pg] || 0) + ms; sess.pgAt = until; }
+function end() { if (!sess) return; const stop = Math.min(Date.now(), last + 15000); dwell(stop); const { pg, pgAt, zpg, ...x } = sess; x.ms = Math.max(0, stop - x.start); sess = null; const q = queue(); q.push(x); setQueue(q); flush(); }
+let flushing = false; async function flush() { const q = queue(); if (flushing || !q.length) return; flushing = true;
+  try { const part = q.slice(0, 200), r = await fetch(`/api/run/${Q.get('e')}/sessions${link.draft ? '?draft' : ''}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ list: part }) });
+    if (r.ok || r.status === 410) { const sent = new Set(part.map(x => x.id)); setQueue(queue().filter(x => !sent.has(x.id))); } } catch {}   // 410: past the week after the day, nothing will take them
+  flushing = false; if (queue().length && navigator.onLine) setTimeout(flush, 1500); }
+setInterval(flush, 15000); addEventListener('online', flush); addEventListener('pagehide', end);
+function setPage(n, N) { if (sess && n !== sess.pg) { dwell(Date.now()); sess.pg = n; } $('#pc').textContent = `صفحة ${n.toLocaleString('ar')} من ${N.toLocaleString('ar')}`; $('#pg').style.width = (n / N * 100) + '%';
   const atStart = n <= 1, atEnd = n >= N; (rtl ? right : left).disabled = atStart; (rtl ? left : right).disabled = atEnd; document.querySelectorAll('.t').forEach(t => t.classList.toggle('on', +t.dataset.n === n)); report(); }
 // a file, opened on its own layer; the old one leaves only when the new one is ready, so the screen is never empty
 async function show(mk) { if (!mk || !D.media[mk]) { err = 'لا ملف لهذه المحطة'; report(); return; } want = mk; if (loading || mk === cur) return; loading = true;
   try { // a visitor turning pages now: the new file waits for a pause of five seconds (thirty at most)
     const t0 = Date.now(); while (book && !attract && Date.now() - last < 5000 && Date.now() - t0 < 30000) await new Promise(r => setTimeout(r, 500));
+    end();   // the visitor's session belongs to the file being left
     const u = link.base + D.media[mk].src; await keep([u]); const doc = await openPdf(await url(u)), h = document.createElement('div'); h.className = 'bh out'; $('#room').appendChild(h);
-    const b = Book(h, { dir: S.dir, zoom: S.zoom, links: S.links, onPage: setPage, onTouch: touch, onView: v => { view = v; report(); }, onLink });
+    const b = Book(h, { dir: S.dir, zoom: S.zoom, links: S.links, onPage: setPage, onTouch: touch, onView: v => { view = v; if (sess && v.z > 1.05 && sess.zpg !== book?.page) { sess.zpg = book.page; sess.zooms[book.page] = (sess.zooms[book.page] || 0) + 1; } if (sess && v.z <= 1.05) sess.zpg = 0; report(); }, onLink });
     await b.load(doc, 1); requestAnimationFrame(() => h.classList.remove('out')); const old = host, ob = book; host = h; book = b; pdf = doc; cur = mk; err = ''; $('#load')?.remove();
     $('#ttl').textContent = D.media[mk].name || ''; $('#aT').textContent = D.media[mk].name || S.name; thumbs(); if (old) { old.classList.add('out'); setTimeout(() => { ob.destroy(); old.remove(); }, 700); }
   } catch (x) { err = 'تعذّر فتح الملف'; console.log(x); }
   loading = false; report(); if (want !== cur) show(want); }
-function onLink(l) { if (!l.url) return; if (!S.links) return; showQr('رابط خارجي', 'امسح الرمز بكاميرا جوالك لتفتح الرابط عليه.', l.url); }
+function onLink(l) { if (sess) sess[l.page ? 'li' : 'lo']++; if (!l.url) return; if (!S.links) return; showQr('رابط خارجي', 'امسح الرمز بكاميرا جوالك لتفتح الرابط عليه.', l.url); }
 function showQr(t, p, text) { $('#qT').textContent = t; $('#qP').textContent = p; qr($('#qC'), text, 600); $('#qrm').classList.add('on'); }
 $('#qX').onclick = () => $('#qrm').classList.remove('on'); $('#qrm').onclick = e => { if (e.target.id === 'qrm') $('#qrm').classList.remove('on'); };
-$('#bQ').onclick = () => { if (!readKey || !book) return; const u = `${location.origin}/run/reader.html#${new URLSearchParams({ e: Q.get('e'), s: sid, m: link.draft ? 'd' : 'l', k: readKey, p: book.page })}`; showQr('أكمل القراءة على جوالك', `امسح الرمز بكاميرا جوالك، فيفتح الملف عليه من الصفحة ${book.page.toLocaleString('ar')}.`, u); };
+$('#bQ').onclick = () => { if (!readKey || !book) return; if (sess) sess.qr++; const u = `${location.origin}/run/reader.html#${new URLSearchParams({ e: Q.get('e'), s: sid, m: link.draft ? 'd' : 'l', k: readKey, p: book.page })}`; showQr('أكمل القراءة على جوالك', `امسح الرمز بكاميرا جوالك، فيفتح الملف عليه من الصفحة ${book.page.toLocaleString('ar')}.`, u); };
 $('#bH').onclick = () => { $('#th').classList.remove('on'); book && book.home(); };
 $('#bT').onclick = () => $('#th').classList.toggle('on');
 // the pages, small, drawn only when they come into the strip
 let io = null; function thumbs() { const l = $('#thl'); l.innerHTML = ''; l.dir = rtl ? 'rtl' : 'ltr'; io && io.disconnect(); if (!S.thumbs) return; io = new IntersectionObserver(es => es.forEach(async e => { if (!e.isIntersecting || e.target.dataset.done) return; e.target.dataset.done = 1; io.unobserve(e.target); const r = await draw(pdf, +e.target.dataset.n, 120, 154); e.target.querySelector('span').replaceChildren(r.cv); }), { root: l, rootMargin: '0px 400px' });
   for (let i = 1; i <= pdf.numPages; i++) { const t = document.createElement('div'); t.className = 't' + (i === (book ? book.page : 1) ? ' on' : ''); t.dataset.n = i; t.innerHTML = `<span></span><b>${i.toLocaleString('ar')}</b>`; t.onclick = () => { book.go(i, 'fade'); $('#th').classList.remove('on'); }; l.appendChild(t); io.observe(t); } }
 // nobody has touched it for a while: back to the first page, and the invitation to touch
-function rest() { attract = true; $('#att').classList.remove('off'); $('#th').classList.remove('on'); $('#qrm').classList.remove('on'); book && book.home(); report(); }
+function rest() { end(); attract = true; $('#att').classList.remove('off'); $('#th').classList.remove('on'); $('#qrm').classList.remove('on'); book && book.home(); report(); }
 setInterval(() => { if (!attract && S.idle > 0 && Date.now() - last > S.idle * 1000) rest(); }, 1000);
 // what the board sees of this station
 let rt = 0, rAt = 0; function report() { clearTimeout(rt); rt = setTimeout(() => { rAt = Date.now(); link.raw({ report: { kind: 'station', id: me, sid, media: cur || '', page: book ? book.page : 0, pages: book ? book.pages : 0, z: view.z, x: view.x, y: view.y, touch: last, idle: attract, w: innerWidth, h: innerHeight, ready: !!book, err, ver: link.version } }); }, Date.now() - rAt > 400 ? 30 : 400); }
 setInterval(report, 10000);
 let idT = 0;
-link.on((s, info) => { $('#net').classList.toggle('on', !info.online && !link.draft); const x = (s.st || {})[sid] || {};
+link.on((s, info) => { if (info.online) flush(); $('#net').classList.toggle('on', !info.online && !link.draft); const x = (s.st || {})[sid] || {};
   $('#dark').classList.toggle('on', !!x.dark);
   if (seenReset === null) seenReset = x.reset || 0; else if (x.reset && x.reset > seenReset) { seenReset = x.reset; rest(); }   // a reset older than this page is not replayed
   if (s.identAt && link.now() - s.identAt < 6000) { $('#iN').textContent = S.name; $('#iP').textContent = S.place || ''; $('#id').classList.add('on'); clearTimeout(idT); idT = setTimeout(() => $('#id').classList.remove('on'), Math.max(500, 6000 - (link.now() - s.identAt))); }

@@ -4,7 +4,7 @@ import { SCENES, fontCss, isStations, launchTimes, problems, shape, stationCfg, 
 import { reduce, stationMedia } from '../web/engine/state.js';
 import { DUMMY, KEEP, failed, invite, locked, me, newPw, orgOf, platform, pwHash, pwOk, session, userFor } from './auth.js';
 import { readBrand } from './brand.js';
-import { BLANK, FEATURES, features, ORGS, PUB, STARTER, audit, backup, exportOrg, hasFeat, kickOrg, listAll, orgExists, padd, readKey, site, sweep } from './data.js';
+import { takeSessions, visits, BLANK, FEATURES, ORGS, PUB, STARTER, audit, backup, exportOrg, hasFeat, kickOrg, listAll, orgExists, padd, readKey, site, sweep } from './data.js';
 import { mail, mailJoin } from './mail.js';
 import { b64u, clientData, newChallenge, unb64u, verify } from './passkey.js';
 import { orgOfEvent, tdb } from './tenant.js';
@@ -62,8 +62,8 @@ const main = {
         const b = await req.json().catch(() => ({})), o = await env.DB.prepare('SELECT * FROM orgs WHERE id = ?').bind(String(b.org || '')).first(); if (!o) return err('لا يوجد', 404); if (b.confirm !== o.slug) return err('اكتب عنوان الجهة للتأكيد');
         if (!/^\d{4}-\d{2}-\d{2}$/.test(String(b.day || ''))) return err('اختر يوماً'); const f = await env.MEDIA.get(`_backup/${b.day}/${o.id}.json`); if (!f) return err('لا نسخة لهذه الجهة في هذا اليوم', 404); const d = await f.json();
         await env.MEDIA.put(`_backup/${now().slice(0, 10)}/${o.id}.before-restore-${Date.now()}.json`, JSON.stringify(await exportOrg(env, o.id, true)));   // the present is kept first, so a restore can itself be undone
-        const T = tdb(env, o.id), st = ['questions', 'audit', 'links', 'media', 'event_versions', 'events'].map(t => ({ sql: `DELETE FROM ${t}`, params: [] }));
-        for (const t of ['events', 'event_versions', 'media', 'links', 'audit', 'questions']) for (const r of d[t] || []) { if (t === 'links' && !r.token_hash) continue; const k = Object.keys(r); st.push({ sql: `INSERT INTO ${t} (${k.join(',')}) VALUES (${k.map(() => '?').join(',')})`, params: k.map(x => r[x]) }); }
+        const T = tdb(env, o.id), st = ['sessions', 'questions', 'audit', 'links', 'media', 'event_versions', 'events'].map(t => ({ sql: `DELETE FROM ${t}`, params: [] }));
+        for (const t of ['events', 'event_versions', 'media', 'links', 'audit', 'questions', 'sessions']) for (const r of d[t] || []) { if (t === 'links' && !r.token_hash) continue; const k = Object.keys(r); st.push({ sql: `INSERT INTO ${t} (${k.join(',')}) VALUES (${k.map(() => '?').join(',')})`, params: k.map(x => r[x]) }); }
         await T.batch(st); let back = 0; for (const x of d.files || []) { if (await env.MEDIA.head(x.key)) continue; const t = await env.MEDIA.get('_trash/' + x.key); if (t) { await env.MEDIA.put(x.key, t.body, { httpMetadata: t.httpMetadata }); back++; } }
         await kickOrg(env, o.id); await padd(env, 'restored', `${o.name} /${o.slug} ← ${b.day} · ${(d.events || []).length} لقاء · ${back} ملف`); return J({ ok: true, events: (d.events || []).length, files: back }); }
       if (p === '/api/admin/backup/days' && M === 'GET') { const org = url.searchParams.get('org'); return J({ days: [...new Set((await listAll(env, '_backup/')).filter(x => x.key.endsWith('/' + org + '.json')).map(x => x.key.split('/')[1]))].sort().reverse() }); }
@@ -84,7 +84,7 @@ const main = {
       }
       if (p === '/api/admin/invite' && M === 'POST') { const b = await req.json(), u = await userFor(env, b.email); if (!u) return err('بريد غير صالح'); await env.DB.prepare('INSERT INTO members (org_id, user_id, role) VALUES (?,?,?) ON CONFLICT (org_id, user_id) DO NOTHING').bind(b.org, u.id, 'owner').run(); return J({ join: await invite(env, u.email) }); }
       if (p === '/api/admin/unlock' && M === 'POST') { const b = await req.json(), slug2 = String(b.slug || ''); if (!slug2) return err('أي جهة؟'); const r = await env.DB.prepare("DELETE FROM login_fail WHERE ip LIKE ?").bind('%|' + slug2).run(); await padd(env, 'door_unlocked', '/' + slug2); return J({ ok: true, cleared: r.meta ? r.meta.changes : 0 }); }
-      if (p === '/api/admin/orgs' && M === 'GET') { await features(env);
+      if (p === '/api/admin/orgs' && M === 'GET') {
         const { results } = await env.DB.prepare('SELECT o.*, (SELECT GROUP_CONCAT(u.email) FROM members m JOIN users u ON u.id = m.user_id WHERE m.org_id = o.id AND m.role = ?) AS owners FROM orgs o ORDER BY created_at DESC').bind('owner').all();
         // usage comes from each organisation's own database
         const fails = (await env.DB.prepare("SELECT ip, n, until FROM login_fail WHERE ip LIKE '%|%'").all()).results, lockOf = sl => { const f = fails.filter(x => x.ip.endsWith('|' + sl)); return { locked: f.some(x => x.until && x.until > now()), until: f.map(x => x.until).filter(x => x && x > now()).sort().pop() || null, wrong: f.reduce((a, x) => Math.max(a, x.n), 0) }; };
@@ -158,11 +158,11 @@ const main = {
       // ----- a link of one screen: opens that page of that event, with no account
       // ----- a screen paired by a code: the screen opens /screen and shows six digits; the operator types them on the board and picks the station.
       // The table holds no content of any organisation: a code, the screen's secret, and (once claimed) the screen link it is handed, for ten minutes
-      if (p === '/api/pair/new' && M === 'POST') { await features(env); const ip = req.headers.get('CF-Connecting-IP') || 'local', ago = new Date(Date.now() - 6e5).toISOString();
+      if (p === '/api/pair/new' && M === 'POST') { const ip = req.headers.get('CF-Connecting-IP') || 'local', ago = new Date(Date.now() - 6e5).toISOString();
         await env.DB.prepare('DELETE FROM pairs WHERE created_at < ?').bind(ago).run(); if ((await env.DB.prepare('SELECT COUNT(*) AS n FROM pairs WHERE ip = ?').bind(ip).first()).n >= 20) return err('شاشات كثيرة تنتظر الربط من هذه الشبكة. انتظروا دقائق.', 429);
         for (let i = 0; i < 8; i++) { const code = String(100000 + (crypto.getRandomValues(new Uint32Array(1))[0] % 900000)), secret = rid(24); try { await env.DB.prepare('INSERT INTO pairs (code, secret_hash, ip, created_at) VALUES (?,?,?,?)').bind(code, await sha(secret), ip, now()).run(); return J({ code, secret, ttl: 600 }); } catch {} }
         return err('تعذّر إنشاء رمز. أعيدوا المحاولة.', 503); }
-      { const pm = p.match(/^\/api\/pair\/(\d{6})$/); if (pm && M === 'GET') { await features(env); const r = await env.DB.prepare('SELECT secret_hash, go, created_at FROM pairs WHERE code = ?').bind(pm[1]).first();
+      { const pm = p.match(/^\/api\/pair\/(\d{6})$/); if (pm && M === 'GET') { const r = await env.DB.prepare('SELECT secret_hash, go, created_at FROM pairs WHERE code = ?').bind(pm[1]).first();
         if (!r || r.secret_hash !== await sha(url.searchParams.get('s') || '') || r.created_at < new Date(Date.now() - 6e5).toISOString()) return J({ gone: true }); if (!r.go) return J({ wait: true });
         await env.DB.prepare('DELETE FROM pairs WHERE code = ?').bind(pm[1]).run(); return J({ go: r.go }); } }
       if (p.startsWith('/go/')) {
@@ -172,13 +172,14 @@ const main = {
         return new Response(null, { status: 302, headers: { Location: `/run/${['side', 'logo'].includes(l.role) ? 'stage' : l.role === 'hall' ? 'station' : l.role}.html?e=${l.event_id}${['side', 'logo'].includes(l.role) ? '&' + l.role : ''}`, 'Set-Cookie': setCookie('lk_' + l.event_id, tok, 30) } });
       }
       // ----- a visitor's phone, from a station's QR code: that station's file only, by a key only the station's screen was given; on the event's day (or in its rehearsal)
-      if (p.startsWith('/api/read/')) { const mm = p.match(/^\/api\/read\/(e_[a-z0-9]{20})\/([A-Za-z0-9][A-Za-z0-9_-]{0,39})\/([ld])\/([0-9a-f]{24})(?:\/(file|logo))?$/); if (!mm || M !== 'GET') return err('لا يوجد', 404);
+      if (p.startsWith('/api/read/')) { const mm = p.match(/^\/api\/read\/(e_[a-z0-9]{20})\/([A-Za-z0-9][A-Za-z0-9_-]{0,39})\/([ld])\/([0-9a-f]{24})(?:\/(file|logo|session))?$/); if (!mm || (M !== 'GET' && !(M === 'POST' && mm[5] === 'session'))) return err('لا يوجد', 404);
         const [, evId, sid, mode, key, what] = mm; if (!(await orgExists(env, orgOfEvent(evId)))) return err('لا يوجد', 404); if (key !== await readKey(env, evId, sid, mode === 'd')) return err('رمز غير صالح', 403);
         const T = tdb(env, orgOfEvent(evId)), ev = await T.prepare('SELECT id, org_id, draft, published_version, active_from, active_until FROM events WHERE id = ?').bind(evId).first(); if (!ev) return err('لا يوجد', 404);
         if (mode === 'l' && !(ev.published_version && ev.active_from && ev.active_from <= now() && now() < ev.active_until)) return err('انتهى وقت العرض. شكراً لزيارتكم.', 410);
         const doc = mode === 'd' ? JSON.parse(ev.draft) : JSON.parse((await T.prepare('SELECT doc FROM event_versions WHERE event_id = ? AND version = ?').bind(evId, ev.published_version).first()).doc), st = stationOf(doc, sid);
         if (!isStations(doc) || !st || !stationCfg(st).qr) return err('القراءة من الجوال غير متاحة لهذه المحطة', 403);
         const room = await (await env.ROOM.get(env.ROOM.idFromName(evId + (mode === 'd' ? ':draft' : ':live'))).fetch(new Request('https://room/log'))).json().catch(() => ({})), mk = stationMedia(doc, room.state, sid), m = mk && doc.media[mk], I = doc.identity.before || {};
+        if (what === 'session') { const b = await req.json().catch(() => ({})); return J({ ok: true, kept: await takeSessions(T, evId, mode === 'd', [b], x => x === sid, 'phone') }); }   // what the visitor read on the phone
         if (!what) return J({ name: doc.name, station: st.name, place: st.place || '', title: m ? m.name : '', pages: m ? m.count || 0 : 0, dir: stationCfg(st).dir, media: mk || '', colors: I.colors || {}, font: fontCss(I), logo: !!I.logo });
         const file = what === 'logo' ? I.logo : m && m.src; if (!file) return err('لا يوجد', 404); const o = await env.MEDIA.get(`${ev.org_id}/${ev.id}/${file}`); if (!o) return err('لا يوجد', 404);
         const ct = o.httpMetadata?.contentType || '', img = /^image\/(png|jpeg|webp|gif)$/.test(ct);
@@ -192,6 +193,11 @@ const main = {
         let label = ''; if (tok) { const l = await T.prepare('SELECT role, label FROM links WHERE token_hash = ? AND event_id = ? AND revoked_at IS NULL').bind(await sha(tok), evId).first(); if (l) { role = l.role; label = l.label || ''; } }
         const who = await me(req, env), mem = who && who.orgs.find(o => o.id === ev.org_id); if (mem) role = ROLES[mem.role] >= 1 ? 'console' : (role || 'viewer');
         if (!role) return err('افتح الشاشة من رابطها', 401);
+        // the sessions a station kept, sent when each ends or in one batch when the network returns; accepted for a week after the day, so a screen that was cut sends them late
+        if (seg[4] === 'sessions' && M === 'POST') { if (!['station', 'hall', 'console'].includes(role)) return err('لا صلاحية', 403); const draft = url.searchParams.has('draft') && !!mem;
+          if (!draft && !(ev.active_from && ev.active_from <= now() && Date.now() < Date.parse(ev.active_until || 0) + 7 * 864e5)) return err('خارج وقت العرض', 410);
+          const d = draft ? JSON.parse(ev.draft) : JSON.parse((await T.prepare('SELECT doc FROM event_versions WHERE event_id = ? AND version = ?').bind(evId, ev.published_version).first()).doc), b = await req.json().catch(() => ({}));
+          return J({ ok: true, kept: await takeSessions(T, evId, draft, b.list, x => (d.stations || []).some(s => s.id === x)) }); }
         if (role === 'audience' && p.startsWith('/m/')) { const pubDoc = ev.published_version ? JSON.parse((await T.prepare('SELECT doc FROM event_versions WHERE event_id = ? AND version = ?').bind(evId, ev.published_version).first()).doc) : null, okFiles = pubDoc ? ['before', 'after'].map(k => (pubDoc.identity[k] || {}).logo).filter(Boolean) : []; if (!okFiles.includes(decodeURIComponent(p.split('/').slice(4).join('/')))) return err('لا يوجد', 404); }
         if (p.startsWith('/m/')) {   // /m/<org>/<event>/<file>: the files of the event, in its own folder of the bucket
           const key = decodeURIComponent(p.slice(3)); if (!key.startsWith(ev.org_id + '/' + ev.id + '/')) return err('لا يوجد', 404);
@@ -234,9 +240,10 @@ const main = {
         if (seg[4] === 'questions') { if (role !== 'console') return err('للمشغّل فقط', 403);
           if (M === 'POST') { const b = await req.json().catch(() => ({})); if (!['new', 'shown', 'hidden'].includes(b.state)) return err('حالة غير معروفة'); await T.prepare('UPDATE questions SET state = ? WHERE id = ? AND event_id = ?').bind(b.state, +b.id, evId).run(); return J({ ok: true }); }
           return J({ questions: (await T.prepare("SELECT id, text, name, at, state FROM questions WHERE event_id = ? AND state != 'hidden' ORDER BY id DESC LIMIT 100").bind(evId).all()).results }); }
+        if (seg[4] === 'visits') { if (role !== 'console') return err('للمشغّل فقط', 403); const v = await visits(T, evId, doc, rehearse, +url.searchParams.get('tz') || 0); return J({ total: v.total, ms: v.ms, phone: v.phone, stations: v.stations.map(s => ({ station: s.station, n: s.n, ms: s.ms })) }); }
         if (seg[4] === 'pair' && M === 'POST') { if (role !== 'console') return err('للمشغّل فقط', 403); if (rehearse) return err('اعتمدوا اللقاء أولاً، فالربط للشاشات الحقيقية', 409);
           const b = await req.json().catch(() => ({})), code = String(b.code || '').replace(/\D/g, ''), st = stationOf(doc, b.station); if (!st) return err('اختر المحطة'); if (code.length !== 6) return err('الرمز ستة أرقام');
-          await features(env); const r = await env.DB.prepare('SELECT go, created_at FROM pairs WHERE code = ?').bind(code).first(); if (!r || r.go || r.created_at < new Date(Date.now() - 6e5).toISOString()) return err('الرمز غير صحيح أو انتهى. انظروا إلى الشاشة: يتجدد رمزها كل عشر دقائق.', 404);
+          const r = await env.DB.prepare('SELECT go, created_at FROM pairs WHERE code = ?').bind(code).first(); if (!r || r.go || r.created_at < new Date(Date.now() - 6e5).toISOString()) return err('الرمز غير صحيح أو انتهى. انظروا إلى الشاشة: يتجدد رمزها كل عشر دقائق.', 404);
           const tok = ev.org_id.slice(2) + '.' + rid(24); await T.prepare('INSERT INTO links (token_hash, org_id, event_id, role, label, created_at) VALUES (?,?,?,?,?,?)').bind(await sha(tok), ev.org_id, evId, 'station', st.id, now()).run();
           await env.DB.prepare('UPDATE pairs SET go = ? WHERE code = ? AND go IS NULL').bind('/go/' + tok, code).run(); await audit(env, ev.org_id, evId, who ? who.user.id : null, 'pair', st.id); return J({ ok: true, station: st.name }); }
         if (seg[4] === 'config' && isStations(doc)) { const keys = {}; for (const st of doc.stations || []) if (stationCfg(st).qr && (role === 'console' || role === 'hall' || (role === 'station' && st.id === label))) keys[st.id] = await readKey(env, evId, st.id, rehearse); return J({ doc: { ...doc, id: evId }, role, label, version: ver, base: `/m/${ev.org_id}/${ev.id}/`, read: keys }); }
@@ -251,7 +258,7 @@ const main = {
         return err('لا يوجد', 404);
       }
       if (!p.startsWith('/api/')) {   // /<slug>: the studio of that organisation (the same page; it sends the slug with every request)
-        if (p === '/screen' || p === '/screen/') return site(env, req, '/run/pair.html');   // the address a screen is set to open at every start: a code to pair it, then its station
+        if (p === '/screen' || p === '/screen/') return site(env, req, '/run/pair');   // the address a screen is set to open at every start: a code to pair it, then its station
         const sl = p.match(/^\/([a-z0-9][a-z0-9-]{1,39})\/?$/); if (p === '/login' || (sl && !['run', 'fonts', 'vendor', 'engine', 'admin', 'brand', 'studio'].includes(sl[1]) && await env.DB.prepare("SELECT 1 FROM orgs WHERE slug = ? AND plan != 'off'").bind(sl[1]).first())) return site(env, req, '/studio');   // «/» is the public page; the studio opens at /login and at each organisation's address
         return site(env, req, url.pathname); }
 
@@ -308,6 +315,8 @@ const main = {
           const rev = req.headers.get('x-rev'); if (rev && rev !== ev.updated_at && !req.headers.get('x-force')) return J({ error: 'عدّل زميل هذا اللقاء أثناء عملك', conflict: true, rev: ev.updated_at }, 409);
           const at = now(); await T.prepare('UPDATE events SET draft = ?, name = ?, updated_at = ? WHERE id = ?').bind(JSON.stringify(doc), doc.name || ev.name, at, id).run(); return J({ ok: true, rev: at, problems: problems(doc) }); }
         // the published versions of the event, and a version brought back as the draft (the versions themselves never change)
+        if (sub === 'visits' && M === 'GET') { const draft = url.searchParams.has('draft'), d = draft || !ev.published_version ? JSON.parse(ev.draft) : JSON.parse((await T.prepare('SELECT doc FROM event_versions WHERE event_id = ? AND version = ?').bind(id, ev.published_version).first()).doc);
+          return J({ name: d.name, ...(await visits(T, id, d, draft, +url.searchParams.get('tz') || 0)) }); }
         if (sub === 'report' && M === 'GET') { if (!ev.published_version) return J({ rows: [] }); const r = await (await env.ROOM.get(env.ROOM.idFromName(id + ':live')).fetch(new Request('https://room/log'))).json().catch(() => ({ log: [] }));
           const d = JSON.parse((await T.prepare('SELECT doc FROM event_versions WHERE event_id = ? AND version = ?').bind(id, ev.published_version).first()).doc), log = r.log || [], end = log.length ? (r.state && r.state.live ? Date.now() : log[log.length - 1].t) : 0, rows = [];
           log.forEach((x, i) => { if (x.k !== 'cue') return; const nx = log.slice(i + 1).find(y => y.k === 'cue' || y.k === 'off'), c = d.cues.find(q => q.id === x.id); rows.push({ title: c ? c.title : x.id, type: c ? c.type : '', at: x.t, ms: (nx ? nx.t : end) - x.t, planned: c ? (+c.dur || 0) * 60000 : 0 }); });

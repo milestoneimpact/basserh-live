@@ -4,9 +4,7 @@ import { tdb } from './tenant.js';
 import { now } from './util.js';
 
 // the features the platform owner opened for an organisation (a list of words in orgs.features): 'stations' for now.
-// The column is added on the first request of a worker that finds a database without it, so an older control database keeps working
-export let featured = null; export const features = env => featured || (featured = Promise.all([env.DB.prepare("ALTER TABLE orgs ADD COLUMN features TEXT NOT NULL DEFAULT ''").run().catch(() => null),
-  env.DB.prepare('CREATE TABLE IF NOT EXISTS pairs (code TEXT PRIMARY KEY, secret_hash TEXT NOT NULL, ip TEXT, go TEXT, created_at TEXT NOT NULL)').run().catch(() => null)]));
+// The column and the pairing table come from db/migrations/0005_stations.sql
 export const FEATURES = { stations: 'المحطات التفاعلية' };
 export const hasFeat = (org, f) => String((org && org.features) || '').split(/[\s,]+/).includes(f);
 // the key a station's QR code carries: the phone of a visitor reads that station's file, and nothing else, with no account
@@ -64,3 +62,29 @@ export async function backup(env) { const day = now().slice(0, 10), orgs = (awai
   await env.MEDIA.put(`_backup/${day}/control.json`, JSON.stringify(ctl)); for (const o of orgs) await env.MEDIA.put(`_backup/${day}/${o.id}.json`, JSON.stringify(await exportOrg(env, o.id, true)));
   const keep = new Date(Date.now() - 14 * 864e5).toISOString().slice(0, 10), old = [...(await listAll(env, '_backup/')).filter(o => o.key.split('/')[1] < keep), ...(await listAll(env, '_trash/')).filter(o => o.uploaded.toISOString().slice(0, 10) < keep)].map(o => o.key);   // the files taken out by the sweep wait in _trash/ as long as the copies that may still need them for (let i = 0; i < old.length; i += 500) await env.MEDIA.delete(old.slice(i, i + 500));
   return { day, orgs: orgs.length, removed: old.length }; }
+
+// ----- the measure of browsing at the stations: a session is one visitor (from the first touch to the screen's rest), sent by the screen
+// when it ends, or later in one batch when the network returns. Kept once whatever the retries (its id); nothing about the visitor.
+const SID = /^[a-z0-9]{8,24}$/, NUMS = o => { const out = {}; if (o && typeof o === 'object') for (const [k, v] of Object.entries(o).slice(0, 2000)) { const n = Math.round(+k), x = Math.round(+v); if (n >= 1 && n <= 5000 && x > 0) out[n] = Math.min(x, 36e5 * 12); } return out; };
+export async function takeSessions(T, evId, draft, list, ok, kind = 'screen') {
+  if (!Array.isArray(list)) return 0; const rows = [];
+  for (const x of list.slice(0, 200)) { if (!x || !SID.test(x.id || '') || !ok(String(x.station || ''))) continue; const start = +x.start, ms = Math.round(+x.ms);
+    if (!(start > 1.6e12 && start < Date.now() + 36e5 && ms >= 0 && ms < 864e5)) continue; const pages = NUMS(x.pages), zooms = NUMS(x.zooms), n = Object.keys(pages).map(Number);
+    rows.push({ sql: 'INSERT OR IGNORE INTO sessions (id, event_id, draft, station, kind, media, started_at, ms, pages, page_count, max_page, zooms, links_in, links_out, qr, at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+      params: [x.id, evId, draft ? 1 : 0, String(x.station), kind, String(x.media || '').slice(0, 40), new Date(start).toISOString(), ms, JSON.stringify(pages), n.length, n.length ? Math.max(...n) : 0, JSON.stringify(zooms), Math.max(0, Math.min(999, +x.li || 0)), Math.max(0, Math.min(999, +x.lo || 0)), Math.max(0, Math.min(999, +x.qr || 0)), now()] }); }
+  if (rows.length) { if ((await T.prepare('SELECT COUNT(*) AS n FROM sessions WHERE event_id = ?').bind(evId).first()).n > 300000) return 0; await T.batch(rows); } return rows.length; }
+// the report of an exhibition: by station, by file (how many reached each page, how long on it, how often brought closer), by hour
+export async function visits(T, evId, doc, draft, tz = 0) {   // tz: the browser's getTimezoneOffset(), so the hours are the hall's own
+  const { results } = await T.prepare('SELECT station, kind, media, started_at, ms, pages, max_page, zooms, links_in, links_out, qr FROM sessions WHERE event_id = ? AND draft = ? ORDER BY started_at').bind(evId, draft ? 1 : 0).all();
+  const st = {}, md = {}, hours = Array(24).fill(0); let phone = 0, phonePages = 0, qr = 0, lin = 0, lout = 0;
+  for (const r of results) { const pages = JSON.parse(r.pages || '{}'), zooms = JSON.parse(r.zooms || '{}');
+    if (r.kind === 'phone') { phone++; phonePages += Object.keys(pages).length; continue; }
+    const s = st[r.station] || (st[r.station] = { station: r.station, n: 0, ms: 0, pages: 0 }); s.n++; s.ms += r.ms; s.pages += Object.keys(pages).length; qr += r.qr; lin += r.links_in; lout += r.links_out;
+    hours[new Date(Date.parse(r.started_at) - tz * 60000).getUTCHours()]++;
+    if (r.media && doc.media && doc.media[r.media]) { const m = md[r.media] || (md[r.media] = { media: r.media, name: doc.media[r.media].name, count: doc.media[r.media].count || 0, n: 0, reach: {}, dwell: {}, zoom: {} });
+      m.n++; for (let p = 1; p <= (r.max_page || 0); p++) m.reach[p] = (m.reach[p] || 0) + 1; for (const [p, v] of Object.entries(pages)) { m.dwell[p] = (m.dwell[p] || 0) + v; } for (const [p, v] of Object.entries(zooms)) m.zoom[p] = (m.zoom[p] || 0) + v; } }
+  const names = Object.fromEntries((doc.stations || []).map(s => [s.id, s.name]));
+  return { total: results.filter(r => r.kind !== 'phone').length, ms: results.filter(r => r.kind !== 'phone').reduce((a, r) => a + r.ms, 0), phone, phonePages, qr, linksIn: lin, linksOut: lout, hours,
+    stations: (doc.stations || []).map(s => ({ ...(st[s.id] || { station: s.id, n: 0, ms: 0, pages: 0 }), name: names[s.id] })).sort((a, b) => b.n - a.n),
+    files: Object.values(md).map(m => ({ ...m, pagesSeen: Object.keys(m.dwell).length })), from: results[0] ? results[0].started_at : null, to: results.length ? results[results.length - 1].started_at : null };
+}

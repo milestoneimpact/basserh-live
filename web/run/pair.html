@@ -17,11 +17,12 @@ p{font:400 clamp(16px,1.6vw,24px)/1.9 Plex;color:#B9C2C0;margin:0 auto;max-width
 <div class="bar"><i id="t"></i></div><div id="msg"></div></div>
 <script>
 for (const t of ['contextmenu', 'selectstart', 'dragstart']) addEventListener(t, e => e.preventDefault());
+if (navigator.serviceWorker) navigator.serviceWorker.register('/sw.js').catch(() => {});
 const K = 'screen:go', $ = s => document.querySelector(s), go = u => { location.replace(u); };
 async function start() {
   // a screen already paired: to its station, unless its link was cancelled. With no network it still goes: the station opens from its saved copy
   const saved = localStorage.getItem(K);
-  if (saved) { try { const r = await fetch(saved, { redirect: 'manual', cache: 'no-store' }); if (r.type === 'opaqueredirect' || (r.status >= 300 && r.status < 400)) return go(saved); if (r.status === 410) { localStorage.removeItem(K); $('#msg').textContent = 'أُلغي رابط المحطة السابق. اربطوا الشاشة من جديد.'; } else return go(saved); } catch { return go(saved); } }
+  if (saved) { try { const r = await fetch(saved, { redirect: 'manual', cache: 'no-store' }); if (r.type === 'opaqueredirect' || (r.status >= 300 && r.status < 400)) return go(saved); if (r.status === 410) { localStorage.removeItem(K); $('#msg').textContent = 'أُلغي رابط المحطة السابق. اربطوا الشاشة من جديد.'; } else return go(saved); } catch { return go(localStorage.getItem('screen:url') || saved); } }   // no network: straight to the station page it keeps
   code();
 }
 let poll = 0, tick = 0;

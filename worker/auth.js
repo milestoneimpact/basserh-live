@@ -1,9 +1,7 @@
 // Who is asking: sessions, passwords (PBKDF2), the lock after wrong tries, one time links, accounts.
 import { cookies, hex, now, rid, setCookie, sha, slug } from './util.js';
-import { features } from './data.js';
 
 export async function me(req, env) {
-  await features(env);
   const t = cookies(req).sid; if (!t) return null;
   const s = await env.DB.prepare('SELECT user_id FROM sessions WHERE token_hash = ? AND expires_at > ?').bind(await sha(t), now()).first(); if (!s) return null;
   const user = await env.DB.prepare('SELECT id, email, name FROM users WHERE id = ?').bind(s.user_id).first();
