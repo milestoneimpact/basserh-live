@@ -1,0 +1,35 @@
+# The studio: the ceremony system as a product rented to other organisations (studio/README.md).
+#   cd studio && npx wrangler d1 execute basserh-live --local --file db/control.sql && npx wrangler dev --port 8790 --var ADMIN_KEY:dev
+name = "basserh-staging"
+main = "worker/index.js"
+compatibility_date = "2025-09-01"
+workers_dev = true
+
+# the nightly copy of every database into the bucket (_backup/), 23:20 UTC
+
+# errors and requests are kept in Cloudflare's logs
+[observability]
+enabled = true
+
+[[d1_databases]]
+binding = "DB"
+database_name = "basserh-staging"
+database_id = "7435321b-4625-4b2b-97d8-eccac8c0bb7e"
+
+[[r2_buckets]]
+binding = "MEDIA"
+bucket_name = "basserh-staging-media"
+
+[[durable_objects.bindings]]
+name = "ROOM"
+class_name = "Room"
+
+[[durable_objects.bindings]]
+name = "TENANT"
+class_name = "Tenant"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["Room", "Tenant"]
+
+# mail goes out through Cloudflare Email Service (the domain is onboarded in the dashboard: Email Service, Email Sending)
