@@ -43,6 +43,7 @@ const wait = ms => new Promise(r => setTimeout(r, ms));
   ok(await s1.s.locator('#bS').isHidden(), 'no search on a gallery (no text)'); await s1.s.screenshot({ path: OUT + '3_gallery.jpg', type: 'jpeg', quality: 70 });
   // the operator's choice holds against the schedule until it turns again
   const bd = await ctx.newPage(); bd.on('pageerror', e => errs.push('board: ' + e.message)); bd.on('dialog', d => d.accept()); await bd.goto(`${B}/run/stations.html?e=${ev}`); await bd.waitForSelector('.card');
+  await bd.waitForFunction(() => /الجدولة: \d\d:\d\d/.test(document.querySelector('.card[data-s="s1"] .sc')?.textContent || ''), null, { timeout: 15000 }).catch(() => {});   // the board fills the line on its next round
   ok(/الجدولة: \d\d:\d\d/.test(await bd.textContent('.card[data-s="s1"] .sc')), 'the board shows the station\'s schedule: ' + await bd.textContent('.card[data-s="s1"] .sc'));
   await bd.selectOption('.card[data-s="s1"] [data-f]', { label: (await bd.$$eval('.card[data-s="s1"] [data-f] option', o => o.map(x => x.textContent))).find(t => /صفحة/.test(t)) }); await wait(6500);
   await s1.s.waitForFunction(() => /من (٥|5)$/.test(document.querySelector('#pc').textContent.trim()), null, { timeout: 30000 }).catch(() => {}); ok(/من (٥|5)$/.test((await s1.s.textContent('#pc')).trim()), 'the operator gives it the book: it holds, the schedule has not turned since');
@@ -74,7 +75,7 @@ const wait = ms => new Promise(r => setTimeout(r, ms));
   await p.reload(); await p.click('.ev:has-text("معرض الإضافات")'); await p.click('[data-t="run"]'); await p.waitForSelector('#vis #visD', { timeout: 15000 });
   const days = await p.$$eval('#visD option', o => o.map(x => x.value)); ok(days.length === 3, 'the report lists the two days to compare: ' + days.slice(1).join(', '));
   await p.locator('#vis').screenshot({ path: OUT + '8_days.jpg', type: 'jpeg', quality: 80 });
-  await p.selectOption('#visD', days[1]); await p.waitForFunction(d => document.querySelector('#visD')?.value === d, days[1], { timeout: 15000 }); await wait(800);
+  await p.selectOption('#visD', days[1]); await p.waitForFunction(d => document.querySelector('#visD')?.value === d, days[1], { timeout: 15000 }); await p.waitForFunction(() => /^3$/.test(document.querySelector('#vis b')?.textContent.trim() || ''), null, { timeout: 15000 }).catch(() => {});
   ok(/^3$/.test((await p.$$eval('#vis b', l => l.map(x => x.textContent.trim())))[0] || ''), 'one day chosen: its own figures (3 visits yesterday)');
   ok(!errs.length, 'no page errors' + (errs.length ? ': ' + errs.slice(0, 5).join(' | ') : ''));
   await b.close();
