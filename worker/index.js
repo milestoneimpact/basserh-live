@@ -175,7 +175,7 @@ const main = {
       if (p.startsWith('/api/read/')) { const mm = p.match(/^\/api\/read\/(e_[a-z0-9]{20})\/([A-Za-z0-9][A-Za-z0-9_-]{0,39})\/([ld])\/([0-9a-f]{24})(?:\/(file|logo|session))?$/); if (!mm || (M !== 'GET' && !(M === 'POST' && mm[5] === 'session'))) return err('لا يوجد', 404);
         const [, evId, sid, mode, key, what] = mm; if (!(await orgExists(env, orgOfEvent(evId)))) return err('لا يوجد', 404); if (key !== await readKey(env, evId, sid, mode === 'd')) return err('رمز غير صالح', 403);
         const T = tdb(env, orgOfEvent(evId)), ev = await T.prepare('SELECT id, org_id, draft, published_version, active_from, active_until FROM events WHERE id = ?').bind(evId).first(); if (!ev) return err('لا يوجد', 404);
-        if (mode === 'l' && !(ev.published_version && ev.active_from && ev.active_from <= now() && now() < ev.active_until)) return err('انتهى وقت العرض. شكراً لزيارتكم.', 410);
+        if (mode === 'l' && !ev.published_version) return err('لم يُعتمد العرض بعد.', 410);   // an organisation uses its links freely while it is switched on
         const doc = mode === 'd' ? JSON.parse(ev.draft) : JSON.parse((await T.prepare('SELECT doc FROM event_versions WHERE event_id = ? AND version = ?').bind(evId, ev.published_version).first()).doc), st = stationOf(doc, sid);
         if (!isStations(doc) || !st || !stationCfg(st).qr) return err('القراءة من الجوال غير متاحة لهذه المحطة', 403);
         const room = await (await env.ROOM.get(env.ROOM.idFromName(evId + (mode === 'd' ? ':draft' : ':live'))).fetch(new Request('https://room/log'))).json().catch(() => ({})), mk = stationMedia(doc, room.state, sid), m = mk && doc.media[mk], I = doc.identity.before || {};
@@ -196,9 +196,9 @@ const main = {
         let label = ''; if (tok) { const l = await T.prepare('SELECT role, label FROM links WHERE token_hash = ? AND event_id = ? AND revoked_at IS NULL').bind(await sha(tok), evId).first(); if (l) { role = l.role; label = l.label || ''; } }
         const who = await me(req, env), mem = who && who.orgs.find(o => o.id === ev.org_id); if (mem) role = ROLES[mem.role] >= 1 ? 'console' : (role || 'viewer');
         if (!role) return err('افتح الشاشة من رابطها', 401);
-        // the sessions a station kept, sent when each ends or in one batch when the network returns; accepted for a week after the day, so a screen that was cut sends them late
+        // the sessions a station kept, sent when each ends or in one batch when the network returns, so a screen that was cut sends them late
         if (seg[4] === 'sessions' && M === 'POST') { if (!['station', 'hall', 'console'].includes(role)) return err('لا صلاحية', 403); const draft = url.searchParams.has('draft') && !!mem;
-          if (!draft && !(ev.active_from && ev.active_from <= now() && Date.now() < Date.parse(ev.active_until || 0) + 7 * 864e5)) return err('خارج وقت العرض', 410);
+          if (!draft && !ev.published_version) return err('لم يُعتمد العرض بعد', 410);
           const d = draft ? JSON.parse(ev.draft) : JSON.parse((await T.prepare('SELECT doc FROM event_versions WHERE event_id = ? AND version = ?').bind(evId, ev.published_version).first()).doc), b = await req.json().catch(() => ({}));
           return J({ ok: true, kept: await takeSessions(T, evId, draft, b.list, x => (d.stations || []).some(s => s.id === x)) }); }
         if (role === 'audience' && p.startsWith('/m/')) { const pubDoc = ev.published_version ? JSON.parse((await T.prepare('SELECT doc FROM event_versions WHERE event_id = ? AND version = ?').bind(evId, ev.published_version).first()).doc) : null, okFiles = pubDoc ? ['before', 'after'].map(k => (pubDoc.identity[k] || {}).logo).filter(Boolean) : []; if (!okFiles.includes(decodeURIComponent(p.split('/').slice(4).join('/')))) return err('لا يوجد', 404); }
@@ -215,17 +215,7 @@ const main = {
         const rehearse = url.searchParams.has('draft') && mem, ver = rehearse ? 0 : ev.published_version;
         if (!rehearse && !ver) return err('اللقاء لم يُعتمد بعد', 409);
         // the hall's screens open on the activation day only; building and rehearsing need no activation
-        if (!rehearse && !(ev.active_from && ev.active_from <= now() && now() < ev.active_until)) { const why = ev.active_from && ev.active_from > now() ? 'يُفتح اللقاء في موعد تفعيله: ' + ev.active_from.slice(0, 10) : 'اللقاء غير مفعّل. فعّلوا يوم اللقاء من الاستوديو.';
-          // a screen opened before the day still takes its files, so the hall's devices are ready before anyone arrives
-          if (seg[4] === 'config' && ['stage', 'side', 'logo', 'console', 'station', 'hall'].includes(role)) { const d = JSON.parse((await T.prepare('SELECT doc FROM event_versions WHERE event_id = ? AND version = ?').bind(evId, ver).first()).doc), base = `/m/${ev.org_id}/${ev.id}/`, L = (d.cues || []).find(c => c.type === 'launch'), all = role !== 'side' && role !== 'logo', files = [];
-            // a station keeps every file it may show: its own, its schedule's, its waiting picture or film (a hall screen: all of the stations')
-            if (role === 'hall' || role === 'station') { const sts = (d.stations || []).filter(x => role === 'hall' || x.id === label), keys = new Set(); for (const x of sts) { keys.add(x.media); keys.add(x.attract); for (const y of x.schedule || []) keys.add(y.media); }
-              for (const k of keys) { const m = k && d.media[k]; if (!m) continue; if (m.kind === 'slides') for (let i = 1; i <= (m.count || 0); i++) files.push(base + m.src + 's-' + i + '.jpg'); else files.push(base + m.src); }
-              const I = (d.identity || {}).before; if (I && I.logo) files.push(base + I.logo); return J({ error: why, prep: { name: d.name, station: role === 'station' && sts[0] ? sts[0].name : '', files } }, 402); }
-            for (const [k, m] of Object.entries(d.media || {})) { if (!all && !(L && L.media === k)) continue; if (m.kind === 'slides') for (let i = 1; i <= (m.count || 0); i++) files.push(base + m.src + 's-' + i + '.jpg'); else files.push(base + m.src); }
-            for (const k of ['before', 'after']) { const I = (d.identity || {})[k]; if (I && I.logo) files.push(base + I.logo); }
-            return J({ error: why, prep: { name: d.name, files } }, 402); }
-          return err(why, 402); }
+        // no activation day: the hall's links work whenever the organisation is switched on (rehearsals, training, the day itself)
         const doc = rehearse ? JSON.parse(ev.draft) : JSON.parse((await T.prepare('SELECT doc FROM event_versions WHERE event_id = ? AND version = ?').bind(evId, ver).first()).doc);
         // ----- the audience's page: the programme and where it stands. Never the moderator's words, nor a cue or a logo of the new identity before the launch has revealed it
         if (role === 'audience' && !['pub', 'ask', 'ws'].includes(seg[4])) return err('لا صلاحية', 403); /* ws: a bare signal that something changed, never the state itself */
@@ -303,7 +293,7 @@ const main = {
       if (p === '/api/events' && M === 'POST') {
         if (!can('editor')) return err('لا تملك صلاحية الإنشاء', 403); const b = await req.json(); if (!b.name) return err('اسم اللقاء مطلوب');
         const n = (await T.prepare('SELECT COUNT(*) AS n FROM events WHERE org_id = ? AND status != ?').bind(org.id, 'archived').first()).n;
-        if (n >= org.events_limit) return err(`باقتكم تسمح بـ ${org.events_limit} لقاء. أرشفوا لقاءً أو رقّوا الباقة.`, 402);
+        
         if (org.paid_until && org.paid_until < now()) return err('انتهى اشتراك الجهة', 402);
         if (b.mode === 'stations' && !hasFeat(org, 'stations')) return err('المحطات التفاعلية غير مفعّلة لجهتكم. تواصلوا مع بصيرة لتفعيلها.', 403);
         let doc = BLANK(b.name); if (b.mode === 'stations') doc = { ...BLANK(b.name), mode: 'stations', cues: [], stations: [] }; else if (b.doc && !shape({ ...BLANK(b.name), ...b.doc, name: String(b.name) })) doc = { ...BLANK(b.name), ...b.doc, name: String(b.name) };   // a template chosen in the studio
@@ -326,7 +316,7 @@ const main = {
           const d = JSON.parse((await T.prepare('SELECT doc FROM event_versions WHERE event_id = ? AND version = ?').bind(id, ev.published_version).first()).doc), log = r.log || [], end = log.length ? (r.state && r.state.live ? Date.now() : log[log.length - 1].t) : 0, rows = [];
           log.forEach((x, i) => { if (x.k !== 'cue') return; const nx = log.slice(i + 1).find(y => y.k === 'cue' || y.k === 'off'), c = d.cues.find(q => q.id === x.id); rows.push({ title: c ? c.title : x.id, type: c ? c.type : '', at: x.t, ms: (nx ? nx.t : end) - x.t, planned: c ? (+c.dur || 0) * 60000 : 0 }); });
           const on = log.find(x => x.k === 'on'), la = log.find(x => x.k === 'launch'); return J({ name: d.name, version: ev.published_version, from: on ? on.t : (rows[0] ? rows[0].at : 0), to: end, launchAt: la ? la.t : 0, running: !!(r.state && r.state.live), rows }); }
-        if (sub === 'unarchive' && M === 'POST') { if (!can('owner')) return err('للمالك فقط', 403); const n = (await T.prepare('SELECT COUNT(*) AS n FROM events WHERE org_id = ? AND status != ?').bind(org.id, 'archived').first()).n; if (n >= org.events_limit) return err(`باقتكم تسمح بـ ${org.events_limit} لقاء. أرشفوا لقاءً آخر أولاً.`, 402);
+        if (sub === 'unarchive' && M === 'POST') { if (!can('owner')) return err('للمالك فقط', 403); const n = (await T.prepare('SELECT COUNT(*) AS n FROM events WHERE org_id = ? AND status != ?').bind(org.id, 'archived').first()).n;
           await T.prepare('UPDATE events SET status = ?, updated_at = ? WHERE id = ?').bind(ev.published_version ? 'published' : 'draft', now(), id).run(); await audit(env, org.id, id, who.user.id, 'unarchive'); return J({ ok: true }); }
         if (sub === 'brand' && M === 'POST') {   // the identity proposed from the organisation's website; its logo is copied into the event's own files
           if (!can('editor')) return err('لا تملك صلاحية التعديل', 403); const b = await req.json().catch(() => ({})), r = await readBrand(b.url); if (r.error) return err(r.error); let logo = '';
@@ -341,18 +331,12 @@ const main = {
         if (!sub && M === 'DELETE') { if (!can('owner')) return err('للمالك فقط', 403); await T.prepare('UPDATE events SET status = ?, updated_at = ? WHERE id = ?').bind('archived', now(), id).run(); await audit(env, org.id, id, who.user.id, 'archive'); return J({ ok: true }); }
         if (sub === 'publish' && M === 'POST') {   // freeze the draft as the next version: the screens of the hall read this one
           if (!can('editor')) return err('لا تملك صلاحية الاعتماد', 403); if (org.paid_until && org.paid_until < now()) return err('انتهى اشتراك الجهة', 402); const doc = JSON.parse(ev.draft), bad = problems(doc); if (bad.length) return J({ error: 'أكمل النواقص قبل الاعتماد', problems: bad }, 422);
-          { const pb = await req.json().catch(() => ({})); if (ev.published_version && ev.active_from && ev.active_from <= now() && now() < ev.active_until && pb.live !== true) return J({ error: 'اللقاء مفتوح في القاعة. الشاشات تبقى على النسخة ' + ev.published_version + ' حتى تؤكدوا اعتماد الجديدة.', pinned: ev.published_version }, 409); }
+          { const pb = await req.json().catch(() => ({})); if (ev.published_version && pb.live !== true && ((await (await env.ROOM.get(env.ROOM.idFromName(id + ':live')).fetch(new Request('https://room/log'))).json().catch(() => ({}))).state || {}).live) return J({ error: 'اللقاء يعمل في القاعة الآن. الشاشات تبقى على النسخة ' + ev.published_version + ' حتى تؤكدوا اعتماد الجديدة.', pinned: ev.published_version }, 409); }
           const v = (ev.published_version || 0) + 1, at = now(); await T.batch([T.prepare('INSERT INTO event_versions (event_id, version, doc, published_by, published_at) VALUES (?,?,?,?,?)').bind(id, v, ev.draft, who.user.id, now()),
             T.prepare('UPDATE events SET published_version = ?, status = ?, updated_at = ? WHERE id = ?').bind(v, 'published', at, id)]);
           await audit(env, org.id, id, who.user.id, 'publish', 'v' + v); const swept = await sweep(env, T, org.id, { ...ev, published_version: v }).catch(() => 0); return J({ version: v, swept, rev: at });   // rev: the draft's stamp after this write, so the studio's next save is not taken for a colleague's
         }
-        if (sub === 'activate' && M === 'POST') {   // one activation day: from the morning of the chosen day (the browser's own midnight) for 24 hours, plus the evening before for the hall's set up
-          if (!can('owner')) return err('التفعيل لمالك الحساب', 403); if (org.paid_until && org.paid_until < now()) return err('انتهى اشتراك الجهة', 402); const b = await req.json(), from = new Date(b.from); if (isNaN(from) || from.getTime() < Date.now() - 864e5) return err('تاريخ غير صالح');
-          if (!ev.published_version) return err('اعتمد نسخة أولاً'); if (ev.active_until && ev.active_until > now()) return err('اللقاء مفعّل حتى ' + ev.active_until.slice(0, 10));
-          const o = await env.DB.prepare('UPDATE orgs SET credits = credits - 1 WHERE id = ? AND credits > 0 RETURNING credits').bind(org.id).first(); if (!o) return err('لا أيام تفعيل في رصيدكم. تواصلوا معنا لإضافة يوم.', 402);
-          const a = new Date(from.getTime() - 6 * 36e5).toISOString(), z = new Date(from.getTime() + 24 * 36e5).toISOString();
-          const at = now(); await T.prepare('UPDATE events SET active_from = ?, active_until = ?, updated_at = ? WHERE id = ?').bind(a, z, at, id).run(); await audit(env, org.id, id, who.user.id, 'activate', a + ' ' + z); return J({ active_from: a, active_until: z, credits: o.credits, rev: at });
-        }
+        if (sub === 'activate' && M === 'POST') return J({ ok: true, rev: ev.updated_at });   // kept for old pages: there is no activation day any more, the hall's links work whenever the organisation is on
         // a large file goes up in parts (16 MB each), so a long film survives a weak connection and can be retried part by part
         if (sub === 'upload' && M === 'POST') { if (!can('editor')) return err('لا تملك صلاحية الرفع', 403); const b = await req.json();
           if (b.start) { const used = (await T.prepare('SELECT COALESCE(SUM(bytes),0) AS b FROM media WHERE org_id = ?').bind(org.id).first()).b; if (used + (+b.size || 0) > org.storage_limit_mb * 1048576) return err('امتلأت مساحة الجهة', 402);
