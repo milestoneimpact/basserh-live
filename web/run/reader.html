@@ -26,8 +26,12 @@ try { const r = await fetch(api), d = await r.json(); if (!r.ok) throw new Error
   if (d.logo) { $('#lg').src = api + '/logo'; $('#lg').hidden = false; } $('#tt').textContent = d.title || d.station; $('#st').textContent = [d.station, d.name].filter(Boolean).join(' · '); document.title = d.title || d.station;
   const K = 'rd:' + e + ':' + s + ':' + d.media, rtl = d.dir !== 'ltr', arrow = l => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="${l ? 'M15 5l-7 7 7 7' : 'M9 5l7 7-7 7'}"/></svg>`;
   $('#bL').innerHTML = arrow(true); $('#bR').innerHTML = arrow(false);
-  const book = Book($('#room'), { dir: d.dir, zoom: true, links: true, pad: 8, padY: 8, onLink: l => { if (l.url) window.open(l.url, '_blank', 'noopener'); },
-    onPage: (n, N) => { $('#pc').textContent = `صفحة ${n.toLocaleString('ar')} من ${N.toLocaleString('ar')}`; $('#pg').style.width = n / N * 100 + '%'; (rtl ? $('#bR') : $('#bL')).disabled = n <= 1; (rtl ? $('#bL') : $('#bR')).disabled = n >= N; try { sessionStorage.setItem(K, n); } catch {} } });
+  // what was read on the phone, sent once when the visitor leaves (pages and time on each; nothing about the visitor)
+  const vs = { id: Math.random().toString(36).slice(2, 10) + Date.now().toString(36), station: s, media: d.media, start: Date.now(), pages: {}, zooms: {}, li: 0, lo: 0, qr: 0, pg: 0, pgAt: Date.now() }; let sent = false;   // page 0: the file still opening, not counted
+  const bye = () => { if (sent) return; sent = true; const t = Date.now(); vs.pages[vs.pg] = (vs.pages[vs.pg] || 0) + (t - vs.pgAt); const { pg, pgAt, ...x } = vs; x.ms = t - x.start; try { navigator.sendBeacon(api + '/session', new Blob([JSON.stringify(x)], { type: 'application/json' })); } catch {} };
+  addEventListener('pagehide', bye); document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') bye(); });
+  const book = Book($('#room'), { dir: d.dir, zoom: true, links: true, pad: 8, padY: 8, onLink: l => { vs[l.page ? 'li' : 'lo']++; if (l.url) window.open(l.url, '_blank', 'noopener'); },
+    onPage: (n, N) => { const t = Date.now(); vs.pages[vs.pg] = (vs.pages[vs.pg] || 0) + (t - vs.pgAt); vs.pg = n; vs.pgAt = t; $('#pc').textContent = `صفحة ${n.toLocaleString('ar')} من ${N.toLocaleString('ar')}`; $('#pg').style.width = n / N * 100 + '%'; (rtl ? $('#bR') : $('#bL')).disabled = n <= 1; (rtl ? $('#bL') : $('#bR')).disabled = n >= N; try { sessionStorage.setItem(K, n); } catch {} } });
   $('#bL').onclick = () => (rtl ? book.fwd() : book.back()); $('#bR').onclick = () => (rtl ? book.back() : book.fwd());
   const pdf = await openPdf(api + '/file', { whole: true }); let p = start; if (!H.has('p')) try { p = +sessionStorage.getItem(K) || 1; } catch {}
   await book.load(pdf, p); $('#msg').style.display = 'none';

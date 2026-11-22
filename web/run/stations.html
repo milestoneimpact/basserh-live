@@ -29,7 +29,7 @@ main{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:
 #pmC{font:600 40px Corm,serif;letter-spacing:.3em;text-align:center;background:#0E1114;color:#fff;border:1px solid rgba(228,204,151,.3);border-radius:12px;padding:10px}#pmE{color:#FFB4A4;font:600 13px Plex;min-height:1em}#pm .row{display:flex;gap:8px}
 #toast{position:fixed;bottom:22px;left:50%;transform:translateX(-50%);background:#E4CC97;color:#0E1114;font:600 15px Plex;padding:10px 20px;border-radius:12px;opacity:0;transition:.3s;pointer-events:none;z-index:99}#toast.on{opacity:1}
 </style></head><body>
-<header><div class="wm">بصيرة<i></i><span>BASSERH</span></div><h1 id="ttl">لوحة المحطات</h1><span class="pill" id="mode"></span><span class="pill" id="cnt"></span><span class="sp"></span>
+<header><div class="wm">بصيرة<i></i><span>BASSERH</span></div><h1 id="ttl">لوحة المحطات</h1><span class="pill" id="mode"></span><span class="pill" id="cnt"></span><span class="pill" id="vis" title="الجلسات المكتملة: من أول لمسة حتى عودة الشاشة إلى البداية"></span><span class="sp"></span>
   <button class="b on" id="pair" title="شاشة تعرض رمز الربط: اكتبوا رمزها واختاروا محطتها">ربط شاشة</button><button class="b" id="ident" title="تظهر على كل شاشة اسمها ست ثوانٍ، فتطابق القائمة مع المكان">تعريف الشاشات</button><button class="b" id="home">كل المحطات إلى البداية</button></header>
 <div class="all"><span>ملف واحد لكل المحطات:</span><select id="allF"></select><button class="b" id="allGo">تطبيق على الكل</button><button class="b" id="allBack" title="كل محطة تعود إلى الملف المحدد لها في الاستوديو">إرجاع ملفاتها الأصلية</button></div>
 <div class="lib"><span>اسحب غلافاً إلى أي شاشة لتبديل ملفها:</span><div id="lib"></div></div>
@@ -54,7 +54,7 @@ const docs = new Map(), pdfOf = k => { if (!docs.has(k)) docs.set(k, openPdf(lin
 const drawn = new Map(); async function pageCv(k, n, w, h) { const key = `${k}:${n}:${w}`; if (!drawn.has(key)) { if (drawn.size > 80) drawn.clear(); drawn.set(key, pdfOf(k).then(p => draw(p, Math.min(n, p.numPages), w, h)).then(r => r.cv)); } const src = await drawn.get(key), c = document.createElement('canvas'); c.width = src.width; c.height = src.height; c.style.cssText = src.style.cssText; c.getContext('2d').drawImage(src, 0, 0); return c; }
 
 $('#grid').innerHTML = ST.map((s, i) => `<div class="card" data-s="${s.id}"><div class="scr"><div class="pv"><div class="em">ينتظر الاتصال</div></div><span class="tag"><i></i><em></em></span><span class="zm"></span><div class="dk">المحطة مطفأة</div></div>
-  <div class="inf"><div class="nm"><b>${i + 1}. ${esc(s.name)}</b><span class="pg"></span></div><div class="sub"><span>${esc(s.place || '')}</span><span class="tc"></span></div>
+  <div class="inf"><div class="nm"><b>${i + 1}. ${esc(s.name)}</b><span class="pg"></span></div><div class="sub"><span>${esc(s.place || '')}</span><span class="tc"></span></div><div class="sub vs"><span></span><span></span></div>
   <div class="row"><select data-f>${opts('')}</select><button class="b" data-h>البداية</button><button class="b" data-d></button><button class="b" data-z>تكبير</button></div></div></div>`).join('') || '<p style="grid-column:1/-1;text-align:center;color:#A9B2B4">لا محطات في هذا اللقاء. أضيفوها من الاستوديو.</p>';
 
 let S = link.state || {}, HALL = {}, big = null; const send = c => link.send(c);
@@ -104,5 +104,11 @@ $('#pmGo').onclick = async () => { const code = $('#pmC').value.replace(/\D/g, '
   if (!r.ok) return $('#pmE').textContent = j.error || 'تعذّر الربط'; $('#pm').classList.remove('on'); toast(`رُبطت الشاشة بـ«${j.station}». تفتح محطتها خلال ثوانٍ`); };
 $('#pmC').onkeydown = e => { if (e.key === 'Enter') $('#pmGo').click(); };
 $('#allBack').onclick = () => { send({ type: 'assign', ids: ST.map(s => s.id), media: null }); toast('عادت كل محطة إلى ملفها الأصلي'); };
+// the visitors, counted by the screens (each one sent when the screen goes back to rest)
+const mmss = ms => { const t = Math.round(ms / 1000); return `${Math.floor(t / 60)}:${String(t % 60).padStart(2, '0')}`; };
+async function vis() { try { const v = await (await fetch(`/api/run/${Q.get('e')}/visits?tz=${new Date().getTimezoneOffset()}${link.draft ? '&draft' : ''}`)).json(); if (v.total == null) return;
+  $('#vis').textContent = `الزوار ${v.total.toLocaleString('ar')}${v.total ? ' · متوسط ' + mmss(v.ms / v.total) : ''}${v.phone ? ' · على الجوال ' + v.phone.toLocaleString('ar') : ''}`;
+  for (const x of v.stations) { const c = document.querySelector(`.card[data-s="${x.station}"] .vs`); if (c) { c.children[0].textContent = x.n ? `${x.n.toLocaleString('ar')} زائر` : 'لا زوار بعد'; c.children[1].textContent = x.n ? 'متوسط ' + mmss(x.ms / x.n) : ''; } } } catch {} }
+vis(); setInterval(vis, 20000);
 link.on((s, inf) => { S = s; if (inf.hall) HALL = inf.hall; paint(); }); setInterval(paint, 5000); addEventListener('resize', () => { document.querySelectorAll('.scr').forEach(e => last.delete(e)); paint(); });
 </script></body></html>
