@@ -19,6 +19,11 @@ const adm = (method, body) => fetch(B + '/api/admin/org', { method, headers: { '
   const wrong = await Bo.api(`/api/run/${Bo.ev}/pair`, { code: k.code, station: 's1' }); ok(wrong.status === 403 && /جهة أخرى/.test(wrong.error), 'another organisation typing the code is refused: ' + wrong.error);
   const right = await A.api(`/api/run/${A.ev}/pair`, { code: k.code, station: 's1' }); ok(right.status === 200 && right.ok, 'its own organisation pairs it');
   await k.s.waitForURL(/\/run\/station/, { timeout: 15000 }).catch(() => {}); ok(/\/run\/station/.test(k.s.url()), 'and the screen becomes the station');
+  const log = await A.api(`/api/run/${A.ev}/pairs`, null, 'GET'); ok(log.pairs && log.pairs.length === 1 && log.pairs[0].name === 'الأولى', 'the pairing log lists the screen and its station');
+  const other = await Bo.api(`/api/run/${A.ev}/pairs?id=${log.pairs[0].id}`, null, 'DELETE'); ok([401, 403, 404].includes(other.status), 'another organisation cannot undo it: ' + other.status);
+  const un = await A.api(`/api/run/${A.ev}/pairs?id=${log.pairs[0].id}`, null, 'DELETE'); ok(un.status === 200 && un.ok, 'its operator undoes the pairing');
+  ok(!(await A.api(`/api/run/${A.ev}/pairs`, null, 'GET')).pairs.length, 'and the log is empty again');
+  const cut = await k.s.evaluate(async e => (await fetch(`/api/run/${e}/config` + location.search.replace(/^\?/, '&').replace(/^&/, '?'))).status, A.ev); ok(cut !== 200, 'the cut screen can no longer read its station: ' + cut);
   ok((await fetch(`${B}/nosuchorg/screen`)).status !== 200, 'an address of no organisation is not a pairing page');
   const g = await code('/screen'); ok(/^ربط هذه الشاشة بمحطتها$/.test(g.h1), 'the shared /screen still gives a code (for screens set up before)');
   const old = await Bo.api(`/api/run/${Bo.ev}/pair`, { code: g.code, station: 's1' }); ok(old.status === 200, 'and any organisation can claim that one, as before');
