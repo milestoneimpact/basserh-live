@@ -7,7 +7,9 @@ const B = process.env.BASE || 'http://localhost:8790', AK = process.env.ADMIN_KE
 const pickFile = async (p, btn, kindRe) => { await p.click(btn); await p.waitForSelector('.lm .lc'); const cards = p.locator('.lm .lc'), n = await cards.count();
   for (let i = 0; i < n; i++) { const t = await cards.nth(i).locator('.kd, .nm').allTextContents(); if (kindRe.test(t.join(' '))) { await cards.nth(i).click(); break; } } await p.click('.lm [data-ok]'); await p.waitForSelector('.lm', { state: 'detached' }); await p.waitForTimeout(300); };
 const ok = (c, m) => { console.log((c ? '✓ ' : '✗ ') + m); if (!c) process.exitCode = 1; };
-const adm = (method, body) => fetch(B + '/api/admin/org', { method, headers: { 'x-admin-key': AK, 'content-type': 'application/json' }, body: JSON.stringify(body) }).then(r => r.json());
+const MADE = [], adm = (method, body) => fetch(B + '/api/admin/org', { method, headers: { 'x-admin-key': AK, 'content-type': 'application/json' }, body: JSON.stringify(body) }).then(r => r.json()).then(j => { if (method === 'POST' && j && j.org) MADE.push(j); return j; });
+// every organisation this test made is deleted at the end, passed or failed, so nothing is left on the server it ran against
+const tidy = async () => { for (const o of MADE.splice(0)) await adm('DELETE', { id: o.org, confirm: o.slug }).catch(() => {}); };
 const wait = ms => new Promise(r => setTimeout(r, ms));
 (async () => {
   const b = await chromium.launch(), errs = [];
@@ -79,5 +81,5 @@ const wait = ms => new Promise(r => setTimeout(r, ms));
   await p.selectOption('#visD', days[1]); await p.waitForFunction(d => document.querySelector('#visD')?.value === d, days[1], { timeout: 15000 }); await p.waitForFunction(() => /^3$/.test(document.querySelector('#vis b')?.textContent.trim() || ''), null, { timeout: 15000 }).catch(() => {});
   ok(/^3$/.test((await p.$$eval('#vis b', l => l.map(x => x.textContent.trim())))[0] || ''), 'one day chosen: its own figures (3 visits yesterday)');
   ok(!errs.length, 'no page errors' + (errs.length ? ': ' + errs.slice(0, 5).join(' | ') : ''));
-  await b.close();
-})().catch(e => { console.log('✗ ' + (e.stack || e)); process.exit(1); });
+  await b.close(); await tidy();
+})().catch(async e => { console.log('✗ ' + (e.stack || e)); await tidy(); process.exit(1); });

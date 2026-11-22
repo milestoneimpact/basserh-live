@@ -5,7 +5,9 @@
 const { chromium, devices } = require('playwright'); const fs = require('fs');
 const B = process.env.BASE || 'http://localhost:8790', AK = process.env.ADMIN_KEY || 'dev', OUT = process.env.OUT || '/tmp/claude-0/vis/'; fs.mkdirSync(OUT, { recursive: true });
 const ok = (c, m) => { console.log((c ? '✓ ' : '✗ ') + m); if (!c) process.exitCode = 1; };
-const adm = (method, body) => fetch(B + '/api/admin/org', { method, headers: { 'x-admin-key': AK, 'content-type': 'application/json' }, body: JSON.stringify(body) }).then(r => r.json());
+const MADE = [], adm = (method, body) => fetch(B + '/api/admin/org', { method, headers: { 'x-admin-key': AK, 'content-type': 'application/json' }, body: JSON.stringify(body) }).then(r => r.json()).then(j => { if (method === 'POST' && j && j.org) MADE.push(j); return j; });
+// every organisation this test made is deleted at the end, passed or failed, so nothing is left on the server it ran against
+const tidy = async () => { for (const o of MADE.splice(0)) await adm('DELETE', { id: o.org, confirm: o.slug }).catch(() => {}); };
 const wait = ms => new Promise(r => setTimeout(r, ms));
 (async () => {
   const b = await chromium.launch(), errs = [];
@@ -63,5 +65,5 @@ const wait = ms => new Promise(r => setTimeout(r, ms));
   const [dl] = await Promise.all([p.waitForEvent('download'), p.click('#visX')]); const csv = fs.readFileSync(await dl.path(), 'utf8');
   ok(/\.csv$/.test(dl.suggestedFilename()) && csv.charCodeAt(0) === 0xfeff && /المحطة الأولى/.test(csv) && /كتاب القياس/.test(csv), 'exported as a file Excel opens in Arabic: ' + dl.suggestedFilename());
   ok(!errs.length, 'no page errors' + (errs.length ? ': ' + errs.join(' | ') : ''));
-  await b.close();
-})().catch(e => { console.log('✗ ' + (e.stack || e)); process.exit(1); });
+  await b.close(); await tidy();
+})().catch(async e => { console.log('✗ ' + (e.stack || e)); await tidy(); process.exit(1); });
