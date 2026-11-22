@@ -11,7 +11,7 @@ export class Room {
     if (!this.state || !known) { const was = this.state; this.state = { ...initial(this.doc), live: was ? !!was.live : v === 0, dim: was ? was.dim : undefined, launchedAt: was && this.doc.cues.some(c => c.type === 'launch') ? was.launchedAt : null }; await this.ctx.storage.put('state', this.state); }   // a rehearsal (the draft) is on from the start; the hall waits for the operator
     if (v !== this.ver) { this.ver = v; await this.ctx.storage.put('ver', v); this.cast({ reload: v }); }   // screens read the new version
   }
-  cast(o, only) { const t = JSON.stringify(o); for (const ws of this.ctx.getWebSockets()) { if (only && (ws.deserializeAttachment() || {}).role !== only) continue; try { ws.send(t); } catch {} } }
+  cast(o, only) { const t = JSON.stringify(o), tick = o.state || o.reload ? '{"tick":1}' : null; for (const ws of this.ctx.getWebSockets()) { const r = (ws.deserializeAttachment() || {}).role; if (only && r !== only) continue; if (r === 'audience') { if (tick) try { ws.send(tick); } catch {} continue; } try { ws.send(t); } catch {} } }   // the audience's phones get only a signal to read their page again, never the operator's state
   // the screens of the hall as they report themselves (which kind, what size, how many files they hold); kept with each connection, so it survives the room's sleep
   hall() { const d = {}; for (const ws of this.ctx.getWebSockets()) { const a = ws.deserializeAttachment() || {}; if (a.rep) d[a.rep.id] = a.rep; } return d; }
   // a launch by several hands: how many guests are holding their button now, and since when all of them are
@@ -37,10 +37,11 @@ export class Room {
     if (url.pathname.endsWith('/cmd')) { await this.apply(await req.json().catch(() => null), role); return Response.json({ state: this.state, now: Date.now() }); }
     if (req.headers.get('Upgrade') !== 'websocket') return new Response('websocket', { status: 426 });
     const [a, b] = Object.values(new WebSocketPair()); this.ctx.acceptWebSocket(b); b.serializeAttachment({ role });
+    if (role === 'audience') { b.send('{"tick":1}'); return new Response(null, { status: 101, webSocket: a }); }   // hundreds of phones: no count cast to the hall for each one
     b.send(JSON.stringify({ state: this.state, now: Date.now(), peers: this.peers(), hall: this.hall(), hands: this.hands() })); this.cast({ peers: this.peers() });
     return new Response(null, { status: 101, webSocket: a });
   }
-  async webSocketMessage(ws, msg) { if (typeof msg !== 'string' || msg.length > 20000) return; let m; try { m = JSON.parse(msg); } catch { return; } if (m.ping) return ws.send(JSON.stringify({ pong: m.ping, now: Date.now() }));
+  async webSocketMessage(ws, msg) { if (typeof msg !== 'string' || msg.length > 20000 || (ws.deserializeAttachment() || {}).role === 'audience') return; let m; try { m = JSON.parse(msg); } catch { return; } if (m.ping) return ws.send(JSON.stringify({ pong: m.ping, now: Date.now() }));
     const role = (ws.deserializeAttachment() || {}).role;
     // the hall computer reports the files it holds locally; the operator sees it
     // a station reports what its visitor sees: the file, the page, the zoom, the last touch; the stations' board draws it

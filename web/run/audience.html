@@ -26,7 +26,8 @@ const $ = s => document.querySelector(s), esc = s => String(s ?? '').replace(/[&
 const Q = new URLSearchParams(location.search), E = Q.get('e'), DR = Q.has('draft') ? '?draft' : ''; let last = '';
 async function pull() { let r, d; try { r = await fetch(`/api/run/${E}/pub${DR}`); d = await r.json(); } catch { return; }
   if (!r.ok) { $('main').innerHTML = `<p style="text-align:center;margin-top:30vh;font:600 20px Plex;color:#888">${esc(d.error || 'تعذّر فتح الصفحة')}</p>`; return; }
-  const key = JSON.stringify(d); if (key === last) return; last = key;
+  if (d.in) { clearTimeout(pull.rv); pull.rv = setTimeout(pull, d.in + 3300 + Math.random() * 1500); }   // the new identity appears at the reveal, with no change of cue to signal it
+  const key = JSON.stringify({ ...d, in: 0 }); if (key === last) return; last = key;
   for (const [k, v] of Object.entries({ bg: d.colors.bg, ink: d.colors.ink, accent: d.colors.accent, gold: d.colors.gold, ft: d.font })) if (v) document.documentElement.style.setProperty('--' + k, v);
   { const L = h => { h = String(h || '#fff').replace('#', ''); const v = [0, 2, 4].map(i => { let x = (parseInt(h.slice(i, i + 2), 16) || 0) / 255; return x <= .03928 ? x / 12.92 : ((x + .055) / 1.055) ** 2.4; }); return .2126 * v[0] + .7152 * v[1] + .0722 * v[2]; }, C = (a, b) => (Math.max(L(a), L(b)) + .05) / (Math.min(L(a), L(b)) + .05), bg = d.colors.bg || '#F6F1E6', ink = d.colors.ink || '#14211E';
     if (C(ink, bg) < 3) document.documentElement.style.setProperty('--ink', L(bg) > .4 ? '#14211E' : '#F6F2E8'); if (C(d.colors.accent || '#0F5A4E', bg) < 2.6) document.documentElement.style.setProperty('--accent', C(ink, bg) < 3 ? (L(bg) > .4 ? '#14211E' : '#F6F2E8') : ink); }
@@ -37,5 +38,8 @@ async function pull() { let r, d; try { r = await fetch(`/api/run/${E}/pub${DR}`
 $('#send').onclick = async () => { const t = $('#qT').value.trim(); if (t.length < 3) { $('#qMsg').style.color = '#A8402F'; $('#qMsg').textContent = 'اكتب سؤالك أولاً'; return $('#qT').focus(); } $('#send').disabled = true; const m = $('#qMsg');
   try { const r = await fetch(`/api/run/${E}/ask${DR}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text: t, name: $('#qW').value }) }), j = await r.json(); m.style.color = r.ok ? 'var(--accent,#0F5A4E)' : '#A8402F'; m.textContent = r.ok ? 'وصل سؤالك. شكراً لك.' : (j.error || 'تعذّر الإرسال'); if (r.ok) $('#qT').value = ''; }
   catch { m.style.color = '#A8402F'; m.textContent = 'لا اتصال. حاول مرة أخرى.'; } setTimeout(() => { $('#send').disabled = false; }, 4000); };
-pull(); setInterval(() => { if (!document.hidden) pull(); }, 5000); document.addEventListener('visibilitychange', () => { if (!document.hidden) pull(); });
+// the room signals each change; the page then reads itself again after a short random wait, so three hundred phones do not ask in the same instant
+let ws, back = 1000, soon = 0; const nudge = () => { clearTimeout(soon); soon = setTimeout(async () => { const was = last; await pull(); if (last === was) soon = setTimeout(pull, 3200); }, Math.random() * 1500); };   // the answer is kept three seconds on the server: if it had not moved yet, once more after that
+(function open() { try { ws = new WebSocket(`${location.origin.replace(/^http/, 'ws')}/api/run/${E}/ws${DR}`); } catch { return; } ws.onopen = () => { back = 1000; }; ws.onmessage = nudge; ws.onclose = () => { setTimeout(open, back + Math.random() * 1000); back = Math.min(back * 2, 30000); }; })();
+pull(); setInterval(() => { if (!document.hidden && (!ws || ws.readyState !== 1)) pull(); }, 20000); document.addEventListener('visibilitychange', () => { if (!document.hidden) pull(); });
 </script></body></html>

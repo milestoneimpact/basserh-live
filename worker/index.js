@@ -32,7 +32,7 @@ async function me(req, env) {
   const t = cookies(req).sid; if (!t) return null;
   const s = await env.DB.prepare('SELECT user_id FROM sessions WHERE token_hash = ? AND expires_at > ?').bind(await sha(t), now()).first(); if (!s) return null;
   const user = await env.DB.prepare('SELECT id, email, name FROM users WHERE id = ?').bind(s.user_id).first();
-  const { results } = await env.DB.prepare('SELECT o.id, o.name, o.slug, o.plan, o.events_limit, o.storage_limit_mb, o.paid_until, o.credits, o.features, m.role FROM members m JOIN orgs o ON o.id = m.org_id WHERE m.user_id = ?').bind(s.user_id).all();
+  const { results } = await env.DB.prepare('SELECT o.id, o.name, o.slug, o.plan, o.events_limit, o.storage_limit_mb, o.paid_until, o.credits, o.features, m.role FROM members m JOIN orgs o ON o.id = m.org_id WHERE m.user_id = ? AND o.plan != ?').bind(s.user_id, 'off').all();   // a switched off organisation is closed to its members
   return { user, orgs: results };
 }
 // the organisation a request works in (header x-org, else the person's first), and the person's role in it
@@ -63,7 +63,7 @@ const failed = (env, ip, n, limit = 5) => env.DB.prepare('INSERT INTO login_fail
 async function kickOrg(env, orgId) { try { const { results } = await tdb(env, orgId).prepare("SELECT id FROM events WHERE status != 'archived' ORDER BY updated_at DESC LIMIT 12").all(); await Promise.all(results.flatMap(e => [':live', ':draft'].map(k => env.ROOM.get(env.ROOM.idFromName(e.id + k)).fetch(new Request('https://room/kick', { method: 'POST' })).catch(() => {})))); } catch {} }
 // an organisation that exists (asked of the control database once, then remembered): no database is ever opened for a made up id
 const PUB = new Map();   // the audience's answer, kept three seconds for each event
-const ORGS = new Map(); async function orgExists(env, id) { const t = ORGS.get(id); if (t && Date.now() - t < 6e5) return true; const o = await env.DB.prepare('SELECT 1 AS x FROM orgs WHERE id = ?').bind(id).first(); if (o) ORGS.set(id, Date.now()); return !!o; }
+const ORGS = new Map(); async function orgExists(env, id) { const t = ORGS.get(id); if (t && Date.now() - t < 6e4) return true; const o = await env.DB.prepare("SELECT 1 AS x FROM orgs WHERE id = ? AND plan != 'off'").bind(id).first(); if (o) ORGS.set(id, Date.now()); return !!o; }
 const padd = (env, action, detail = '') => env.DB.prepare('INSERT INTO platform_audit (action, detail, at) VALUES (?,?,?)').bind(action, String(detail).slice(0, 300), now()).run().catch(() => {});   // the platform owner's own record
 const KEEP = 180;   // days a device stays signed in: a device that entered once is not asked again for half a year, unless it signs out or the password is renewed
 async function session(env, uid) { const t = rid(32); await env.DB.prepare('INSERT INTO sessions (token_hash, user_id, expires_at, created_at) VALUES (?,?,?,?)').bind(await sha(t), uid, new Date(Date.now() + KEEP * 864e5).toISOString(), now()).run(); return setCookie('sid', t, KEEP); }
@@ -89,7 +89,7 @@ async function site(env, req, path) {
   if (o && inm && !range && inm.replace(/^W\//, '') === o.httpEtag) return new Response(null, { status: 304, headers: { ETag: o.httpEtag, 'Cache-Control': /\.(woff2|png|jpg|mp4)$/.test(f) ? 'public, max-age=86400' : 'no-cache' } });
   if (!o) return new Response('لا يوجد', { status: 404, headers: { 'Content-Type': 'text/plain; charset=utf-8' } });
   const h = { 'Content-Type': o.httpMetadata?.contentType || 'application/octet-stream', 'Cache-Control': /\.(woff2|png|jpg|mp4)$/.test(f) ? 'public, max-age=86400' : 'no-cache', ETag: o.httpEtag, 'Accept-Ranges': 'bytes' };
-  if (range && o.range) { const r = o.range, st = 'suffix' in r ? o.size - r.suffix : (r.offset || 0), len = 'suffix' in r ? r.suffix : (r.length ?? o.size - st); return new Response(o.body, { status: 206, headers: { ...h, 'Content-Range': `bytes ${st}-${st + len - 1}/${o.size}`, 'Content-Length': String(len) } }); }
+  if (range && o.range) { const r = o.range, st = 'suffix' in r ? o.size - r.suffix : (r.offset || 0), len = Math.min('suffix' in r ? r.suffix : (r.length ?? o.size - st), o.size - st); return new Response(o.body, { status: 206, headers: { ...h, 'Content-Range': `bytes ${st}-${st + len - 1}/${o.size}`, 'Content-Length': String(len) } }); }
   return new Response(o.body, { headers: { ...h, 'Content-Length': String(o.size) } });
 }
 // ----- an organisation's identity read from its own website: its logo, its colours, its typeface. A proposal only; a person accepts it in the studio.
@@ -135,19 +135,20 @@ async function sweep(env, T, org, ev) {
   const need = new Set(); for (const d of docs) { for (const m of Object.values(d.media || {})) { if (m.src) need.add(m.src); if (m.cover) need.add(m.cover); } for (const k of ['before', 'after']) if (d.identity && d.identity[k] && d.identity[k].logo) need.add(d.identity[k].logo); }
   const base = `${org}/${ev.id}/`, old = Date.now() - 36e5, gone = [];
   for (const o of await listAll(env, base)) { const f = o.key.slice(base.length), top = f.includes('/') ? f.split('/')[0] + '/' : f; if (!need.has(top) && o.uploaded.getTime() < old) gone.push(o.key); }
+  for (const k of gone) { const o = await env.MEDIA.get(k); if (o) await env.MEDIA.put('_trash/' + k, o.body, { httpMetadata: o.httpMetadata }); }   // kept 14 days, so a restored copy finds its files
   for (let i = 0; i < gone.length; i += 500) await env.MEDIA.delete(gone.slice(i, i + 500));
   if (gone.length) { const { results } = await T.prepare('SELECT id, r2_key FROM media WHERE event_id = ?').bind(ev.id).all(); const dead = results.filter(r => gone.includes(r.r2_key)); for (const r of dead) await T.prepare('DELETE FROM media WHERE id = ?').bind(r.id).run(); }
   return gone.length;
 }
 // an organisation as one document: who it is, its people, and everything in its own database (files are listed, not included)
-async function exportOrg(env, id) { const org = await env.DB.prepare('SELECT * FROM orgs WHERE id = ?').bind(id).first(); if (!org) return null;
+async function exportOrg(env, id, raw) { const org = await env.DB.prepare('SELECT * FROM orgs WHERE id = ?').bind(id).first(); if (!org) return null;
   const members = (await env.DB.prepare('SELECT u.email, u.name, m.role FROM members m JOIN users u ON u.id = m.user_id WHERE m.org_id = ?').bind(id).all()).results, data = await tdb(env, id).dump();
-  data.links = data.links.map(l => ({ ...l, token_hash: undefined })); return { exported_at: now(), org, members, ...data, files: (await listAll(env, id + '/')).map(o => ({ key: o.key, bytes: o.size })) }; }
+  if (!raw) data.links = data.links.map(l => ({ ...l, token_hash: undefined })); return { exported_at: now(), org, members, ...data, files: (await listAll(env, id + '/')).map(o => ({ key: o.key, bytes: o.size })) }; }
 // the nightly copy: the control database and every organisation, as JSON in the bucket (_backup/<day>/), kept for 14 days
 async function backup(env) { const day = now().slice(0, 10), orgs = (await env.DB.prepare('SELECT id FROM orgs').all()).results, ctl = {};
   for (const t of ['orgs', 'users', 'members', 'passkeys', 'leads']) ctl[t] = (await env.DB.prepare(`SELECT * FROM ${t}`).all()).results;
-  await env.MEDIA.put(`_backup/${day}/control.json`, JSON.stringify(ctl)); for (const o of orgs) await env.MEDIA.put(`_backup/${day}/${o.id}.json`, JSON.stringify(await exportOrg(env, o.id)));
-  const keep = new Date(Date.now() - 14 * 864e5).toISOString().slice(0, 10), old = (await listAll(env, '_backup/')).filter(o => o.key.split('/')[1] < keep).map(o => o.key); for (let i = 0; i < old.length; i += 500) await env.MEDIA.delete(old.slice(i, i + 500));
+  await env.MEDIA.put(`_backup/${day}/control.json`, JSON.stringify(ctl)); for (const o of orgs) await env.MEDIA.put(`_backup/${day}/${o.id}.json`, JSON.stringify(await exportOrg(env, o.id, true)));
+  const keep = new Date(Date.now() - 14 * 864e5).toISOString().slice(0, 10), old = [...(await listAll(env, '_backup/')).filter(o => o.key.split('/')[1] < keep), ...(await listAll(env, '_trash/')).filter(o => o.uploaded.toISOString().slice(0, 10) < keep)].map(o => o.key);   // the files taken out by the sweep wait in _trash/ as long as the copies that may still need them for (let i = 0; i < old.length; i += 500) await env.MEDIA.delete(old.slice(i, i + 500));
   return { day, orgs: orgs.length, removed: old.length }; }
 let backupDay = '';
 const main = {
@@ -174,16 +175,17 @@ const main = {
       if (p === '/api/admin/org' && M === 'POST') {
         const b = await req.json(), s = slug(b.slug || b.name); if (!b.name || !s) return err('اسم الجهة ومعرّفها مطلوبان');
         if (['login', 'admin', 'studio', 'run', 'api', 'm', 'go', 'join', 'screen', 'fonts', 'vendor', 'engine', 'brand'].includes(s)) return err('هذا العنوان محجوز للنظام');
-        if (await env.DB.prepare('SELECT 1 FROM orgs WHERE slug = ?').bind(s).first()) return err('المعرّف مستعمل');
+        if (await env.DB.prepare('SELECT 1 FROM orgs WHERE slug = ?').bind(s).first()) return err(`العنوان /${s} مستعمل لجهة موجودة في القائمة. اختر عنواناً آخر.`);
+        const pw0 = String(b.password || '').trim(); if (pw0 && pw0.length < 8) return err('كلمة المرور ثمانية أحرف على الأقل');
         const u = await userFor(env, b.email, b.owner); if (!u) return err('بريد المالك غير صالح');
         const id = 'o_' + rid(); await env.DB.batch([
-          env.DB.prepare('INSERT INTO orgs (id, name, slug, plan, events_limit, storage_limit_mb, paid_until, created_at) VALUES (?,?,?,?,?,?,?,?)').bind(id, b.name, s, b.plan || 'trial', b.events_limit || 1, b.storage_limit_mb || 2000, b.paid_until || null, now()),
+          env.DB.prepare('INSERT INTO orgs (id, name, slug, plan, events_limit, storage_limit_mb, paid_until, created_at) VALUES (?,?,?,?,?,?,?,?)').bind(id, b.name, s, b.plan || 'trial', b.events_limit || 3, b.storage_limit_mb || 2000, b.paid_until || null, now()),
           env.DB.prepare('INSERT INTO members (org_id, user_id, role) VALUES (?,?,?)').bind(id, u.id, 'owner')]);
         // the organisation's own database is born here, with its first event
         await tdb(env, id).prepare('INSERT INTO events (id, org_id, slug, name, status, draft, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?)').bind('e_' + id.slice(2) + rid(8), id, 'first-' + rid(4), 'لقاؤكم الأول', 'draft', JSON.stringify(STARTER()), now(), now()).run();
-        if (+b.credits > 0) await env.DB.prepare('UPDATE orgs SET credits = ? WHERE id = ?').bind(+b.credits, id).run();
+        await env.DB.prepare('UPDATE orgs SET credits = ? WHERE id = ?').bind(b.credits == null ? 1 : Math.max(0, +b.credits || 0), id).run();
         // the owner's password: the one the platform owner typed, or a generated one; shown once in the answer, kept hashed
-        const password = String(b.password || '').trim() || newPw(); if (password.length < 8) return err('كلمة المرور ثمانية أحرف على الأقل'); await env.DB.prepare('UPDATE users SET pw = ? WHERE id = ?').bind(await pwHash(password), u.id).run();
+        const password = pw0 || newPw(); await env.DB.prepare('UPDATE users SET pw = ? WHERE id = ?').bind(await pwHash(password), u.id).run();
         await audit(env, id, null, null, 'org', b.name); await padd(env, 'org_created', `${b.name} /${s}`); const join = await invite(env, u.email); return J({ org: id, slug: s, join, email: u.email, password, mailed: await mailJoin(env, url.origin, u.email, join, b.name) });
       }
       // ----- an organisation's data as a file; its end; the copies
@@ -194,6 +196,15 @@ const main = {
         await tdb(env, o.id).wipe(); await env.DB.batch([env.DB.prepare('DELETE FROM members WHERE org_id = ?').bind(o.id), env.DB.prepare('DELETE FROM orgs WHERE id = ?').bind(o.id)]); await padd(env, 'org_deleted', `${o.name} /${o.slug} · ${keys.length} ملف`); return J({ ok: true, files: keys.length }); }
       if (p === '/api/admin/backup' && M === 'POST') { const r = await backup(env); await padd(env, 'backup', r.day); return J(r); }
       if (p === '/api/admin/audit' && M === 'GET') return J({ audit: (await env.DB.prepare('SELECT action, detail, at FROM platform_audit ORDER BY id DESC LIMIT 200').all()).results });
+      if (p === '/api/admin/restore' && M === 'POST') {   // an organisation's database as it was on a day of the copies; its files come back from the trash. The address is typed to confirm
+        const b = await req.json().catch(() => ({})), o = await env.DB.prepare('SELECT * FROM orgs WHERE id = ?').bind(String(b.org || '')).first(); if (!o) return err('لا يوجد', 404); if (b.confirm !== o.slug) return err('اكتب عنوان الجهة للتأكيد');
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(String(b.day || ''))) return err('اختر يوماً'); const f = await env.MEDIA.get(`_backup/${b.day}/${o.id}.json`); if (!f) return err('لا نسخة لهذه الجهة في هذا اليوم', 404); const d = await f.json();
+        await env.MEDIA.put(`_backup/${now().slice(0, 10)}/${o.id}.before-restore-${Date.now()}.json`, JSON.stringify(await exportOrg(env, o.id, true)));   // the present is kept first, so a restore can itself be undone
+        const T = tdb(env, o.id), st = ['questions', 'audit', 'links', 'media', 'event_versions', 'events'].map(t => ({ sql: `DELETE FROM ${t}`, params: [] }));
+        for (const t of ['events', 'event_versions', 'media', 'links', 'audit', 'questions']) for (const r of d[t] || []) { if (t === 'links' && !r.token_hash) continue; const k = Object.keys(r); st.push({ sql: `INSERT INTO ${t} (${k.join(',')}) VALUES (${k.map(() => '?').join(',')})`, params: k.map(x => r[x]) }); }
+        await T.batch(st); let back = 0; for (const x of d.files || []) { if (await env.MEDIA.head(x.key)) continue; const t = await env.MEDIA.get('_trash/' + x.key); if (t) { await env.MEDIA.put(x.key, t.body, { httpMetadata: t.httpMetadata }); back++; } }
+        await kickOrg(env, o.id); await padd(env, 'restored', `${o.name} /${o.slug} ← ${b.day} · ${(d.events || []).length} لقاء · ${back} ملف`); return J({ ok: true, events: (d.events || []).length, files: back }); }
+      if (p === '/api/admin/backup/days' && M === 'GET') { const org = url.searchParams.get('org'); return J({ days: [...new Set((await listAll(env, '_backup/')).filter(x => x.key.endsWith('/' + org + '.json')).map(x => x.key.split('/')[1]))].sort().reverse() }); }
       if (p === '/api/admin/backup' && M === 'GET') { const days = [...new Set((await listAll(env, '_backup/')).map(o => o.key.split('/')[1]))].sort(); return J({ days, last: days[days.length - 1] || null }); }
       if (p === '/api/admin/password' && M === 'POST') {   // a new password for a member of an organisation (the old one stops working)
         const b = await req.json(), u = await env.DB.prepare('SELECT u.id, u.email FROM users u JOIN members m ON m.user_id = u.id WHERE m.org_id = ? AND u.email = ?').bind(b.org, String(b.email || '').toLowerCase()).first(); if (!u) return err('ليس عضواً في هذه الجهة', 404);
@@ -206,6 +217,7 @@ const main = {
         const b = await req.json(), o = await env.DB.prepare('SELECT * FROM orgs WHERE id = ?').bind(b.id).first(); if (!o) return err('لا يوجد', 404);
         const feats = Array.isArray(b.features) ? b.features.filter(f => FEATURES[f]).join(' ') : (o.features || '');
         await env.DB.prepare('UPDATE orgs SET name = ?, plan = ?, events_limit = ?, storage_limit_mb = ?, paid_until = ?, credits = ?, features = ? WHERE id = ?').bind(b.name ?? o.name, b.plan ?? o.plan, b.events_limit ?? o.events_limit, b.storage_limit_mb ?? o.storage_limit_mb, b.paid_until === undefined ? o.paid_until : b.paid_until, Math.max(0, o.credits + (+b.add_credits || 0)), feats, o.id).run();
+        if (b.plan === 'off') { ORGS.delete(o.id); await env.DB.prepare('DELETE FROM sessions WHERE user_id IN (SELECT user_id FROM members WHERE org_id = ?) AND user_id NOT IN (SELECT user_id FROM members m JOIN orgs x ON x.id = m.org_id WHERE x.plan != ? AND x.id != ?)').bind(o.id, 'off', o.id).run(); await kickOrg(env, o.id); }
         await audit(env, o.id, null, null, 'plan', JSON.stringify(b)); await padd(env, 'org_changed', `${o.name} /${o.slug} ${JSON.stringify({ ...b, id: undefined })}`); return J({ ok: true });
       }
       if (p === '/api/admin/invite' && M === 'POST') { const b = await req.json(), u = await userFor(env, b.email); if (!u) return err('بريد غير صالح'); await env.DB.prepare('INSERT INTO members (org_id, user_id, role) VALUES (?,?,?) ON CONFLICT (org_id, user_id) DO NOTHING').bind(b.org, u.id, 'owner').run(); return J({ join: await invite(env, u.email) }); }
@@ -223,7 +235,7 @@ const main = {
         // and the door itself: twenty wrong passwords from anywhere close it for a quarter of an hour, so guessing from many addresses gains nothing
         const door = byDoor ? '*|' + String(b.slug).slice(0, 60) : '@|' + mail, fd = await locked(env, door); if (!fd) return err('محاولات كثيرة على هذا العنوان. حاول بعد ربع ساعة، أو ادخل بمفتاح المرور.', 429);
         // at an organisation's own address the password is enough: it is tried against the members of that organisation only
-        if (b.slug && !b.email) { const { results } = await env.DB.prepare("SELECT u.id, u.pw FROM users u JOIN members m ON m.user_id = u.id JOIN orgs o ON o.id = m.org_id WHERE o.slug = ? AND u.pw IS NOT NULL ORDER BY CASE m.role WHEN 'owner' THEN 0 ELSE 1 END LIMIT 8").bind(String(b.slug)).all();
+        if (b.slug && !b.email) { const { results } = await env.DB.prepare("SELECT u.id, u.pw FROM users u JOIN members m ON m.user_id = u.id JOIN orgs o ON o.id = m.org_id WHERE o.slug = ? AND o.plan != 'off' AND u.pw IS NOT NULL ORDER BY CASE m.role WHEN 'owner' THEN 0 ELSE 1 END LIMIT 8").bind(String(b.slug)).all();
           for (const x of results) if (await pwOk(String(b.password || ''), x.pw)) { u = x; break; }
           if (!u) { await failed(env, ip, f.n); await failed(env, door, fd.n, 20); return err('كلمة المرور غير صحيحة', 403); } }
         else { u = await env.DB.prepare('SELECT id, pw FROM users WHERE email = ?').bind(String(b.email || '').trim().toLowerCase()).first();
@@ -254,6 +266,9 @@ const main = {
         if (env.CONTACT_TO) mailed = await mail(env, { to: env.CONTACT_TO, replyTo: email || undefined, subject: `طلب جديد من ${name}${L.org ? ' · ' + L.org : ''}`,
           text: `الاسم: ${name}\nالجهة: ${L.org}\nالجوال: ${phone}\nالبريد: ${email}\nنوع المناسبة: ${L.kind}\nالموعد المتوقع: ${L.date}\n\n${L.message}\n\nمن نموذج التواصل في ${url.origin}` });
         await env.DB.prepare('INSERT INTO leads (name, org, phone, email, kind, event_date, message, ip, created_at, mailed) VALUES (?,?,?,?,?,?,?,?,?,?)').bind(name, L.org, phone, email, L.kind, L.date, L.message, ip, now(), mailed).run(); return J({ ok: true }); }
+      if (p === '/api/passkeys' && (M === 'GET' || M === 'DELETE')) { const w = await me(req, env); if (!w || !w.user) return err('ادخل أولاً', 401);
+        if (M === 'DELETE') { const id = url.searchParams.get('id') || ''; await env.DB.prepare('DELETE FROM passkeys WHERE cred_id = ? AND user_id = ?').bind(id, w.user.id).run(); if (w.user.id === 'platform') await padd(env, 'passkey_removed', id.slice(0, 10)); return J({ ok: true }); }
+        return J({ passkeys: (await env.DB.prepare('SELECT cred_id AS id, label, created_at, last_used_at FROM passkeys WHERE user_id = ? ORDER BY created_at').bind(w.user.id).all()).results }); }
       // ----- passkeys: add one while signed in; sign in with one from the gate (the device offers the passkeys it holds for this site)
       if (p.startsWith('/api/passkey/')) { const b = M === 'POST' ? await req.json().catch(() => ({})) : {};
         // the browser names the site it signed for; it must be this site (or localhost in development, where the server answers under the route's name)
@@ -290,6 +305,7 @@ const main = {
         await env.DB.prepare('DELETE FROM pairs WHERE code = ?').bind(pm[1]).run(); return J({ go: r.go }); } }
       if (p.startsWith('/go/')) {
         const tok = p.slice(4), l = /^[a-z0-9]{12}\.[a-z0-9]+$/.test(tok) && await orgExists(env, 'o_' + tok.slice(0, 12)) ? await tdb(env, 'o_' + tok.slice(0, 12)).prepare('SELECT event_id, role FROM links WHERE token_hash = ? AND revoked_at IS NULL').bind(await sha(tok)).first() : null;
+        if (l) ctx.waitUntil(tdb(env, 'o_' + tok.slice(0, 12)).prepare('UPDATE links SET opened_at = ? WHERE token_hash = ?').bind(now(), await sha(tok)).run().catch(() => {}));   // the studio shows which links have reached their devices
         if (!l) return new Response('هذا الرابط أُلغي. اطلب رابطاً جديداً من منظّم اللقاء.', { status: 410, headers: { 'Content-Type': 'text/plain; charset=utf-8' } });
         return new Response(null, { status: 302, headers: { Location: `/run/${['side', 'logo'].includes(l.role) ? 'stage' : l.role === 'hall' ? 'station' : l.role}.html?e=${l.event_id}${['side', 'logo'].includes(l.role) ? '&' + l.role : ''}`, 'Set-Cookie': setCookie('lk_' + l.event_id, tok, 30) } });
       }
@@ -339,7 +355,7 @@ const main = {
           return err(why, 402); }
         const doc = rehearse ? JSON.parse(ev.draft) : JSON.parse((await T.prepare('SELECT doc FROM event_versions WHERE event_id = ? AND version = ?').bind(evId, ver).first()).doc);
         // ----- the audience's page: the programme and where it stands. Never the moderator's words, nor a cue or a logo of the new identity before the launch has revealed it
-        if (role === 'audience' && !['pub', 'ask'].includes(seg[4])) return err('لا صلاحية', 403);
+        if (role === 'audience' && !['pub', 'ask', 'ws'].includes(seg[4])) return err('لا صلاحية', 403); /* ws: a bare signal that something changed, never the state itself */
         if ((role === 'station' || role === 'hall') && !['config', 'ws', 'state'].includes(seg[4])) return err('لا صلاحية', 403);   // a station reads its event and its room, nothing else
         const theRoom = () => env.ROOM.get(env.ROOM.idFromName(evId + (rehearse ? ':draft' : ':live')));
         if (seg[4] === 'pub') { const pk = evId + (rehearse ? ':d' : ':l') + ver, hit = PUB.get(pk); if (hit && Date.now() - hit.at < 3000) return new Response(hit.body, { headers: { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' } });
@@ -347,7 +363,7 @@ const main = {
           const I = launched && doc.identity.after ? doc.identity.after : doc.identity.before, off = Array.isArray(st.off) ? st.off : doc.cues.filter(c => c.off).map(c => c.id), ord = Array.isArray(st.order) && st.order.length === doc.cues.length ? st.order.map(i => doc.cues.find(c => c.id === i)).filter(Boolean) : doc.cues;
           const shownCues = ord.filter(c => !off.includes(c.id) && ['title', 'speaker', 'video', 'slides', 'launch'].includes(c.type) && (launched || !hasL || !c.after)).map(c => ({ id: c.id, title: c.title, who: c.person && doc.people[c.person] ? [doc.people[c.person].honorific, doc.people[c.person].name].filter(Boolean).join(' · ') : '' }));
           const cur = st.live ? st.cue : null, curC = cur && doc.cues.find(c => c.id === cur), hid = curC && curC.after && hasL && !launched;
-          const body = JSON.stringify({ name: doc.name, live: !!st.live, cue: hid ? null : cur, ask: !(doc.audience && doc.audience.ask === false), logo: I.logo ? `/m/${ev.org_id}/${ev.id}/${I.logo}` : '', colors: I.colors || {}, font: fontCss(I), cues: shownCues }); if (PUB.size > 500) PUB.clear(); PUB.set(pk, { at: Date.now(), body }); return new Response(body, { headers: { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' } }); }
+          const body = JSON.stringify({ name: doc.name, live: !!st.live, cue: hid ? null : cur, ask: !(doc.audience && doc.audience.ask === false), logo: I.logo ? `/m/${ev.org_id}/${ev.id}/${I.logo}` : '', colors: I.colors || {}, font: fontCss(I), cues: shownCues, in: st.launchedAt && !launched && hasL ? Math.max(0, Math.ceil(st.launchedAt + launchTimes(doc).reveal * 1000 - Date.now())) : 0 }); /* in: how long until the reveal, so the phones read again at that moment */ if (PUB.size > 500) PUB.clear(); PUB.set(pk, { at: Date.now(), body }); return new Response(body, { headers: { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' } }); }
         if (seg[4] === 'ask' && M === 'POST') { if (doc.audience && doc.audience.ask === false) return err('الأسئلة مغلقة في هذا اللقاء', 403); const b = await req.json().catch(() => ({})), text = String(b.text || '').replace(/\s+/g, ' ').trim().slice(0, 300), name = String(b.name || '').replace(/\s+/g, ' ').trim().slice(0, 60); if (text.length < 3) return err('اكتب سؤالك');
           const ip = req.headers.get('CF-Connecting-IP') || 'local', recent = (await T.prepare('SELECT COUNT(*) AS n FROM questions WHERE event_id = ? AND ip = ? AND at > ?').bind(evId, ip, new Date(Date.now() - 6e4).toISOString()).first()).n; if (recent >= 3) return err('وصلتنا أسئلتك. انتظر دقيقة قبل سؤال آخر.', 429);
           if ((await T.prepare('SELECT COUNT(*) AS n FROM questions WHERE event_id = ? AND at > ?').bind(evId, new Date(Date.now() - 6e4).toISOString()).first()).n >= 40) return err('أسئلة كثيرة الآن. حاول بعد دقيقة.', 429);   // the whole hall: forty a minute, whatever addresses they come from
@@ -374,7 +390,7 @@ const main = {
       }
       if (!p.startsWith('/api/')) {   // /<slug>: the studio of that organisation (the same page; it sends the slug with every request)
         if (p === '/screen' || p === '/screen/') return site(env, req, '/run/pair.html');   // the address a screen is set to open at every start: a code to pair it, then its station
-        const sl = p.match(/^\/([a-z0-9][a-z0-9-]{1,39})\/?$/); if (p === '/login' || (sl && !['run', 'fonts', 'vendor', 'engine', 'admin', 'brand', 'studio'].includes(sl[1]) && await env.DB.prepare('SELECT 1 FROM orgs WHERE slug = ?').bind(sl[1]).first())) return site(env, req, '/studio');   // «/» is the public page; the studio opens at /login and at each organisation's address
+        const sl = p.match(/^\/([a-z0-9][a-z0-9-]{1,39})\/?$/); if (p === '/login' || (sl && !['run', 'fonts', 'vendor', 'engine', 'admin', 'brand', 'studio'].includes(sl[1]) && await env.DB.prepare("SELECT 1 FROM orgs WHERE slug = ? AND plan != 'off'").bind(sl[1]).first())) return site(env, req, '/studio');   // «/» is the public page; the studio opens at /login and at each organisation's address
         return site(env, req, url.pathname); }
 
       // ----- the studio (signed in people)
@@ -449,6 +465,7 @@ const main = {
         if (!sub && M === 'DELETE') { if (!can('owner')) return err('للمالك فقط', 403); await T.prepare('UPDATE events SET status = ?, updated_at = ? WHERE id = ?').bind('archived', now(), id).run(); await audit(env, org.id, id, who.user.id, 'archive'); return J({ ok: true }); }
         if (sub === 'publish' && M === 'POST') {   // freeze the draft as the next version: the screens of the hall read this one
           if (!can('editor')) return err('لا تملك صلاحية الاعتماد', 403); if (org.paid_until && org.paid_until < now()) return err('انتهى اشتراك الجهة', 402); const doc = JSON.parse(ev.draft), bad = problems(doc); if (bad.length) return J({ error: 'أكمل النواقص قبل الاعتماد', problems: bad }, 422);
+          { const pb = await req.json().catch(() => ({})); if (ev.published_version && ev.active_from && ev.active_from <= now() && now() < ev.active_until && pb.live !== true) return J({ error: 'اللقاء مفتوح في القاعة. الشاشات تبقى على النسخة ' + ev.published_version + ' حتى تؤكدوا اعتماد الجديدة.', pinned: ev.published_version }, 409); }
           const v = (ev.published_version || 0) + 1, at = now(); await T.batch([T.prepare('INSERT INTO event_versions (event_id, version, doc, published_by, published_at) VALUES (?,?,?,?,?)').bind(id, v, ev.draft, who.user.id, now()),
             T.prepare('UPDATE events SET published_version = ?, status = ?, updated_at = ? WHERE id = ?').bind(v, 'published', at, id)]);
           await audit(env, org.id, id, who.user.id, 'publish', 'v' + v); const swept = await sweep(env, T, org.id, { ...ev, published_version: v }).catch(() => 0); return J({ version: v, swept, rev: at });   // rev: the draft's stamp after this write, so the studio's next save is not taken for a colleague's
@@ -480,7 +497,7 @@ const main = {
           await T.prepare('INSERT INTO media (id, org_id, event_id, kind, name, r2_key, bytes, created_at) VALUES (?,?,?,?,?,?,?,?)').bind('m_' + rid(), org.id, id, kind, name, key, size, now()).run();
           return J({ id: mid, src: kind === 'slides' ? mid + '/' : file });
         }
-        if (sub === 'links' && M === 'GET') { const { results } = await T.prepare('SELECT token_hash AS id, role, label, created_at FROM links WHERE event_id = ? AND revoked_at IS NULL ORDER BY created_at').bind(id).all(); return J({ links: results.map(l => ({ ...l, id: l.id.slice(0, 16) })) }); }
+        if (sub === 'links' && M === 'GET') { const { results } = await T.prepare('SELECT token_hash AS id, role, label, created_at, opened_at FROM links WHERE event_id = ? AND revoked_at IS NULL ORDER BY created_at').bind(id).all(); return J({ links: results.map(l => ({ ...l, id: l.id.slice(0, 16) })) }); }
         if (sub === 'links' && M === 'POST') { if (!can('operator')) return err('لا تملك الصلاحية', 403); const b = await req.json(); if (!LINK_ROLES.includes(b.role)) return err('نوع شاشة غير معروف');
           const tok = org.id.slice(2) + '.' + rid(24); await T.prepare('INSERT INTO links (token_hash, org_id, event_id, role, label, created_at) VALUES (?,?,?,?,?,?)').bind(await sha(tok), org.id, id, b.role, b.label || '', now()).run();
           await audit(env, org.id, id, who.user.id, 'link', b.role); return J({ url: '/go/' + tok }); }   // the address is shown once; only its hash is kept
