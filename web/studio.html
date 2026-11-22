@@ -153,9 +153,12 @@ function draw() {
   $('#undo').onclick = () => travel(undoS, redoS); $('#redo').onclick = () => travel(redoS, undoS); hist(); steps();
   $('#pub').onclick = publish; ({ cues, people, media, identity, run })[tab]();
 }
-async function publish() { if (E.active_until && new Date(E.active_from) <= new Date() && new Date(E.active_until) > new Date() && E.published_version && !(await ask({ title: 'اللقاء مفتوح في القاعة الآن', text: 'اعتماد نسخة جديدة يجعل كل الشاشات المفتوحة تعيد تحميل نفسها وتنتقل إليها فوراً. لا تعتمدوا أثناء فقرة جارية إلا لضرورة.', ok: 'اعتماد الآن', danger: true }))) return;
-  clearTimeout(st); await line; E.rev = (await api('/api/events/' + E.id, { method: 'PUT', body: JSON.stringify(doc), headers: { 'x-force': '1' } })).rev; const r = await api('/api/events/' + E.id + '/publish', { method: 'POST', soft: true });
-  if (r.problems) { probs = r.problems; tab = 'run'; draw(); toast('أكمل النواقص قبل الاعتماد'); return; } E.published_version = r.version; E.rev = r.rev; toast('اعتُمدت النسخة ' + r.version + '، وتقرؤها الشاشات الآن'); draw(); }
+async function publish() { const openHall = () => ask({ title: 'اللقاء مفتوح في القاعة الآن', text: 'اعتماد نسخة جديدة يجعل كل الشاشات المفتوحة تعيد تحميل نفسها وتنتقل إليها فوراً. لا تعتمدوا أثناء فقرة جارية إلا لضرورة.', ok: 'اعتماد الآن', danger: true });
+  let yes = false; if (E.active_until && new Date(E.active_from) <= new Date() && new Date(E.active_until) > new Date() && E.published_version) { if (!(await openHall())) return; yes = true; }
+  clearTimeout(st); await line; E.rev = (await api('/api/events/' + E.id, { method: 'PUT', body: JSON.stringify(doc), headers: { 'x-force': '1' } })).rev;
+  let r = await api('/api/events/' + E.id + '/publish', { method: 'POST', soft: true, body: JSON.stringify({ live: yes }) });
+  if (r.pinned) { if (!(await openHall())) { toast('بقيت الشاشات على النسخة ' + r.pinned); return; } r = await api('/api/events/' + E.id + '/publish', { method: 'POST', soft: true, body: JSON.stringify({ live: true }) }); }   // the hall opened since this page last looked: the server asks for the yes
+  if (r.problems) { probs = r.problems; tab = 'run'; draw(); toast('أكمل النواقص قبل الاعتماد'); return; } if (!r.version) return; E.published_version = r.version; E.rev = r.rev; toast('اعتُمدت النسخة ' + r.version + '، وتقرؤها الشاشات الآن'); draw(); }
 
 // ---------- cues
 function cues() { const body = $('#body'), c = doc.cues.find(x => x.id === sel) || doc.cues[0]; let n = 0;

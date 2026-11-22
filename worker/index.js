@@ -125,19 +125,20 @@ async function sweep(env, T, org, ev) {
   const need = new Set(); for (const d of docs) { for (const m of Object.values(d.media || {})) if (m.src) need.add(m.src); for (const k of ['before', 'after']) if (d.identity && d.identity[k] && d.identity[k].logo) need.add(d.identity[k].logo); }
   const base = `${org}/${ev.id}/`, old = Date.now() - 36e5, gone = [];
   for (const o of await listAll(env, base)) { const f = o.key.slice(base.length), top = f.includes('/') ? f.split('/')[0] + '/' : f; if (!need.has(top) && o.uploaded.getTime() < old) gone.push(o.key); }
+  for (const k of gone) { const o = await env.MEDIA.get(k); if (o) await env.MEDIA.put('_trash/' + k, o.body, { httpMetadata: o.httpMetadata }); }   // kept 14 days, so a restored copy finds its files
   for (let i = 0; i < gone.length; i += 500) await env.MEDIA.delete(gone.slice(i, i + 500));
   if (gone.length) { const { results } = await T.prepare('SELECT id, r2_key FROM media WHERE event_id = ?').bind(ev.id).all(); const dead = results.filter(r => gone.includes(r.r2_key)); for (const r of dead) await T.prepare('DELETE FROM media WHERE id = ?').bind(r.id).run(); }
   return gone.length;
 }
 // an organisation as one document: who it is, its people, and everything in its own database (files are listed, not included)
-async function exportOrg(env, id) { const org = await env.DB.prepare('SELECT * FROM orgs WHERE id = ?').bind(id).first(); if (!org) return null;
+async function exportOrg(env, id, raw) { const org = await env.DB.prepare('SELECT * FROM orgs WHERE id = ?').bind(id).first(); if (!org) return null;
   const members = (await env.DB.prepare('SELECT u.email, u.name, m.role FROM members m JOIN users u ON u.id = m.user_id WHERE m.org_id = ?').bind(id).all()).results, data = await tdb(env, id).dump();
-  data.links = data.links.map(l => ({ ...l, token_hash: undefined })); return { exported_at: now(), org, members, ...data, files: (await listAll(env, id + '/')).map(o => ({ key: o.key, bytes: o.size })) }; }
+  if (!raw) data.links = data.links.map(l => ({ ...l, token_hash: undefined })); return { exported_at: now(), org, members, ...data, files: (await listAll(env, id + '/')).map(o => ({ key: o.key, bytes: o.size })) }; }
 // the nightly copy: the control database and every organisation, as JSON in the bucket (_backup/<day>/), kept for 14 days
 async function backup(env) { const day = now().slice(0, 10), orgs = (await env.DB.prepare('SELECT id FROM orgs').all()).results, ctl = {};
   for (const t of ['orgs', 'users', 'members', 'passkeys', 'leads']) ctl[t] = (await env.DB.prepare(`SELECT * FROM ${t}`).all()).results;
-  await env.MEDIA.put(`_backup/${day}/control.json`, JSON.stringify(ctl)); for (const o of orgs) await env.MEDIA.put(`_backup/${day}/${o.id}.json`, JSON.stringify(await exportOrg(env, o.id)));
-  const keep = new Date(Date.now() - 14 * 864e5).toISOString().slice(0, 10), old = (await listAll(env, '_backup/')).filter(o => o.key.split('/')[1] < keep).map(o => o.key); for (let i = 0; i < old.length; i += 500) await env.MEDIA.delete(old.slice(i, i + 500));
+  await env.MEDIA.put(`_backup/${day}/control.json`, JSON.stringify(ctl)); for (const o of orgs) await env.MEDIA.put(`_backup/${day}/${o.id}.json`, JSON.stringify(await exportOrg(env, o.id, true)));
+  const keep = new Date(Date.now() - 14 * 864e5).toISOString().slice(0, 10), old = [...(await listAll(env, '_backup/')).filter(o => o.key.split('/')[1] < keep), ...(await listAll(env, '_trash/')).filter(o => o.uploaded.toISOString().slice(0, 10) < keep)].map(o => o.key);   // the files taken out by the sweep wait in _trash/ as long as the copies that may still need them for (let i = 0; i < old.length; i += 500) await env.MEDIA.delete(old.slice(i, i + 500));
   return { day, orgs: orgs.length, removed: old.length }; }
 let backupDay = '';
 const main = {
@@ -185,6 +186,15 @@ const main = {
         await tdb(env, o.id).wipe(); await env.DB.batch([env.DB.prepare('DELETE FROM members WHERE org_id = ?').bind(o.id), env.DB.prepare('DELETE FROM orgs WHERE id = ?').bind(o.id)]); await padd(env, 'org_deleted', `${o.name} /${o.slug} · ${keys.length} ملف`); return J({ ok: true, files: keys.length }); }
       if (p === '/api/admin/backup' && M === 'POST') { const r = await backup(env); await padd(env, 'backup', r.day); return J(r); }
       if (p === '/api/admin/audit' && M === 'GET') return J({ audit: (await env.DB.prepare('SELECT action, detail, at FROM platform_audit ORDER BY id DESC LIMIT 200').all()).results });
+      if (p === '/api/admin/restore' && M === 'POST') {   // an organisation's database as it was on a day of the copies; its files come back from the trash. The address is typed to confirm
+        const b = await req.json().catch(() => ({})), o = await env.DB.prepare('SELECT * FROM orgs WHERE id = ?').bind(String(b.org || '')).first(); if (!o) return err('لا يوجد', 404); if (b.confirm !== o.slug) return err('اكتب عنوان الجهة للتأكيد');
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(String(b.day || ''))) return err('اختر يوماً'); const f = await env.MEDIA.get(`_backup/${b.day}/${o.id}.json`); if (!f) return err('لا نسخة لهذه الجهة في هذا اليوم', 404); const d = await f.json();
+        await env.MEDIA.put(`_backup/${now().slice(0, 10)}/${o.id}.before-restore-${Date.now()}.json`, JSON.stringify(await exportOrg(env, o.id, true)));   // the present is kept first, so a restore can itself be undone
+        const T = tdb(env, o.id), st = ['questions', 'audit', 'links', 'media', 'event_versions', 'events'].map(t => ({ sql: `DELETE FROM ${t}`, params: [] }));
+        for (const t of ['events', 'event_versions', 'media', 'links', 'audit', 'questions']) for (const r of d[t] || []) { if (t === 'links' && !r.token_hash) continue; const k = Object.keys(r); st.push({ sql: `INSERT INTO ${t} (${k.join(',')}) VALUES (${k.map(() => '?').join(',')})`, params: k.map(x => r[x]) }); }
+        await T.batch(st); let back = 0; for (const x of d.files || []) { if (await env.MEDIA.head(x.key)) continue; const t = await env.MEDIA.get('_trash/' + x.key); if (t) { await env.MEDIA.put(x.key, t.body, { httpMetadata: t.httpMetadata }); back++; } }
+        await kickOrg(env, o.id); await padd(env, 'restored', `${o.name} /${o.slug} ← ${b.day} · ${(d.events || []).length} لقاء · ${back} ملف`); return J({ ok: true, events: (d.events || []).length, files: back }); }
+      if (p === '/api/admin/backup/days' && M === 'GET') { const org = url.searchParams.get('org'); return J({ days: [...new Set((await listAll(env, '_backup/')).filter(x => x.key.endsWith('/' + org + '.json')).map(x => x.key.split('/')[1]))].sort().reverse() }); }
       if (p === '/api/admin/backup' && M === 'GET') { const days = [...new Set((await listAll(env, '_backup/')).map(o => o.key.split('/')[1]))].sort(); return J({ days, last: days[days.length - 1] || null }); }
       if (p === '/api/admin/password' && M === 'POST') {   // a new password for a member of an organisation (the old one stops working)
         const b = await req.json(), u = await env.DB.prepare('SELECT u.id, u.email FROM users u JOIN members m ON m.user_id = u.id WHERE m.org_id = ? AND u.email = ?').bind(b.org, String(b.email || '').toLowerCase()).first(); if (!u) return err('ليس عضواً في هذه الجهة', 404);
@@ -245,6 +255,9 @@ const main = {
         if (env.CONTACT_TO) mailed = await mail(env, { to: env.CONTACT_TO, replyTo: email || undefined, subject: `طلب جديد من ${name}${L.org ? ' · ' + L.org : ''}`,
           text: `الاسم: ${name}\nالجهة: ${L.org}\nالجوال: ${phone}\nالبريد: ${email}\nنوع المناسبة: ${L.kind}\nالموعد المتوقع: ${L.date}\n\n${L.message}\n\nمن نموذج التواصل في ${url.origin}` });
         await env.DB.prepare('INSERT INTO leads (name, org, phone, email, kind, event_date, message, ip, created_at, mailed) VALUES (?,?,?,?,?,?,?,?,?,?)').bind(name, L.org, phone, email, L.kind, L.date, L.message, ip, now(), mailed).run(); return J({ ok: true }); }
+      if (p === '/api/passkeys' && (M === 'GET' || M === 'DELETE')) { const w = await me(req, env); if (!w || !w.user) return err('ادخل أولاً', 401);
+        if (M === 'DELETE') { const id = url.searchParams.get('id') || ''; await env.DB.prepare('DELETE FROM passkeys WHERE cred_id = ? AND user_id = ?').bind(id, w.user.id).run(); if (w.user.id === 'platform') await padd(env, 'passkey_removed', id.slice(0, 10)); return J({ ok: true }); }
+        return J({ passkeys: (await env.DB.prepare('SELECT cred_id AS id, label, created_at, last_used_at FROM passkeys WHERE user_id = ? ORDER BY created_at').bind(w.user.id).all()).results }); }
       // ----- passkeys: add one while signed in; sign in with one from the gate (the device offers the passkeys it holds for this site)
       if (p.startsWith('/api/passkey/')) { const b = M === 'POST' ? await req.json().catch(() => ({})) : {};
         // the browser names the site it signed for; it must be this site (or localhost in development, where the server answers under the route's name)
@@ -408,6 +421,7 @@ const main = {
         if (!sub && M === 'DELETE') { if (!can('owner')) return err('للمالك فقط', 403); await T.prepare('UPDATE events SET status = ?, updated_at = ? WHERE id = ?').bind('archived', now(), id).run(); await audit(env, org.id, id, who.user.id, 'archive'); return J({ ok: true }); }
         if (sub === 'publish' && M === 'POST') {   // freeze the draft as the next version: the screens of the hall read this one
           if (!can('editor')) return err('لا تملك صلاحية الاعتماد', 403); if (org.paid_until && org.paid_until < now()) return err('انتهى اشتراك الجهة', 402); const doc = JSON.parse(ev.draft), bad = problems(doc); if (bad.length) return J({ error: 'أكمل النواقص قبل الاعتماد', problems: bad }, 422);
+          { const pb = await req.json().catch(() => ({})); if (ev.published_version && ev.active_from && ev.active_from <= now() && now() < ev.active_until && pb.live !== true) return J({ error: 'اللقاء مفتوح في القاعة. الشاشات تبقى على النسخة ' + ev.published_version + ' حتى تؤكدوا اعتماد الجديدة.', pinned: ev.published_version }, 409); }
           const v = (ev.published_version || 0) + 1, at = now(); await T.batch([T.prepare('INSERT INTO event_versions (event_id, version, doc, published_by, published_at) VALUES (?,?,?,?,?)').bind(id, v, ev.draft, who.user.id, now()),
             T.prepare('UPDATE events SET published_version = ?, status = ?, updated_at = ? WHERE id = ?').bind(v, 'published', at, id)]);
           await audit(env, org.id, id, who.user.id, 'publish', 'v' + v); const swept = await sweep(env, T, org.id, { ...ev, published_version: v }).catch(() => 0); return J({ version: v, swept, rev: at });   // rev: the draft's stamp after this write, so the studio's next save is not taken for a colleague's

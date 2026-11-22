@@ -11,8 +11,9 @@ const ok = (c, m) => { console.log((c ? '✓ ' : '✗ ') + m); if (!c) process.e
   // the owner: password, then a passkey
   await p.goto(B + '/admin.html'); await p.waitForSelector('#pw'); await p.fill('#pw', 'wrong'); await p.click('#pwIn'); await p.waitForTimeout(600); ok(!!(await p.$('#pw')), 'a wrong password does not open the owner\'s page');
   await p.fill('#pw', AK); await p.click('#pwIn'); await p.waitForSelector('#pkAdd'); ok(true, 'the owner signed in with the password');
-  await p.click('#pkAdd'); await p.waitForFunction(() => /أُضيف مفتاح المرور/.test(document.querySelector('#toast').textContent)); ok(true, 'the owner added a passkey');
-  await p.goto(B + '/api/logout'); await p.goto(B + '/admin.html'); await p.waitForSelector('#pkIn'); await p.click('#pkIn'); await p.waitForSelector('#pkAdd'); ok((await p.textContent('#pkAdd')).match(/مفاتيح المرور: [1-9]/), 'signed out, then back in with the passkey alone');
+  await p.click('#pkAdd'); await p.waitForSelector('#pkNew'); await p.waitForTimeout(500); const n0 = (await p.$$('[data-k]')).length; await p.click('#pkNew'); await p.waitForFunction(n => document.querySelectorAll('[data-k]').length === n + 1, n0); ok(true, 'the owner opened the passkeys, added one, and it is listed');
+  await p.goto(B + '/api/logout'); await p.goto(B + '/admin.html'); await p.waitForSelector('#pkIn'); await p.click('#pkIn'); await p.waitForSelector('#pkAdd'); ok((await p.textContent('#pkAdd')).match(/مفاتيح المرور \([1-9]/), 'signed out, then back in with the passkey alone');
+  { await p.click('#pkAdd'); await p.waitForSelector('[data-k]'); const n = (await p.$$('[data-k]')).length; await p.click('#pkNew'); await p.waitForFunction(n => document.querySelectorAll('[data-k]').length === n + 1, n); await p.click('[data-k]'); await p.waitForFunction(n => document.querySelectorAll('[data-k]').length === n, n); ok(true, 'a second device added, and one taken out from the list'); }
   await p.waitForSelector('#rows tr'); ok((await p.$$('#rows tr')).length >= 1, 'the owner\'s page lists the organisations');
   // a member of an organisation
   const s = 'pk' + Date.now() % 1e6; await p.fill('#n', 'جهة مفتاح المرور'); await p.fill('#s', s); await p.fill('#e', s + '@t.test'); await p.click('#mk'); await p.waitForSelector('#join'); const join = await p.textContent('#join');
