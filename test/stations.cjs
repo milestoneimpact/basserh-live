@@ -100,7 +100,7 @@ const adm = (method, body) => fetch(B + '/api/admin/org', { method, headers: { '
   await p.click('[data-t="stations"]'); await p.waitForSelector('#stN'); await p.fill('#stN', '3'); await p.click('#stAdd'); await p.waitForFunction(() => document.querySelectorAll('[data-del]').length === 6); ok(true, 'three stations added in one move');
   await p.click('[data-cp="s1"]'); await p.waitForFunction(() => document.querySelectorAll('[data-del]').length === 7); ok(await p.locator('[data-k="name"]').nth(1).inputValue() === 'بوابة الإنجازات (نسخة)', 'a station copied, next to it');
   await p.click('#stDist'); await p.waitForTimeout(300); const ms = await p.$$eval('select[data-k="media"]', l => l.map(x => x.value)); ok(ms.every(Boolean) && ms[0] !== ms[1] && ms[0] === ms[2], 'the files given to the stations in order: ' + ms.join(','));
-  const target = p.locator('[data-drop]').nth(0), want = await p.locator('[data-lib]').nth(1).getAttribute('data-lib'); await p.locator('[data-lib]').nth(1).dragTo(target); await p.waitForTimeout(400);
+  const target = p.locator('[data-drop]').nth(0), want = await p.locator('[data-lib]').nth(1).getAttribute('data-lib'); await target.evaluate(e => e.scrollIntoView({ block: 'end' })); await p.locator('[data-lib]').nth(1).dragTo(target, { targetPosition: { x: 40, y: 30 } }); await p.waitForTimeout(400);
   ok(await p.locator('select[data-k="media"]').nth(0).inputValue() === want, 'a cover dragged from the library onto a station gives it that file'); await p.screenshot({ path: OUT + '14_library.jpg', type: 'jpeg', quality: 80, fullPage: true });
   ok(!errs.length, 'no page errors' + (errs.length ? ': ' + errs.join(' | ') : ''));
   await b.close();

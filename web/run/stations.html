@@ -27,11 +27,16 @@ main{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:
 .card.hot{outline:3px dashed var(--gold);outline-offset:-3px}
 #pm{position:fixed;inset:0;z-index:60;background:rgba(5,7,8,.8);display:none;place-items:center}#pm.on{display:grid}#pm .box{background:#171D21;border:1px solid rgba(228,204,151,.3);border-radius:18px;padding:26px;width:min(440px,92vw);display:grid;gap:12px}#pm h2{font:900 22px Kufi;margin:0;color:#E4CC97}#pm p{margin:0;font:400 14px/1.8 Plex;color:#B9C2C0}
 #pmC{font:600 40px Corm,serif;letter-spacing:.3em;text-align:center;background:#0E1114;color:#fff;border:1px solid rgba(228,204,151,.3);border-radius:12px;padding:10px}#pmE{color:#FFB4A4;font:600 13px Plex;min-height:1em}#pm .row{display:flex;gap:8px}
+#alerts{display:none;gap:8px;flex-wrap:wrap;padding:10px 26px;background:#2A1612;border-bottom:1px solid #C2533F}#alerts.on{display:flex}.al{border:1px solid #C2533F;background:#4A1D16;color:#FFD2C6;border-radius:999px;padding:6px 14px;font:600 13px Plex;cursor:pointer}.al.idle{background:#3A3016;border-color:#C9A45A;color:#F0DDB0}
+/* on a phone: one column, the tools wrap, big targets for a thumb */
+@media (max-width:760px){header{padding:10px 14px;gap:8px}header h1{font-size:16px;flex-basis:100%;order:-1}.wm{display:none}header .b{flex:1 1 auto;padding:10px}.all,.lib{padding:10px 14px}.all select{min-width:0;flex:1 1 100%}.lib span{display:none}
+  main{grid-template-columns:1fr;padding:12px 14px;gap:12px}.row .b,.row select{padding:10px;font-size:14px}#big .ft{padding:10px 14px}#big .ft .b,#big .ft select{flex:1 1 45%}#big .scr{margin:0 10px}#alerts{padding:8px 14px}#pm .box{padding:18px}}
 #toast{position:fixed;bottom:22px;left:50%;transform:translateX(-50%);background:#E4CC97;color:#0E1114;font:600 15px Plex;padding:10px 20px;border-radius:12px;opacity:0;transition:.3s;pointer-events:none;z-index:99}#toast.on{opacity:1}
 </style></head><body>
 <header><div class="wm">بصيرة<i></i><span>BASSERH</span></div><h1 id="ttl">لوحة المحطات</h1><span class="pill" id="mode"></span><span class="pill" id="cnt"></span><span class="pill" id="vis" title="الجلسات المكتملة: من أول لمسة حتى عودة الشاشة إلى البداية"></span><span class="sp"></span>
-  <button class="b on" id="pair" title="شاشة تعرض رمز الربط: اكتبوا رمزها واختاروا محطتها">ربط شاشة</button><button class="b" id="ident" title="تظهر على كل شاشة اسمها ست ثوانٍ، فتطابق القائمة مع المكان">تعريف الشاشات</button><button class="b" id="home">كل المحطات إلى البداية</button></header>
+  <button class="b" id="alOn" title="صوت وإشعار حين تنقطع شاشة أو يتعذر فتح ملفها"></button><button class="b on" id="pair" title="شاشة تعرض رمز الربط: اكتبوا رمزها واختاروا محطتها">ربط شاشة</button><button class="b" id="ident" title="تظهر على كل شاشة اسمها ست ثوانٍ، فتطابق القائمة مع المكان">تعريف الشاشات</button><button class="b" id="home">كل المحطات إلى البداية</button></header>
 <div class="all"><span>ملف واحد لكل المحطات:</span><select id="allF"></select><button class="b" id="allGo">تطبيق على الكل</button><button class="b" id="allBack" title="كل محطة تعود إلى الملف المحدد لها في الاستوديو">إرجاع ملفاتها الأصلية</button></div>
+<div id="alerts"></div>
 <div class="lib"><span>اسحب غلافاً إلى أي شاشة لتبديل ملفها:</span><div id="lib"></div></div>
 <main id="grid"></main>
 <div id="pm"><div class="box"><h2>ربط شاشة</h2><p>افتحوا على الشاشة العنوان <code dir="ltr" id="pmU"></code> فيظهر عليها رمز من ستة أرقام.</p><input id="pmC" inputmode="numeric" maxlength="7" placeholder="000000" dir="ltr"><select id="pmS"></select><div id="pmE"></div><div class="row"><button class="b on" id="pmGo">ربط</button><button class="b" id="pmX">إغلاق</button></div></div></div>
@@ -40,28 +45,32 @@ main{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:
 <div id="toast"></div>
 <script type="module">
 import { connect, $, esc } from './run.js';
-import { openPdf, draw } from './book.js';
-import { stationCfg } from '../engine/config.js';
+import { openPdf, draw, imageDoc } from './book.js';
+import { stationCfg, STATION_KINDS, scheduled } from '../engine/config.js';
 import { stationMedia } from '../engine/state.js';
 const toast = t => { const e = $('#toast'); e.textContent = t; e.classList.add('on'); clearTimeout(toast.t); toast.t = setTimeout(() => e.classList.remove('on'), 2400); };
 const link = await connect(), D = link.doc, Q = new URLSearchParams(location.search), ST = (D.stations || []).map(stationCfg);
 if (link.role !== 'console') { document.body.innerHTML = '<p style="text-align:center;margin-top:40vh">هذه اللوحة للمشغّل</p>'; throw new Error('role'); }
 $('#ttl').textContent = D.name; document.title = 'لوحة المحطات · ' + D.name; $('#mode').textContent = link.draft ? 'تجربة على المسودة' : 'العرض الحي'; $('#mode').className = 'pill' + (link.draft ? ' reh' : '');
-const PDFS = Object.entries(D.media || {}).filter(([, m]) => m.kind === 'pdf'), opts = sel => `<option value="">ملفها الأصلي</option>` + PDFS.map(([k, m]) => `<option value="${k}" ${k === sel ? 'selected' : ''}>${esc(m.name)}${m.count ? ' · ' + m.count + ' صفحة' : ''}</option>`).join('');
+const KINDW = { pdf: 'صفحة', slides: 'صورة', video: 'فيديو' }, PDFS = Object.entries(D.media || {}).filter(([, m]) => STATION_KINDS.includes(m.kind)), opts = sel => `<option value="">ملفها الأصلي</option>` + PDFS.map(([k, m]) => `<option value="${k}" ${k === sel ? 'selected' : ''}>${esc(m.name)}${m.kind === 'video' ? ' · فيديو' : m.count ? ' · ' + m.count + ' ' + KINDW[m.kind] : ''}</option>`).join('');
 $('#allF').innerHTML = PDFS.map(([k, m]) => `<option value="${k}">${esc(m.name)}</option>`).join('');
 // the files, opened once each; a page drawn once for a size
-const docs = new Map(), pdfOf = k => { if (!docs.has(k)) docs.set(k, openPdf(link.base + D.media[k].src)); return docs.get(k); };
-const drawn = new Map(); async function pageCv(k, n, w, h) { const key = `${k}:${n}:${w}`; if (!drawn.has(key)) { if (drawn.size > 80) drawn.clear(); drawn.set(key, pdfOf(k).then(p => draw(p, Math.min(n, p.numPages), w, h)).then(r => r.cv)); } const src = await drawn.get(key), c = document.createElement('canvas'); c.width = src.width; c.height = src.height; c.style.cssText = src.style.cssText; c.getContext('2d').drawImage(src, 0, 0); return c; }
+const docs = new Map(), pdfOf = k => { const m = D.media[k]; if (!docs.has(k)) docs.set(k, m.kind === 'slides' ? Promise.resolve(imageDoc(m.count || 0, n => link.base + m.src + 's-' + n + '.jpg')) : openPdf(link.base + m.src)); return docs.get(k); };
+// a film is drawn as a card with its name (the board does not play twenty films)
+const filmCv = (k, w, h) => { const c = document.createElement('canvas'), r = Math.min(2, devicePixelRatio || 1); c.width = w * r; c.height = Math.round(w * 9 / 16) * r; c.style.width = w + 'px'; const g = c.getContext('2d'); g.fillStyle = '#111'; g.fillRect(0, 0, c.width, c.height); g.fillStyle = '#E4CC97'; g.beginPath(); const cx = c.width / 2, cy = c.height / 2 - 14 * r; g.moveTo(cx - 18 * r, cy - 22 * r); g.lineTo(cx + 24 * r, cy); g.lineTo(cx - 18 * r, cy + 22 * r); g.fill(); g.font = `600 ${15 * r}px Plex, sans-serif`; g.textAlign = 'center'; g.fillText(D.media[k].name || 'فيديو', cx, cy + 50 * r); return c; };
+const drawn = new Map(); async function pageCv(k, n, w, h) { if (D.media[k] && D.media[k].kind === 'video') return filmCv(k, w, h); const key = `${k}:${n}:${w}`; if (!drawn.has(key)) { if (drawn.size > 80) drawn.clear(); drawn.set(key, pdfOf(k).then(p => draw(p, Math.min(n, p.numPages), w, h)).then(r => r.cv)); } const src = await drawn.get(key), c = document.createElement('canvas'); c.width = src.width; c.height = src.height; c.style.cssText = src.style.cssText; c.getContext('2d').drawImage(src, 0, 0); return c; }
 
 $('#grid').innerHTML = ST.map((s, i) => `<div class="card" data-s="${s.id}"><div class="scr"><div class="pv"><div class="em">ينتظر الاتصال</div></div><span class="tag"><i></i><em></em></span><span class="zm"></span><div class="dk">المحطة مطفأة</div></div>
-  <div class="inf"><div class="nm"><b>${i + 1}. ${esc(s.name)}</b><span class="pg"></span></div><div class="sub"><span>${esc(s.place || '')}</span><span class="tc"></span></div><div class="sub vs"><span></span><span></span></div>
+  <div class="inf"><div class="nm"><b>${i + 1}. ${esc(s.name)}</b><span class="pg"></span></div><div class="sub"><span>${esc(s.place || '')}</span><span class="tc"></span></div><div class="sub vs"><span></span><span></span></div><div class="sub sc" style="color:var(--gold2)"></div>
   <div class="row"><select data-f>${opts('')}</select><button class="b" data-h>البداية</button><button class="b" data-d></button><button class="b" data-z>تكبير</button></div></div></div>`).join('') || '<p style="grid-column:1/-1;text-align:center;color:#A9B2B4">لا محطات في هذا اللقاء. أضيفوها من الاستوديو.</p>';
 
 let S = link.state || {}, HALL = {}, big = null; const send = c => link.send(c);
 // the station as the board knows it: the latest report of a screen of that station, and the room's state for it
 const now = () => Date.now(), ago = t => { const s = Math.round((now() - t) / 1000); return s < 10 ? 'الآن' : s < 60 ? `منذ ${s} ث` : s < 3600 ? `منذ ${Math.round(s / 60)} د` : `منذ ${Math.round(s / 3600)} س`; };
-const repOf = sid => Object.values(HALL || {}).filter(r => r.kind === 'station' && r.sid === sid).sort((a, b) => b.at - a.at)[0] || null;
-const info = sid => { const r = repOf(sid), x = (S.st || {})[sid] || {}, media = stationMedia(D, S, sid), on = !!r && now() - r.at < 40000;
+// a station that leaves the room is not forgotten: its last report stays, so the board can say since when it is gone
+const SEEN = new Map(), liveOf = sid => Object.values(HALL || {}).filter(r => r.kind === 'station' && r.sid === sid).sort((a, b) => b.at - a.at)[0] || null;
+const repOf = sid => { const r = liveOf(sid); if (r) { SEEN.set(sid, r); return r; } return SEEN.get(sid) || null; };
+const info = sid => { const r = repOf(sid), x = (S.st || {})[sid] || {}, media = stationMedia(D, S, sid), on = !!liveOf(sid) && now() - r.at < 40000;
   return { r, on, dark: !!x.dark, media, shown: r && r.media ? r.media : media, page: r ? r.page : 0, pages: r ? r.pages : 0, z: r ? r.z : 1, x: r ? r.x : .5, y: r ? r.y : .5, busy: on && r.touch && now() - r.touch < 15000 && !r.idle, idle: r ? r.idle : false, touch: r ? r.touch : 0 }; };
 const status = i => !i.on ? ['off', 'غير متصلة'] : i.dark ? ['off', 'مطفأة'] : i.busy ? ['on', 'زائر يتصفح الآن'] : i.idle ? ['idle', 'تنتظر زائراً'] : ['idle', 'متصلة'];
 // one picture of a station: its page, brought as close as the visitor brought it
@@ -70,11 +79,27 @@ const last = new WeakMap(); async function paintScr(el, i, w, h) { const pv = el
   pv.style.transformOrigin = `${i.x * 100}% ${i.y * 100}%`; pv.style.transform = i.z > 1.05 ? `scale(${i.z})` : '';
   if (!i.shown || !D.media[i.shown]) { if (last.get(el) !== 'none') { last.set(el, 'none'); pv.innerHTML = `<div class="em">${i.on ? 'لا ملف' : 'ينتظر الاتصال'}</div>`; } return; }
   if (last.get(el) === key) return; last.set(el, key); try { const c = await pageCv(i.shown, Math.max(1, i.page || 1), w, h); if (last.get(el) === key) pv.replaceChildren(c); } catch { pv.innerHTML = '<div class="em">تعذّر فتح الملف</div>'; } }
-function paint() { const on = ST.filter(s => info(s.id).on).length; $('#cnt').textContent = `متصلة ${on.toLocaleString('ar')} من ${ST.length.toLocaleString('ar')}`; $('#cnt').className = 'pill ' + (on === ST.length && on ? 'ok' : on ? '' : 'bad');
+// the next turn of a station's schedule (in the event's time zone)
+const nextOf = sid => { const st = ST.find(x => x.id === sid), list = (st && st.schedule || []).filter(x => /^\d\d:\d\d$/.test(x.at)).sort((a, b) => a.at < b.at ? -1 : 1); if (!list.length) return null; const t = new Intl.DateTimeFormat('en-GB', { timeZone: D.tz || undefined, hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(new Date()); return list.find(x => x.at > t) || list[0]; };
+// ----- the alerts: a station cut off for twenty seconds, a station whose file failed, a station nobody has touched for an hour while the hall is open
+const AL = new Map(); let alertOn = false; try { alertOn = localStorage.getItem('alerts:' + Q.get('e')) === '1'; } catch {}
+function alerts() { const now2 = Date.now(), list = [];
+  for (const st of ST) { const i = info(st.id), r = i.r; let a = null;
+    if (r && !i.on && now2 - r.at > 20000) a = { k: 'off', t: `${st.name}: انقطعت ${ago(r.at)}` };
+    else if (r && i.on && r.err) a = { k: 'err', t: `${st.name}: ${r.err}` };
+    else if (r && i.on && !i.dark && (now2 - (i.touch || r.at)) > 36e5 && !link.draft) a = { k: 'idle', t: `${st.name}: لم يلمسها أحد منذ ساعة` };
+    const was = AL.get(st.id); if (a) { list.push({ ...a, sid: st.id }); if (!was || was.k !== a.k) { AL.set(st.id, a); if (alertOn && a.k !== 'idle') ping(a.t); } } else AL.delete(st.id); }
+  $('#alerts').innerHTML = list.map(a => `<button class="al ${a.k}" data-s="${a.sid}">${esc(a.t)}</button>`).join(''); $('#alerts').classList.toggle('on', list.length > 0);
+  document.querySelectorAll('#alerts .al').forEach(b => b.onclick = () => document.querySelector(`.card[data-s="${b.dataset.s}"] [data-z]`)?.click()); }
+function ping(t) { try { if (window.Notification && Notification.permission === 'granted') new Notification('لوحة المحطات', { body: t, tag: 'st-' + t }); } catch {}
+  try { const ac = ping.ac || (ping.ac = new (window.AudioContext || window.webkitAudioContext)()), o = ac.createOscillator(), g = ac.createGain(); o.frequency.value = 880; g.gain.setValueAtTime(.0001, ac.currentTime); g.gain.exponentialRampToValueAtTime(.2, ac.currentTime + .02); g.gain.exponentialRampToValueAtTime(.0001, ac.currentTime + .5); o.connect(g).connect(ac.destination); o.start(); o.stop(ac.currentTime + .55); } catch {} }
+$('#alOn').textContent = alertOn ? 'التنبيهات مفعّلة' : 'تفعيل التنبيهات'; $('#alOn').classList.toggle('on', alertOn);
+$('#alOn').onclick = async () => { alertOn = !alertOn; try { localStorage.setItem('alerts:' + Q.get('e'), alertOn ? '1' : '0'); } catch {} if (alertOn && window.Notification && Notification.permission === 'default') { try { await Notification.requestPermission(); } catch {} } $('#alOn').textContent = alertOn ? 'التنبيهات مفعّلة' : 'تفعيل التنبيهات'; $('#alOn').classList.toggle('on', alertOn); if (alertOn) ping('ستصلك التنبيهات هنا'); };
+function paint() { alerts(); const on = ST.filter(s => info(s.id).on).length; $('#cnt').textContent = `متصلة ${on.toLocaleString('ar')} من ${ST.length.toLocaleString('ar')}`; $('#cnt').className = 'pill ' + (on === ST.length && on ? 'ok' : on ? '' : 'bad');
   for (const card of document.querySelectorAll('.card')) { const sid = card.dataset.s, i = info(sid), [k, t] = status(i), tag = card.querySelector('.tag');
     card.classList.toggle('live', i.busy); tag.className = 'tag ' + k; tag.querySelector('em').textContent = t;
     card.querySelector('.pg').textContent = i.pages ? `صفحة ${i.page.toLocaleString('ar')} من ${i.pages.toLocaleString('ar')}` : '';
-    card.querySelector('.tc').textContent = i.touch ? 'آخر لمسة ' + ago(i.touch) : ''; const f = card.querySelector('[data-f]'); if (document.activeElement !== f) f.value = ((S.st || {})[sid] || {}).media || '';
+    card.querySelector('.tc').textContent = i.touch ? 'آخر لمسة ' + ago(i.touch) : ''; const nx = nextOf(sid), scd = card.querySelector('.sc'); if (scd) scd.textContent = nx ? `الجدولة: ${nx.at} «${(D.media[nx.media] || {}).name || ''}»` : ''; const f = card.querySelector('[data-f]'); if (document.activeElement !== f) f.value = ((S.st || {})[sid] || {}).media || '';
     card.querySelector('[data-d]').textContent = i.dark ? 'تشغيل' : 'إطفاء'; const sc = card.querySelector('.scr'); paintScr(sc, i, Math.round(sc.clientWidth * .94), Math.round(sc.clientHeight * .94)); }
   if (big) { const i = info(big), s = ST.find(x => x.id === big), [, t] = status(i); $('#bS').textContent = t; $('#bI').textContent = (i.pages ? `صفحة ${i.page} من ${i.pages} · ` : '') + (i.touch ? 'آخر لمسة ' + ago(i.touch) : '');
     if (document.activeElement !== $('#bF')) $('#bF').value = ((S.st || {})[big] || {}).media || ''; $('#bD').textContent = i.dark ? 'تشغيل المحطة' : 'إطفاء المحطة'; const sc = $('#bScr'); paintScr(sc, i, Math.round(sc.clientWidth * .96), Math.round(sc.clientHeight * .96)); $('#bN').textContent = s ? s.name + (s.place ? ' · ' + s.place : '') : ''; } }
@@ -90,7 +115,7 @@ $('#bO').onclick = () => window.open(`station.html?e=${Q.get('e')}&s=${big}${lin
 $('#ident').onclick = () => send({ type: 'ident' }); $('#home').onclick = () => { if (confirm('تعود كل المحطات إلى صفحتها الأولى، ومن يتصفح الآن يبدأ من جديد. متابعة؟')) send({ type: 'sreset' }); };
 $('#allGo').onclick = () => { const k = $('#allF').value; if (!k || !confirm(`«${D.media[k].name}» على كل المحطات؟`)) return; send({ type: 'assign', ids: ST.map(s => s.id), media: k }); toast('أُرسل الملف إلى كل المحطات'); };
 // the library: a cover dragged onto a screen gives it that file
-$('#lib').innerHTML = PDFS.map(([k, m]) => `<div class="cv" draggable="true" data-k="${k}" title="${esc(m.name)}"><div>${m.cover ? `<img src="${link.base + m.cover}">` : 'PDF'}</div><small>${esc(m.name)}</small></div>`).join('');
+$('#lib').innerHTML = PDFS.map(([k, m]) => `<div class="cv" draggable="true" data-k="${k}" title="${esc(m.name)}"><div>${m.kind === 'slides' ? `<img src="${link.base + m.src}s-1.jpg">` : m.cover ? `<img src="${link.base + m.cover}">` : m.kind === 'video' ? '<b style="font-size:26px;color:#C9A45A">▶</b>' : 'PDF'}</div><small>${esc(m.name)}</small></div>`).join('');
 document.querySelectorAll('.cv').forEach(c => c.ondragstart = e => { e.dataTransfer.setData('text/x-media', c.dataset.k); e.dataTransfer.effectAllowed = 'copy'; });
 const dropOn = (el, sidOf) => { el.addEventListener('dragover', e => { if (e.dataTransfer.types.includes('text/x-media')) { e.preventDefault(); el.classList.add('hot'); } }); el.addEventListener('dragleave', () => el.classList.remove('hot'));
   el.addEventListener('drop', e => { e.preventDefault(); el.classList.remove('hot'); const k = e.dataTransfer.getData('text/x-media'); if (k && D.media[k]) assign(sidOf(), k); }); };

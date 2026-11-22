@@ -1,7 +1,7 @@
 // The live state of one event and the rules that change it, driven by the event document (engine/config.js).
 // The same rules as the first ceremony (show/state.js), without a single cue number in the code: any number of cues, any order,
 // with or without a launch. Runs in the event's Durable Object (authority) and in the pages (rehearsal without a server).
-import { SCENES, stationOf, cueOf, armOf, launchOf, orderProblem, launchTimes } from './config.js';
+import { SCENES, stationOf, STATION_KINDS, scheduled, cueOf, armOf, launchOf, orderProblem, launchTimes } from './config.js';
 
 const ids = ev => ev.cues.map(c => c.id);
 export const order = (ev, s) => (s.orderAt && Array.isArray(s.order) && s.order.length === ev.cues.length && ids(ev).every(i => s.order.includes(i)) ? s.order : ids(ev));
@@ -65,7 +65,7 @@ export function reduce(ev, s, cmd, now = Date.now(), trusted = false) {
   else if (cmd.type === 'note') { const t = String(cmd.text || '').trim().slice(0, 120); o = t ? { ...s, note: { text: t, at: now } } : (s.note ? { ...s, note: null } : s); }   // a word from the operator to the moderator's page
   else if (cmd.type === 'start') o = { ...s, startAt: cmd.at || null };
   // the stations: the operator gives a station another file, sends it back to its first page, or puts it out (its logo only)
-  else if (cmd.type === 'assign') { const ok = m => !m || (ev.media && ev.media[m] && ev.media[m].kind === 'pdf'), list = (Array.isArray(cmd.ids) ? cmd.ids : [cmd.sid]).filter(x => stationOf(ev, x));
+  else if (cmd.type === 'assign') { const ok = m => !m || (ev.media && ev.media[m] && STATION_KINDS.includes(ev.media[m].kind)), list = (Array.isArray(cmd.ids) ? cmd.ids : [cmd.sid]).filter(x => stationOf(ev, x));
     if (list.length && ok(cmd.media)) { const st = { ...(s.st || {}) }; for (const x of list) st[x] = { ...(st[x] || {}), media: cmd.media || null, at: now }; o = { ...s, st }; } }
   else if (cmd.type === 'sreset') { const list = cmd.sid ? [cmd.sid] : (ev.stations || []).map(x => x.id); if (list.every(x => stationOf(ev, x))) { const st = { ...(s.st || {}) }; for (const x of list) st[x] = { ...(st[x] || {}), reset: now }; o = { ...s, st }; } }
   else if (cmd.type === 'sdark') { const list = cmd.sid ? [cmd.sid] : (ev.stations || []).map(x => x.id); if (list.every(x => stationOf(ev, x))) { const st = { ...(s.st || {}) }; for (const x of list) st[x] = { ...(st[x] || {}), dark: !!cmd.on }; o = { ...s, st }; } }
@@ -76,4 +76,7 @@ export function reduce(ev, s, cmd, now = Date.now(), trusted = false) {
 // (with «now»: from the moment of the reveal itself, so no screen shows the new logo while the countdown still runs)
 export const identityNow = (ev, s, now) => (s.launchedAt && ev.identity && ev.identity.after && (now == null || now >= s.launchedAt + launchTimes(ev).reveal * 1000) ? 'after' : 'before');
 // the file a station shows now: the operator's choice in the room, else the one the document gives it
-export const stationMedia = (ev, s, id) => { const x = s && s.st && s.st[id]; if (x && x.media !== undefined && x.media !== null && ev.media && ev.media[x.media]) return x.media; const st = stationOf(ev, id); return st ? st.media || null : null; };
+// the file a station shows now: the operator's latest choice in the room, unless the station's schedule has turned since it was made;
+// else the schedule's file for this time of day; else the station's own file. «Back to its own file» (null) clears the operator's choice
+export const stationMedia = (ev, s, id, now = Date.now()) => { const x = s && s.st && s.st[id], st = stationOf(ev, id); if (!st) return null; const sc = scheduled(ev, st, now);
+  if (x && x.media && ev.media && ev.media[x.media] && (!sc || (x.at || 0) >= sc.since)) return x.media; return sc ? sc.media : st.media || null; };

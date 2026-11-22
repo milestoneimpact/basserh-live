@@ -55,18 +55,31 @@ test('the templates of a new event are sound documents', async () => {
 test('the interactive stations: a file per station, changed live, back to the first page, put out', async () => {
   const { shape, isStations } = await import('../web/engine/config.js'); const { stationMedia } = await import('../web/engine/state.js');
   const e = { name: 'معرض', mode: 'stations', identity: { before: { logo: '', colors: {} }, after: null }, people: {}, cues: [],
-    media: { a: { kind: 'pdf', name: 'أ', src: 'fa.pdf', count: 12 }, b: { kind: 'pdf', name: 'ب', src: 'fb.pdf', count: 4 }, v: { kind: 'video', name: 'v', src: 'v.mp4' } },
+    media: { a: { kind: 'pdf', name: 'أ', src: 'fa.pdf', count: 12 }, b: { kind: 'pdf', name: 'ب', src: 'fb.pdf', count: 4 }, v: { kind: 'video', name: 'v', src: 'v.mp4' }, im: { kind: 'image', name: 'i', src: 'i.jpg' } },
     stations: [{ id: 's1', name: 'الأولى', media: 'a' }, { id: 's2', name: 'الثانية', media: 'b' }] };
   assert.ok(isStations(e)); assert.equal(shape(e), ''); assert.deepEqual(problems(e), []);
-  assert.ok(problems({ ...e, stations: [] }).length); assert.ok(problems({ ...e, stations: [{ id: 's1', name: 'x', media: 'v' }] }).some(p => /PDF/.test(p)));
+  assert.ok(problems({ ...e, stations: [] }).length); assert.ok(problems({ ...e, stations: [{ id: 's1', name: 'x', media: 'im' }] }).some(p => /PDF/.test(p)));
   assert.ok(shape({ ...e, stations: [{ id: '<x>' }] })); assert.ok(shape({ ...e, mode: 'other' }));
   let s = initial(e); assert.equal(stationMedia(e, s, 's1'), 'a');
   s = run(e, s, { type: 'assign', sid: 's1', media: 'b' }); assert.equal(stationMedia(e, s, 's1'), 'b'); assert.equal(stationMedia(e, s, 's2'), 'b');
-  assert.equal(run(e, s, { type: 'assign', sid: 's1', media: 'v' }), s, 'a video is not a station file');
+  assert.equal(run(e, s, { type: 'assign', sid: 's1', media: 'im' }), s, 'a single picture is not a station file (a gallery is)');
   assert.equal(run(e, s, { type: 'assign', sid: 'nope', media: 'a' }), s, 'no such station');
   assert.equal(reduce(e, s, { type: 'assign', sid: 's1', media: 'a' }, 1e7, false), s, 'only the operator');
   s = run(e, s, { type: 'assign', ids: ['s1', 's2'], media: 'a' }); assert.deepEqual(['s1', 's2'].map(x => stationMedia(e, s, x)), ['a', 'a']);
   s = run(e, s, { type: 'assign', ids: ['s1', 's2'], media: null }); assert.deepEqual(['s1', 's2'].map(x => stationMedia(e, s, x)), ['a', 'b'], 'back to their own files');
   s = run(e, s, { type: 'sreset', sid: 's2' }); assert.ok(s.st.s2.reset && !s.st.s1.reset);
   s = run(e, s, { type: 'sdark', sid: 's1', on: true }); assert.equal(s.st.s1.dark, true); s = run(e, s, { type: 'sdark', on: false }); assert.equal(s.st.s1.dark, false);
+});
+test('a station\'s schedule: the morning file, the evening file, and the operator\'s choice until the schedule turns', async () => {
+  const { stationMedia } = await import('../web/engine/state.js'); const { problems: pr, shape: sh } = await import('../web/engine/config.js');
+  const day = h => new Date(2026, 10, 22, h, 0, 0).getTime();   // the device's own time (no tz in the document)
+  const e = { name: 'x', mode: 'stations', identity: { before: { colors: {} } }, cues: [], media: { a: { kind: 'pdf', src: 'a.pdf' }, b: { kind: 'pdf', src: 'b.pdf' }, g: { kind: 'slides', src: 'g/', count: 3 }, v: { kind: 'video', src: 'v.mp4' } },
+    stations: [{ id: 's1', name: 'x', media: 'a', schedule: [{ at: '16:00', media: 'b' }, { at: '10:00', media: 'g' }] }] };
+  assert.deepEqual(pr(e), []); assert.equal(sh(e), '');
+  assert.equal(stationMedia(e, {}, 's1', day(8)), 'a', 'before the first time: its own file');
+  assert.equal(stationMedia(e, {}, 's1', day(11)), 'g'); assert.equal(stationMedia(e, {}, 's1', day(17)), 'b');
+  const s = { st: { s1: { media: 'v', at: day(12) } } };
+  assert.equal(stationMedia(e, s, 's1', day(13)), 'v', 'the operator\'s choice holds'); assert.equal(stationMedia(e, s, 's1', day(16) + 60000), 'b', 'until the schedule turns');
+  assert.ok(pr({ ...e, stations: [{ id: 's1', name: 'x', media: 'a', schedule: [{ at: '25:00', media: 'b' }] }] }).length, 'a time that is not one');
+  assert.ok(sh({ ...e, stations: [{ id: 's1', name: 'x', schedule: 'x' }] }));
 });
