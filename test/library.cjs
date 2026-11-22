@@ -17,7 +17,7 @@ const wait = ms => new Promise(r => setTimeout(r, ms));
   await pg0.close(); execFileSync('ffmpeg', ['-loglevel', 'error', '-y', '-f', 'lavfi', '-i', 'testsrc=size=640x360:rate=25', '-t', '12', '-pix_fmt', 'yuv420p', '-c:v', 'libx264', OUT + 'film.mp4']);
   const org = await adm('POST', { name: 'المكتبة', slug: 'l' + Date.now(), email: `l${Date.now()}@t.test` });
   const ctx = await b.newContext({ viewport: { width: 1440, height: 1000 } }), p = await ctx.newPage(); p.on('pageerror', e => errs.push('studio: ' + e.message)); await p.goto(B + org.join); await p.waitForSelector('#new');
-  await p.click('#new'); await p.click('[data-tpl="stations"]'); await p.click('#dlgOk'); await p.waitForSelector('#nSt'); await p.fill('#dlgIn', 'معرض المكتبة'); await p.fill('#nSt', '4'); await p.click('#dlgOk'); await p.waitForFunction(() => document.querySelectorAll('[data-del]').length === 4);
+  await p.click('#new'); await p.click('[data-tpl="stations"]'); await p.click('#dlgOk'); await p.click('[data-tpl="blank"]'); await p.fill('#dlgIn', 'معرض المكتبة'); await p.fill('#nSt', '4'); await p.click('#dlgOk'); await p.waitForFunction(() => document.querySelectorAll('[data-del]').length === 4);
   // ----- the upload: each file with its own bar; three cards (two pictures make one gallery)
   await p.click('[data-t="media"]'); await p.waitForSelector('#lib .lb-drop'); await p.setInputFiles('#lib input[type=file]', [A, Bk, OUT + 'film.mp4', OUT + 's1.jpg', OUT + 's2.jpg']);
   await p.waitForFunction(() => document.querySelectorAll('#lib .lc').length === 4, null, { timeout: 90000 }); ok(true, 'two books, a film and a gallery made of two pictures: four cards');

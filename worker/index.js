@@ -320,6 +320,8 @@ const main = {
         if (known || b.password) { await kickOrg(env, org.id); return J({ existing: known, join: null }); }
         const join = await invite(env, u.email); return J({ join, mailed: await mailJoin(env, url.origin, u.email, join, org.name) });
       }
+      if (p === '/api/storage' && M === 'GET') { const lim = org.storage_limit_mb * 1048576, used = (await T.prepare('SELECT COALESCE(SUM(bytes),0) AS b FROM media WHERE org_id = ?').bind(org.id).first()).b;   /* how full the organisation's space is, and its largest files, to choose what to remove */
+        const { results } = await T.prepare("SELECT m.name, m.bytes, m.kind, m.event_id, e.name AS event FROM media m LEFT JOIN events e ON e.id = m.event_id WHERE m.org_id = ? ORDER BY m.bytes DESC LIMIT 8").bind(org.id).all(); return J({ used, limit: lim, top: results }); }
       if (p === '/api/events' && M === 'GET') { const { results } = await T.prepare("SELECT id, slug, name, status, published_version, updated_at, json_extract(draft, '$.mode') AS mode FROM events WHERE org_id = ? ORDER BY updated_at DESC").bind(org.id).all(); return J({ events: results.filter(e => e.status !== 'archived'), archived: results.filter(e => e.status === 'archived'), org }); }
       if (p === '/api/events' && M === 'POST') {
         if (!can('editor')) return err('لا تملك صلاحية الإنشاء', 403); const b = await req.json(); if (!b.name) return err('اسم اللقاء مطلوب');
