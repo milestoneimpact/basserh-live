@@ -1,0 +1,24 @@
+// Reading the visits of a stations event: what needs attention, the pages to follow in each file, the busy hours.
+// Shared by the studio's report, the client's PDF and the mail sent after each day (worker/report.js); pure, no page or server.
+/* reading the visits: what needs attention, which pages to follow in each file, the busy hours; the report is drawn from this */
+export function visRead(v, esc = x => String(x ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c])) { const pct = (a, z) => (z ? Math.round(a / z * 100) : 0), n = x => Number(x || 0).toLocaleString('ar'), mmss = ms => { const t = Math.round((ms || 0) / 1000); return `${Math.floor(t / 60)}:${String(t % 60).padStart(2, '0')}`; };
+  const L = v.stations.slice().sort((a, b) => b.n - a.n), used = L.filter(x => x.n), empty = L.filter(x => !x.n), top = used[0] || null, mxh = Math.max(...v.hours), peak = mxh ? v.hours.indexOf(mxh) : -1;
+  const on = v.hours.map((c, h) => (c ? h : -1)).filter(h => h >= 0), a = on.length ? Math.max(0, on[0] - 1) : 8, z = on.length ? Math.min(23, on[on.length - 1] + 1) : 20, hrs = Array.from({ length: Math.max(z - a + 1, 6) }, (_, i) => Math.min(23, a + i)).filter((h, i, x) => x.indexOf(h) === i);
+  const notes = [], name = x => esc(x.name || x.station);
+  if (v.total && empty.length) notes.push({ k: 'bad', t: empty.length === 1 ? `${name(empty[0])} لم يزرها أحد` : `${n(empty.length)} محطات لم يزرها أحد`, d: (empty.length > 1 ? empty.slice(0, 6).map(name).join('، ') + (empty.length > 6 ? '…' : '') + '. ' : '') + 'تأكدوا أنها تعمل، وأن ملفها يجذب الزائر، وأن مكانها في القاعة ظاهر.' });
+  for (const x of used) if (x.n >= 3 && x.ms / x.n < 10000) notes.push({ k: 'warn', t: `زيارات ${name(x)} قصيرة جدًا`, d: `متوسطها ${mmss(x.ms / x.n)}. قد يكون أول ما يراه الزائر لا يدعوه إلى المتابعة.` });
+  const files = v.files.filter(f => f.n).map(f => { const N = Math.max(f.count, ...Object.keys(f.reach).map(Number), 1), ps = Array.from({ length: N }, (_, i) => i + 1), r = p => f.reach[p] || 0;
+    const stop = ps.reduce((m, p) => { const d = r(p) - r(p + 1); return p < N && d > m.d ? { p, d } : m; }, { p: 0, d: 0 }), far = ps.filter(p => r(p)).pop() || 0, end = pct(r(N), f.n);
+    const dw = ps.filter(p => f.dwell[p] && r(p)).map(p => ({ p, t: f.dwell[p] / r(p) })).sort((x, y) => y.t - x.t)[0], zm = ps.filter(p => f.zoom[p]).sort((x, y) => f.zoom[y] - f.zoom[x])[0];
+    const watch = []; if (stop.p && stop.d) watch.push({ k: 'warn', p: stop.p, label: 'أكثر صفحة غادروا بعدها', why: `توقف عندها ${n(pct(stop.d, f.n))}٪ من الزوار ولم يكملوا` });
+    if (dw && dw.p !== stop.p) watch.push({ k: 'good', p: dw.p, label: 'أطول صفحة بقاءً', why: `يبقى عندها الزائر ${mmss(dw.t)} في المتوسط` }); else if (dw) watch.push({ k: 'good', p: dw.p, label: 'وأطولها بقاءً أيضًا', why: `يبقى عندها الزائر ${mmss(dw.t)} في المتوسط` });
+    if (zm) watch.push({ k: 'info', p: zm, label: 'أكثر صفحة كُبّرت', why: `كبّرها الزوار ${n(f.zoom[zm])} مرة. قد يكون خطها صغيرًا على الشاشة` });
+    if (N >= 15 && far < N * .25) notes.push({ k: 'warn', t: `«${esc(f.name)}» طويل ولا يُقرأ أغلبه`, d: `${n(N)} صفحة، وأبعد ما وصل إليه زائر الصفحة ${n(far)}. اختصروه، أو ضعوا في أوله فهرسًا يقود إلى أهم صفحاته.` });
+    else if (stop.p && f.n >= 1 && pct(stop.d, f.n) >= 40) notes.push({ k: 'warn', t: `في «${esc(f.name)}» يغادر الزوار بعد الصفحة ${n(stop.p)}`, d: `${n(pct(stop.d, f.n))}٪ منهم لم يكملوا بعدها. راجعوا هذه الصفحة أو التي تليها.` });
+    if (dw && dw.t >= 20000) notes.push({ k: 'good', t: `الصفحة ${n(dw.p)} من «${esc(f.name)}» تشدّ الزوار`, d: `يبقون عندها ${mmss(dw.t)} في المتوسط.` });
+    const W = 600, H = 110, X = p => (N === 1 ? W / 2 : W - (p - 1) / (N - 1) * W), Y = p => H - pct(r(p), f.n) / 100 * (H - 10) - 4, pts = ps.map(p => `${X(p).toFixed(1)},${Y(p).toFixed(1)}`).join(' ');
+    const curve = `<svg viewBox="-8 0 ${W + 16} ${H + 18}" style="direction:ltr"><polygon points="${W},${H} ${pts} 0,${H}" fill="rgba(184,138,61,.14)"/><polyline points="${pts}" fill="none" stroke="#B88A3D" stroke-width="2.2"/>${stop.p ? `<circle cx="${X(stop.p)}" cy="${Y(stop.p)}" r="5" fill="#A8402F"/>` : ''}<text x="${W}" y="${H + 15}" font-size="11" fill="#6F7578" text-anchor="end">الصفحة 1</text><text x="0" y="${H + 15}" font-size="11" fill="#6F7578">${N}</text></svg><small>كم من الزوار وصل إلى كل صفحة${stop.p ? '، والنقطة الحمراء حيث غادر أكثرهم' : ''}</small>`;
+    return { f, N, ps, stop: stop.p, end, watch, curve }; });
+  if (!notes.some(x => x.k !== 'good')) notes.unshift({ k: 'good', t: v.total ? 'كل شيء يسير جيدًا' : 'لا زيارات بعد', d: v.total ? 'كل المحطات زارها الناس، ولا صفحة يغادر عندها أكثرهم.' : '' });
+  notes.sort((x, y) => ({ bad: 0, warn: 1, info: 2, good: 3 })[x.k] - ({ bad: 0, warn: 1, info: 2, good: 3 })[y.k]);
+  return { top, peak, hrs, used, empty, notes, files }; }

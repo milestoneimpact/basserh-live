@@ -4,6 +4,7 @@ import { SCENES, fontCss, isStations, launchTimes, problems, shape, stationCfg, 
 import { reduce, stationMedia } from '../web/engine/state.js';
 import { DUMMY, KEEP, failed, invite, locked, me, newPw, orgOf, platform, pwHash, pwOk, session, userFor } from './auth.js';
 import { readBrand } from './brand.js';
+import { dayMail, mailOn } from './report.js';
 import { takeSessions, visits, BLANK, FEATURES, ORGS, PUB, STARTER, audit, backup, exportOrg, hasFeat, kickOrg, listAll, orgExists, padd, readKey, site, sweep } from './data.js';
 import { mail, mailJoin } from './mail.js';
 import { b64u, clientData, newChallenge, unb64u, verify } from './passkey.js';
@@ -219,7 +220,9 @@ const main = {
         if (seg[4] === 'sessions' && M === 'POST') { if (!['station', 'hall', 'console'].includes(role)) return err('لا صلاحية', 403); const draft = url.searchParams.has('draft') && !!mem;
           if (!draft && !ev.published_version) return err('لم يُعتمد العرض بعد', 410);
           const d = draft ? JSON.parse(ev.draft) : JSON.parse((await T.prepare('SELECT doc FROM event_versions WHERE event_id = ? AND version = ?').bind(evId, ev.published_version).first()).doc), b = await req.json().catch(() => ({}));
-          return J({ ok: true, kept: await takeSessions(T, evId, draft, b.list, x => (d.stations || []).some(s => s.id === x)) }); }
+          const kept = await takeSessions(T, evId, draft, b.list, x => (d.stations || []).some(s => s.id === x)), tz = url.searchParams.get('tz');
+          if (!draft && (role === 'station' || role === 'hall') && tz !== null && ctx) ctx.waitUntil(dayMail(env, T, ev, d, +tz, url.origin).catch(e => console.log('daymail', e.message)));   /* the first visits of a new day send the day before, once */
+          return J({ ok: true, kept }); }
         if (role === 'audience' && p.startsWith('/m/')) { const pubDoc = ev.published_version ? JSON.parse((await T.prepare('SELECT doc FROM event_versions WHERE event_id = ? AND version = ?').bind(evId, ev.published_version).first()).doc) : null, okFiles = pubDoc ? ['before', 'after'].map(k => (pubDoc.identity[k] || {}).logo).filter(Boolean) : []; if (!okFiles.includes(decodeURIComponent(p.split('/').slice(4).join('/')))) return err('لا يوجد', 404); }
         if (p.startsWith('/m/')) {   // /m/<org>/<event>/<file>: the files of the event, in its own folder of the bucket
           const key = decodeURIComponent(p.slice(3)); if (!key.startsWith(ev.org_id + '/' + ev.id + '/')) return err('لا يوجد', 404);
@@ -256,7 +259,7 @@ const main = {
           return J({ questions: (await T.prepare("SELECT id, text, name, at, state FROM questions WHERE event_id = ? AND state != 'hidden' ORDER BY id DESC LIMIT 100").bind(evId).all()).results }); }
         if (seg[4] === 'visits') { if (role !== 'console') return err('للمشغّل فقط', 403); const v = await visits(T, evId, doc, rehearse, +url.searchParams.get('tz') || 0); return J({ total: v.total, ms: v.ms, phone: v.phone, stations: v.stations.map(s => ({ station: s.station, n: s.n, ms: s.ms })) }); }
         if (seg[4] === 'pair' && M === 'POST') { if (role !== 'console') return err('للمشغّل فقط', 403); if (rehearse) return err('اعتمدوا اللقاء أولاً، فالربط للشاشات الحقيقية', 409);
-          const b = await req.json().catch(() => ({})), code = String(b.code || '').replace(/\D/g, ''), st = stationOf(doc, b.station); if (!st) return err('اختر المحطة'); if (code.length !== 6) return err('الرمز ستة أرقام');
+          const b = await req.json().catch(() => ({})), code = String(b.code || '').replace(/\D/g, ''), st = b.station === '_spare' ? { id: '_spare', name: 'الشاشة الاحتياطية' } : stationOf(doc, b.station); if (!st) return err('اختر المحطة'); if (code.length !== 6) return err('الرمز ستة أرقام');
           const r = await env.DB.prepare('SELECT go, created_at, org FROM pairs WHERE code = ?').bind(code).first(); if (!r || r.go || r.created_at < new Date(Date.now() - 6e5).toISOString()) return err('الرمز غير صحيح أو انتهى. انظروا إلى الشاشة: يتجدد رمزها كل عشر دقائق.', 404);
           if (r.org && r.org !== ev.org_id) return err('هذا الرمز لشاشة فُتحت على عنوان جهة أخرى. افتحوا على الشاشة عنوان جهتكم: /' + ((await env.DB.prepare('SELECT slug FROM orgs WHERE id = ?').bind(ev.org_id).first()) || {}).slug + '/screen', 403);
           const tok = ev.org_id.slice(2) + '.' + rid(24); await T.prepare('INSERT INTO links (token_hash, org_id, event_id, role, label, created_at) VALUES (?,?,?,?,?,?)').bind(await sha(tok), ev.org_id, evId, 'station', st.id, now()).run();
@@ -266,8 +269,8 @@ const main = {
             const r = await T.prepare("UPDATE links SET revoked_at = ? WHERE event_id = ? AND role = 'station' AND revoked_at IS NULL AND substr(token_hash,1,16) = ? RETURNING label").bind(now(), evId, id).first(); if (!r) return err('هذه الشاشة أُلغي ربطها من قبل', 404);
             await env.ROOM.get(env.ROOM.idFromName(evId + ':live')).fetch(new Request('https://room/kick', { method: 'POST' })).catch(() => {}); await audit(env, ev.org_id, evId, who ? who.user.id : null, 'unpair', id); return J({ ok: true }); }
           const { results } = await T.prepare("SELECT token_hash AS id, label, created_at, opened_at FROM links WHERE event_id = ? AND role = 'station' AND revoked_at IS NULL ORDER BY created_at DESC").bind(evId).all();
-          return J({ pairs: results.map(l => ({ id: l.id.slice(0, 16), station: l.label, name: (stationOf(doc, l.label) || {}).name || '', at: l.created_at, opened: l.opened_at })) }); }
-        if (seg[4] === 'config' && isStations(doc)) { const keys = {}; for (const st of doc.stations || []) if (stationCfg(st).qr && (role === 'console' || role === 'hall' || (role === 'station' && st.id === label))) keys[st.id] = await readKey(env, evId, st.id, rehearse); return J({ doc: { ...doc, id: evId }, role, label, version: ver, base: `/m/${ev.org_id}/${ev.id}/`, read: keys, slug: role === 'console' ? ((await env.DB.prepare('SELECT slug FROM orgs WHERE id = ?').bind(ev.org_id).first()) || {}).slug : undefined }); }
+          return J({ pairs: results.map(l => ({ id: l.id.slice(0, 16), station: l.label, name: l.label === '_spare' ? 'الشاشة الاحتياطية' : (stationOf(doc, l.label) || {}).name || '', at: l.created_at, opened: l.opened_at })) }); }
+        if (seg[4] === 'config' && isStations(doc)) { const keys = {}; for (const st of doc.stations || []) if (stationCfg(st).qr && (role === 'console' || role === 'hall' || (role === 'station' && (st.id === label || label === '_spare')))) keys[st.id] = await readKey(env, evId, st.id, rehearse); return J({ doc: { ...doc, id: evId }, role, label, version: ver, base: `/m/${ev.org_id}/${ev.id}/`, read: keys, slug: role === 'console' ? ((await env.DB.prepare('SELECT slug FROM orgs WHERE id = ?').bind(ev.org_id).first()) || {}).slug : undefined }); }
         if (seg[4] === 'config') return J({ doc: ['console', 'script'].includes(role) ? { ...doc, id: evId } : { ...doc, id: evId, cues: doc.cues.map(c => ({ ...c, moderator: [] })) }, role, label, version: ver, base: `/m/${ev.org_id}/${ev.id}/` });   // label: the name the organisation gave this screen's link
         if (seg[4] === 'ws' || seg[4] === 'state' || seg[4] === 'cmd') {
           const room = env.ROOM.get(env.ROOM.idFromName(evId + (rehearse ? ':draft' : ':live'))), h = new Headers(req.headers);
@@ -336,6 +339,9 @@ const main = {
           const rev = req.headers.get('x-rev'); if (rev && rev !== ev.updated_at && !req.headers.get('x-force')) return J({ error: 'عدّل زميل هذا اللقاء أثناء عملك', conflict: true, rev: ev.updated_at }, 409);
           const at = now(); await T.prepare('UPDATE events SET draft = ?, name = ?, updated_at = ? WHERE id = ?').bind(JSON.stringify(doc), doc.name || ev.name, at, id).run(); return J({ ok: true, rev: at, problems: problems(doc) }); }
         // the published versions of the event, and a version brought back as the draft (the versions themselves never change)
+        if (sub === 'reportmail') { if (M === 'POST') { if (!can('operator')) return err('لا تملك الصلاحية', 403); const b = await req.json().catch(() => ({}));
+            await T.prepare(b.on ? "DELETE FROM report_mail WHERE event_id = ? AND day = 'off'" : "INSERT OR IGNORE INTO report_mail (event_id, day, at) VALUES (?, 'off', ?)").bind(...(b.on ? [id] : [id, now()])).run(); await audit(env, org.id, id, who.user.id, b.on ? 'reportmail_on' : 'reportmail_off', ''); }
+          const last = await T.prepare("SELECT day, at FROM report_mail WHERE event_id = ? AND day != 'off' ORDER BY day DESC LIMIT 1").bind(id).first(); return J({ on: await mailOn(T, id), last: last ? last.day : null }); }
         if (sub === 'visits' && M === 'GET') { const draft = url.searchParams.has('draft'), d = draft || !ev.published_version ? JSON.parse(ev.draft) : JSON.parse((await T.prepare('SELECT doc FROM event_versions WHERE event_id = ? AND version = ?').bind(id, ev.published_version).first()).doc);
           return J({ name: d.name, ...(await visits(T, id, d, draft, +url.searchParams.get('tz') || 0, /^\d{4}-\d\d-\d\d$/.test(url.searchParams.get('day') || '') ? url.searchParams.get('day') : '')) }); }
         if (sub === 'report' && M === 'GET') { if (!ev.published_version) return J({ rows: [] }); const r = await (await env.ROOM.get(env.ROOM.idFromName(id + ':live')).fetch(new Request('https://room/log'))).json().catch(() => ({ log: [] }));

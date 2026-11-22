@@ -12,6 +12,7 @@ CREATE TABLE IF NOT EXISTS audit (id INTEGER PRIMARY KEY AUTOINCREMENT, org_id T
 CREATE TABLE IF NOT EXISTS sessions (id TEXT PRIMARY KEY, event_id TEXT NOT NULL, draft INTEGER NOT NULL DEFAULT 0, station TEXT NOT NULL, kind TEXT NOT NULL DEFAULT 'screen', media TEXT, started_at TEXT NOT NULL, ms INTEGER NOT NULL, pages TEXT NOT NULL, page_count INTEGER, max_page INTEGER, zooms TEXT, links_in INTEGER, links_out INTEGER, qr INTEGER, at TEXT NOT NULL);   -- one visitor at a station (or on a phone from its code): what was read, how long; nothing about who
 CREATE INDEX IF NOT EXISTS sessions_event ON sessions(event_id, draft);
 CREATE TABLE IF NOT EXISTS questions (id INTEGER PRIMARY KEY AUTOINCREMENT, event_id TEXT NOT NULL, text TEXT NOT NULL, name TEXT, ip TEXT, at TEXT NOT NULL, state TEXT NOT NULL DEFAULT 'new');
+CREATE TABLE IF NOT EXISTS report_mail (event_id TEXT NOT NULL, day TEXT NOT NULL, at TEXT NOT NULL, PRIMARY KEY (event_id, day));   -- the day's report mailed once per day; day 'off': the organisation turned it off
 CREATE INDEX IF NOT EXISTS media_event ON media(event_id); CREATE INDEX IF NOT EXISTS links_event ON links(event_id);`;
 export class Tenant {
   constructor(ctx) { this.sql = ctx.storage.sql; this.ctx = ctx; this.sql.exec(SCHEMA); try { this.sql.exec('ALTER TABLE links ADD COLUMN opened_at TEXT'); } catch {} }   // opened_at: when the link was last opened (added after the first organisations)
