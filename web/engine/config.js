@@ -125,6 +125,10 @@ export function shape(ev) { const obj = x => x && typeof x === 'object' && !Arra
       if (st.attract != null && st.attract !== '' && !KEY.test(st.attract)) return 'في اللقاء محطة غير صالحة';
       if (st.schedule != null && (!Array.isArray(st.schedule) || st.schedule.length > 24 || st.schedule.some(x => !obj(x) || typeof x.at !== 'string' || x.at.length > 5 || !KEY.test(x.media || '')))) return 'جدولة محطة غير صالحة'; } }
   if (ev.tz != null && (typeof ev.tz !== 'string' || ev.tz.length > 64)) return 'المنطقة الزمنية غير صالحة';
+  // the hall's plan (a picture) and where each station stands on it, as fractions of its width and height
+  if (ev.map != null && (!obj(ev.map) || !FILE.test(ev.map.src || '') || !(+ev.map.w > 0 && +ev.map.h > 0))) return 'مخطط القاعة غير صالح';
+  for (const st of ev.stations || []) if (st.pos != null && !(obj(st.pos) && [st.pos.x, st.pos.y].every(v => typeof v === 'number' && v >= 0 && v <= 1))) return 'مكان محطة على المخطط غير صالح';
+  for (const st of ev.stations || []) if (st.turn != null && !['slide', 'page'].includes(st.turn)) return 'في اللقاء محطة غير صالحة';
   for (const k of ['before', 'after']) { const I = ev.identity[k]; if (I == null) continue; if (!obj(I)) return 'هوية اللقاء غير صالحة'; if (I.logo && !FILE.test(I.logo)) return 'شعار الهوية غير صالح'; if (I.colors != null) { if (!obj(I.colors)) return 'ألوان الهوية غير صالحة'; for (const v of Object.values(I.colors)) if (v && !HEX.test(v)) return 'ألوان الهوية غير صالحة'; } }
   return ''; }
 export const cueOf = (ev, id) => (ev.cues || []).find(c => c.id === id);

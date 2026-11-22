@@ -34,7 +34,7 @@ const wait = ms => new Promise(r => setTimeout(r, ms));
   ok(/^no:لم تُفتح بعد/.test(r3[1]), 'station 3: never opened, said so in red');
   await bd.screenshot({ path: OUT + '1_readiness.jpg', type: 'jpeg', quality: 80 }); await bd.click('#rmX');
   // ----- a screen restarted from the board
-  await s1.evaluate(() => { window.__mark = 1; }); await bd.click('.card[data-s="s1"] [data-r]');
+  await s1.evaluate(() => { window.__mark = 1; }); await bd.click('.card[data-s="s1"] [data-r]'); await bd.click('.qd .b.on');
   await s1.waitForFunction(() => !window.__mark && /صفحة/.test(document.querySelector('#pc')?.textContent || ''), null, { timeout: 30000 }).catch(() => {}); ok(await s1.evaluate(() => !window.__mark), 'the board restarts a screen: it reloaded itself and opened its book again');
   // ----- the films' volume: station 2 shows a film
   await s2.touchscreen.tap(400, 200); await wait(500); await s2.touchscreen.tap(400, 200); await wait(500);

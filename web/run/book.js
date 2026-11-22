@@ -44,7 +44,8 @@ export function Book(host, o = {}) {
   // a page seen closer is drawn again with more pixels, once the hand has stopped
   let sh = 0; function sharpen() { clearTimeout(sh); sh = setTimeout(async () => { const pz = cur(); if (!pz) return; const old = pz.querySelector('canvas.hi'); if (z < 1.3) { old && old.remove(); return; } if (old && +old.dataset.k >= z * .9) return; const p = n, k = Math.min(z, 4), r = await draw(pdf, p, boxW(), boxH(), k); if (p !== n || cur() !== pz) return; r.cv.className = 'hi'; r.cv.dataset.k = k; old && old.remove(); pz.insertBefore(r.cv, pz.querySelector('.lk')); }, 260); }
   async function go(p, how = 'fade') { if (!pdf) return; p = Math.max(1, Math.min(N, p)); if (p === n && trk.children.length) return; const d = p > n ? 1 : -1;
-    if (how === 'slide' && Math.abs(p - n) === 1 && z === 1 && !busy) { busy = true; await pageCv(p); trk.classList.add('go'); trk.style.transform = `translateX(${-d * sgn() * (W + GAP)}px)`; await new Promise(r => setTimeout(r, 340)); busy = false; }
+    if (how === 'slide' && Math.abs(p - n) === 1 && z === 1 && !busy && o.turn === 'page') { busy = true; await flip(p); busy = false; }
+    else if (how === 'slide' && Math.abs(p - n) === 1 && z === 1 && !busy) { busy = true; await pageCv(p); trk.classList.add('go'); trk.style.transform = `translateX(${-d * sgn() * (W + GAP)}px)`; await new Promise(r => setTimeout(r, 340)); busy = false; }
     else if (how === 'fade') { bk.animate([{ opacity: 1 }, { opacity: .25 }], { duration: 120, fill: 'forwards' }); await pageCv(p); }
     n = p; await build(); bk.getAnimations().forEach(a => a.cancel()); if (how === 'fade') bk.animate([{ opacity: .25 }, { opacity: 1 }], { duration: 220 }); o.onPage && o.onPage(n, N); }
 
@@ -68,7 +69,13 @@ export function Book(host, o = {}) {
     else if (!g0.moved && dt < 350) tap(e.clientX, e.clientY);
     g0 = null; };
   bk.addEventListener('pointerup', up); bk.addEventListener('pointercancel', up);
-  async function turn(p, dx) { busy = true; await pageCv(p); const d = p > n ? 1 : -1; trk.classList.add('go'); trk.style.transform = `translateX(${-d * sgn() * (W + GAP)}px)`; await new Promise(r => setTimeout(r, 330)); busy = false; n = p; await build(); o.onPage && o.onPage(n, N); }
+  // the page turned as paper: it lifts from its outer edge and turns over its spine, the next page already lying beneath
+  async function flip(p) { await pageCv(p); const d = p > n ? 1 : -1, cur = trk.querySelector('.sl[data-k="0"]'), nx = trk.querySelector(`.sl[data-k="${d}"]`); if (!cur || !nx) return;
+    trk.classList.remove('go'); trk.style.transform = ''; nx.style.transform = 'none'; nx.style.zIndex = 1; cur.style.zIndex = 2; trk.style.perspective = '2400px';
+    const pz = cur.querySelector('.pz'), spine = (sgn() < 0) === (d > 0) ? 'right' : 'left'; pz.style.transformOrigin = spine + ' center';
+    await pz.animate([{ transform: 'rotateY(0deg)', filter: 'brightness(1)' }, { transform: `rotateY(${spine === 'right' ? 100 : -100}deg)`, filter: 'brightness(.75)', opacity: .2 }], { duration: 520, easing: 'cubic-bezier(.4,.1,.3,1)', fill: 'forwards' }).finished;
+    trk.style.perspective = ''; n = p; await build(); o.onPage && o.onPage(n, N); }
+  async function turn(p, dx) { if (o.turn === 'page') { busy = true; trk.classList.add('go'); trk.style.transform = ''; await new Promise(r => setTimeout(r, 200)); await flip(p); busy = false; return; } busy = true; await pageCv(p); const d = p > n ? 1 : -1; trk.classList.add('go'); trk.style.transform = `translateX(${-d * sgn() * (W + GAP)}px)`; await new Promise(r => setTimeout(r, 330)); busy = false; n = p; await build(); o.onPage && o.onPage(n, N); }
   function tap(x, y) { const t = Date.now(), dbl = t - lastTap < 320; lastTap = t; clearTimeout(tapT);
     if (dbl && o.zoom !== false) { const { cx, cy } = center(), px = x - cx, py = y - cy; if (z > 1.05) { z = 1; tx = 0; ty = 0; } else { const nz = 2.5; tx = px - (px - tx) * nz; ty = py - (py - ty) * nz; z = nz; } view(true); lastTap = 0; return; }
     // a link under the finger (on the page as it is seen, closer or not)

@@ -51,11 +51,11 @@ const SIZES = [[1920, 1080, 1], [1080, 1920, 1], [3840, 2160, 1], [2160, 3840, 1
   // ----- one move from the board reaches every screen: a page turned on each, then the square book to all, then back to the first page
   for (const x of screens) await x.s.click('#bF', { timeout: 3000 }).catch(() => {});
   await new Promise(r => setTimeout(r, 6000));   // the visitors pause (a file waits for five seconds without a touch)
-  let t = Date.now(); await bd.selectOption('#allF', 'm2'); await bd.click('#allGo');
+  await bd.selectOption('#allF', 'm2'); await bd.click('#allGo'); let t = Date.now(); await bd.click('.qd .b.on');
   const arrive = await Promise.all(screens.map(x => x.s.waitForFunction(() => /من (٤|4)$/.test(document.querySelector('#pc').textContent.trim()), null, { timeout: 60000 }).then(() => Date.now() - t).catch(() => -1)));
   ok(arrive.every(v => v >= 0), `one file to all twenty: the last screen had it after ${(Math.max(...arrive) / 1000).toFixed(1)} s (median ${(arrive.sort((a, c) => a - c)[10] / 1000).toFixed(1)} s)`);
   for (const x of screens) await x.s.click('#bF', { timeout: 3000 }).catch(() => {}); await new Promise(r => setTimeout(r, 800));
-  t = Date.now(); await bd.click('#home');
+  await bd.click('#home'); t = Date.now(); await bd.click('.qd .b.on');
   const back = await Promise.all(screens.map(x => x.s.waitForFunction(() => /^صفحة (١|1) /.test(document.querySelector('#pc').textContent), null, { timeout: 20000 }).then(() => Date.now() - t).catch(() => -1)));
   ok(back.every(v => v >= 0), `all twenty back to their first page: the last after ${(Math.max(...back) / 1000).toFixed(2)} s`);
   // ----- the network cut on five screens

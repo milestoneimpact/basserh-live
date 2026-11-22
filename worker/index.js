@@ -13,6 +13,10 @@ export { Room } from './room.js';
 export { Tenant } from './tenant.js';
 
 let backupDay = '';
+// an organisation made by an automatic test: its owner has a test address (…@t.test, …@basserh.invalid) or its address is a smoke check's
+const isTestOrg = (o, emails) => /@(t\.test|basserh\.invalid)\b/.test(String(emails || '')) || /^smoke-/.test(o.slug || '');
+async function dropOrg(env, o) { const keys = (await listAll(env, o.id + '/')).map(x => x.key); for (let i = 0; i < keys.length; i += 500) await env.MEDIA.delete(keys.slice(i, i + 500));
+  await tdb(env, o.id).wipe(); await env.DB.batch([env.DB.prepare('DELETE FROM members WHERE org_id = ?').bind(o.id), env.DB.prepare('DELETE FROM orgs WHERE id = ?').bind(o.id)]); await padd(env, 'org_deleted', `${o.name} /${o.slug} · ${keys.length} ملف`); ORGS.delete(o.id); return keys.length; }
 const main = {
   async scheduled(event, env, ctx) { ctx.waitUntil(backup(env)); },
   async fetch(req, env, ctx) {
@@ -54,8 +58,11 @@ const main = {
       if (p === '/api/admin/export' && M === 'GET') { const d = await exportOrg(env, url.searchParams.get('org')); if (!d) return err('لا يوجد', 404); return new Response(JSON.stringify(d, null, 1), { headers: { 'Content-Type': 'application/json; charset=utf-8', 'Content-Disposition': `attachment; filename="${d.org.slug}-${now().slice(0, 10)}.json"` } }); }
       if (p === '/api/admin/org' && M === 'DELETE') {   // gone for good: its files, its database, its place among the organisations. The address must be typed to confirm
         const b = await req.json(), o = await env.DB.prepare('SELECT * FROM orgs WHERE id = ?').bind(b.id).first(); if (!o) return err('لا يوجد', 404); if (b.confirm !== o.slug) return err('اكتب عنوان الجهة للتأكيد');
-        const keys = (await listAll(env, o.id + '/')).map(x => x.key); for (let i = 0; i < keys.length; i += 500) await env.MEDIA.delete(keys.slice(i, i + 500));
-        await tdb(env, o.id).wipe(); await env.DB.batch([env.DB.prepare('DELETE FROM members WHERE org_id = ?').bind(o.id), env.DB.prepare('DELETE FROM orgs WHERE id = ?').bind(o.id)]); await padd(env, 'org_deleted', `${o.name} /${o.slug} · ${keys.length} ملف`); return J({ ok: true, files: keys.length }); }
+        return J({ ok: true, files: await dropOrg(env, o) }); }
+      // the organisations made by automatic tests (their owner's address is a test address): all deleted at once, with a typed yes
+      if (p === '/api/admin/purge-tests' && M === 'POST') { const b = await req.json().catch(() => ({})); if (b.confirm !== 'حذف جهات الاختبار') return err('اكتب العبارة للتأكيد');
+        const { results } = await env.DB.prepare('SELECT o.*, (SELECT GROUP_CONCAT(u.email) FROM members m JOIN users u ON u.id = m.user_id WHERE m.org_id = o.id) AS emails FROM orgs o').all(); let n = 0, files = 0;
+        for (const o of results.filter(o => isTestOrg(o, o.emails))) { files += await dropOrg(env, o); n++; } await padd(env, 'tests_purged', `${n} جهة · ${files} ملف`); return J({ ok: true, orgs: n, files }); }
       if (p === '/api/admin/backup' && M === 'POST') { const r = await backup(env); await padd(env, 'backup', r.day); return J(r); }
       if (p === '/api/admin/audit' && M === 'GET') return J({ audit: (await env.DB.prepare('SELECT action, detail, at FROM platform_audit ORDER BY id DESC LIMIT 200').all()).results });
       if (p === '/api/admin/restore' && M === 'POST') {   // an organisation's database as it was on a day of the copies; its files come back from the trash. The address is typed to confirm
@@ -84,11 +91,21 @@ const main = {
       }
       if (p === '/api/admin/invite' && M === 'POST') { const b = await req.json(), u = await userFor(env, b.email); if (!u) return err('بريد غير صالح'); await env.DB.prepare('INSERT INTO members (org_id, user_id, role) VALUES (?,?,?) ON CONFLICT (org_id, user_id) DO NOTHING').bind(b.org, u.id, 'owner').run(); return J({ join: await invite(env, u.email) }); }
       if (p === '/api/admin/unlock' && M === 'POST') { const b = await req.json(), slug2 = String(b.slug || ''); if (!slug2) return err('أي جهة؟'); const r = await env.DB.prepare("DELETE FROM login_fail WHERE ip LIKE ?").bind('%|' + slug2).run(); await padd(env, 'door_unlocked', '/' + slug2); return J({ ok: true, cleared: r.meta ? r.meta.changes : 0 }); }
+      // one organisation, opened from the owner's page: its events with their state, its members
+      if (p === '/api/admin/org-detail' && M === 'GET') { const id = url.searchParams.get('id'), o = await env.DB.prepare('SELECT * FROM orgs WHERE id = ?').bind(id).first(); if (!o) return err('لا يوجد', 404);
+        const { results: members } = await env.DB.prepare('SELECT u.email, m.role FROM members m JOIN users u ON u.id = m.user_id WHERE m.org_id = ? ORDER BY m.role').bind(id).all();
+        const { results: events } = await tdb(env, id).prepare("SELECT id, name, status, published_version, updated_at, json_extract(draft, '$.mode') AS mode, json_array_length(draft, '$.stations') AS stations FROM events WHERE status != 'archived' ORDER BY updated_at DESC LIMIT 30").all();
+        const live = await Promise.all(events.slice(0, 12).map(e => e.published_version ? env.ROOM.get(env.ROOM.idFromName(e.id + ':live')).fetch(new Request('https://room/peers')).then(r => r.json()).catch(() => null) : null));
+        return J({ members, events: events.map((e, i) => ({ ...e, room: live[i] || null })) }); }
       if (p === '/api/admin/orgs' && M === 'GET') {
         const { results } = await env.DB.prepare('SELECT o.*, (SELECT GROUP_CONCAT(u.email) FROM members m JOIN users u ON u.id = m.user_id WHERE m.org_id = o.id AND m.role = ?) AS owners FROM orgs o ORDER BY created_at DESC').bind('owner').all();
         // usage comes from each organisation's own database
         const fails = (await env.DB.prepare("SELECT ip, n, until FROM login_fail WHERE ip LIKE '%|%'").all()).results, lockOf = sl => { const f = fails.filter(x => x.ip.endsWith('|' + sl)); return { locked: f.some(x => x.until && x.until > now()), until: f.map(x => x.until).filter(x => x && x > now()).sort().pop() || null, wrong: f.reduce((a, x) => Math.max(a, x.n), 0) }; };
-        return J({ orgs: (await Promise.all(results.map(async o => { const [[c], [b], active] = await tdb(env, o.id).batch([{ sql: 'SELECT COUNT(*) AS n FROM events WHERE status != ?', params: ['archived'] }, { sql: 'SELECT COALESCE(SUM(bytes),0) AS b FROM media', params: [] }, { sql: 'SELECT name, active_from, active_until FROM events WHERE active_until > ? ORDER BY active_from', params: [now()] }]); return { ...o, events: c.n, bytes: b.b, active }; }))).map(o => ({ ...o, door: lockOf(o.slug) })) });
+        return J({ orgs: (await Promise.all(results.map(async o => { const day = new Date(Date.now() - 864e5).toISOString(), [[c], [b], active, [la], pub, [vt]] = await tdb(env, o.id).batch([{ sql: 'SELECT COUNT(*) AS n FROM events WHERE status != ?', params: ['archived'] }, { sql: 'SELECT COALESCE(SUM(bytes),0) AS b FROM media', params: [] }, { sql: 'SELECT name, active_from, active_until FROM events WHERE active_until > ? ORDER BY active_from', params: [now()] },
+            { sql: 'SELECT MAX(updated_at) AS t FROM events', params: [] }, { sql: "SELECT id FROM events WHERE published_version IS NOT NULL AND status != 'archived' ORDER BY updated_at DESC LIMIT 8", params: [] }, { sql: 'SELECT COUNT(*) AS n FROM sessions WHERE draft = 0 AND started_at > ?', params: [day] }]);
+          // what is running now: the halls whose screens are on, the screens connected (the eight most recent published events)
+          const rooms = (await Promise.all(pub.map(e => env.ROOM.get(env.ROOM.idFromName(e.id + ':live')).fetch(new Request('https://room/peers')).then(r => r.json()).catch(() => null)))).filter(Boolean);
+          return { ...o, events: c.n, bytes: b.b, active, lastAt: la.t, visitors: vt.n, halls: rooms.filter(r => r.live || r.screens).length, screens: rooms.reduce((a, r) => a + (r.screens || 0), 0), test: isTestOrg(o, o.owners) }; }))).map(o => ({ ...o, door: lockOf(o.slug) })) });
       }
       // ----- signing in by a link (no password): the link is used once and opens a session of 30 days
       if (p === '/api/login' && M === 'POST') {   // the studio's gate: email and password

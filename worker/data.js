@@ -44,7 +44,7 @@ export async function listAll(env, prefix) { const out = []; let cursor; do { co
 // A file younger than an hour is left alone: it may belong to an upload still on its way into the draft.
 export async function sweep(env, T, org, ev) {
   const docs = [JSON.parse(ev.draft)]; for (const v of (await T.prepare('SELECT doc FROM event_versions WHERE event_id = ? ORDER BY version DESC LIMIT 60').bind(ev.id).all()).results) { try { docs.push(JSON.parse(v.doc)); } catch {} }
-  const need = new Set(); for (const d of docs) { for (const m of Object.values(d.media || {})) { if (m.src) need.add(m.src); if (m.cover) need.add(m.cover); } for (const k of ['before', 'after']) if (d.identity && d.identity[k] && d.identity[k].logo) need.add(d.identity[k].logo); }
+  const need = new Set(); for (const d of docs) { for (const m of Object.values(d.media || {})) { if (m.src) need.add(m.src); if (m.cover) need.add(m.cover); } if (d.map && d.map.src) need.add(d.map.src); for (const k of ['before', 'after']) if (d.identity && d.identity[k] && d.identity[k].logo) need.add(d.identity[k].logo); }
   const base = `${org}/${ev.id}/`, old = Date.now() - 36e5, gone = [];
   for (const o of await listAll(env, base)) { const f = o.key.slice(base.length), top = f.includes('/') ? f.split('/')[0] + '/' : f; if (!need.has(top) && o.uploaded.getTime() < old) gone.push(o.key); }
   for (const k of gone) { const o = await env.MEDIA.get(k); if (o) await env.MEDIA.put('_trash/' + k, o.body, { httpMetadata: o.httpMetadata }); }   // kept 14 days, so a restored copy finds its files

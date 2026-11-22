@@ -50,6 +50,13 @@ body{background:var(--bg,#F6F1E6);color:var(--ink,#14211E);font-family:var(--ft,
 #kb{display:grid;gap:8px;padding:14px;background:color-mix(in srgb,var(--ink) 6%,var(--bg))}#kb div{display:flex;gap:6px;justify-content:center}#kb button{flex:1;max-width:64px;height:58px;border-radius:12px;border:0;background:#fff;color:#111;font:600 22px var(--ft);box-shadow:0 2px 0 rgba(0,0,0,.12)}#kb button.w{max-width:none;flex:3}#kb button.m{max-width:110px;flex:1.6;font-size:16px;background:color-mix(in srgb,var(--ink) 12%,#fff)}
 #msgb{position:absolute;top:22px;left:50%;transform:translateX(-50%);z-index:45;max-width:min(1100px,90vw);padding:16px 32px;border-radius:18px;background:var(--accent);color:var(--bg);font:700 clamp(20px,2vw,30px)/1.6 var(--ft);text-align:center;box-shadow:0 14px 40px rgba(0,0,0,.3);display:none}#msgb.on{display:block;animation:msgIn .5s ease}
 @keyframes msgIn{from{opacity:0;transform:translate(-50%,-14px)}}
+/* the waiting screen, richer: a light that moves slowly behind, the logo that breathes with a gleam passing over it, the event's name */
+#att{overflow:hidden}#att .aglow{position:absolute;inset:-20%;z-index:0;background:radial-gradient(40% 40% at 30% 30%,color-mix(in srgb,var(--gold) 22%,transparent),transparent 70%),radial-gradient(45% 45% at 70% 70%,color-mix(in srgb,var(--accent) 16%,transparent),transparent 70%);animation:drift 18s ease-in-out infinite alternate;pointer-events:none}#att.media .aglow{display:none}
+@keyframes drift{to{transform:translate(4%,-3%) rotate(8deg) scale(1.08)}}
+.alw{position:relative;display:inline-block;animation:breathe 6s ease-in-out infinite;-webkit-mask:linear-gradient(#000 0 0)}.alw:after{content:'';position:absolute;inset:0;background:linear-gradient(105deg,transparent 35%,rgba(255,255,255,.55) 50%,transparent 65%);transform:translateX(-120%);animation:gleam 7s ease-in-out infinite;pointer-events:none;mix-blend-mode:soft-light}
+@keyframes breathe{50%{transform:scale(1.035)}}@keyframes gleam{0%,55%{transform:translateX(-120%)}85%,100%{transform:translateX(120%)}}
+.aev{font:600 clamp(16px,1.5vw,24px) var(--ft);color:var(--ink);opacity:.7;margin-top:2vh;letter-spacing:.02em}#att h1{animation:rise 1.2s ease both}#att:not(.off) .tap{animation:beat 2.2s ease-in-out infinite,rise 1.2s ease .3s both}@keyframes rise{from{opacity:0;transform:translateY(14px)}}
+@media (prefers-reduced-motion:reduce){#att *,#att .aglow{animation:none!important}}
 @media (max-width:900px){#bar{grid-template-columns:84px 1fr auto 84px;gap:10px;padding:0 10px}.ar{width:78px}.tb{padding:0 14px;font-size:16px}.tb span{display:none}.mid img{display:none}}
 </style></head><body>
 <div id="room"><div id="load">يفتح الملف…</div></div>
@@ -61,7 +68,7 @@ body{background:var(--bg,#F6F1E6);color:var(--ink,#14211E);font-family:var(--ft,
   <button class="tb" id="bH"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 11l9-7 9 7v9a1 1 0 0 1-1 1h-5v-6h-6v6H4a1 1 0 0 1-1-1z"/></svg><span>البداية</span></button>
   <button class="tb" id="bQ" hidden><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="6" y="2" width="12" height="20" rx="2"/><path d="M11 18h2"/></svg><span>أكمل على جوالك</span></button></div>
   <button class="ar" id="bB" aria-label="الصفحة السابقة"></button></div>
-<div id="att" class="off"><div id="aM"></div><div><img id="aL" alt=""><h1 id="aT"></h1><p id="aP"></p><div class="tap"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M9 11V5a2 2 0 0 1 4 0v6m0-1a2 2 0 0 1 4 0v1m0 0a2 2 0 0 1 4 0v4a7 7 0 0 1-7 7h-1a7 7 0 0 1-6-3l-2.5-4a2 2 0 0 1 3.4-2L9 15"/></svg></div><div class="go">المس الشاشة للتصفح</div></div></div>
+<div id="att" class="off"><div id="aM"></div><div class="aglow"></div><div><div class="alw"><img id="aL" alt=""></div><div id="aE" class="aev"></div><h1 id="aT"></h1><p id="aP"></p><div class="tap"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M9 11V5a2 2 0 0 1 4 0v6m0-1a2 2 0 0 1 4 0v1m0 0a2 2 0 0 1 4 0v4a7 7 0 0 1-7 7h-1a7 7 0 0 1-6-3l-2.5-4a2 2 0 0 1 3.4-2L9 15"/></svg></div><div class="go">المس الشاشة للتصفح</div></div></div>
 <div id="sp"><div class="sb"><div class="sh"><input id="sq" inputmode="none" autocomplete="off" spellcheck="false" placeholder="اكتب كلمة للبحث في الكتاب"><button id="sX">إغلاق</button></div><div id="sr"></div><div id="kb"></div></div></div>
 <div id="dark"><img id="dL" alt=""></div>
 <div id="qrm"><div class="box"><h2 id="qT"></h2><p id="qP"></p><canvas id="qC"></canvas><br><button id="qX">إغلاق</button></div></div>
@@ -109,7 +116,7 @@ const sid = link.label || Q.get('s') || (link.role === 'hall' ? localStorage.get
 if (!S0) { document.body.innerHTML = '<p style="font:600 22px sans-serif;text-align:center;margin-top:40vh;color:#888">هذه المحطة لم تعد في اللقاء</p>'; throw new Error('station'); }
 const S = stationCfg(S0), rtl = S.dir !== 'ltr', me = deviceId(); document.title = S.name || 'المحطة';
 const I = paint(link, link.state || {}); for (const im of ['#lg', '#aL', '#dL']) { if (I.logo) url(I.logo).then(u => $(im).src = u); else $(im).style.display = 'none'; }
-$('#aP').textContent = S.place || '';
+$('#aP').textContent = S.place || ''; $('#aE').textContent = D.name || '';
 // the arrows point the way the book reads: in Arabic «next» is on the left
 const arrow = d => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="${d === 'l' ? 'M15 5l-7 7 7 7' : 'M9 5l7 7-7 7'}"/></svg>`;
 const left = $('#bF'), right = $('#bB'); left.innerHTML = arrow('l'); right.innerHTML = arrow('r');
@@ -143,7 +150,7 @@ async function show(mk) { if (!mk || !D.media[mk]) { err = 'لا ملف لهذه
     const m = D.media[mk], u = link.base + m.src, h = document.createElement('div'); h.className = 'bh out'; let doc = null, b;
     if (m.kind === 'video') { await keep([u]); $('#room').appendChild(h); b = Film(h, await url(u)); }
     else { if (m.kind === 'slides') { const pics = Array.from({ length: m.count || 0 }, (_, i) => u + 's-' + (i + 1) + '.jpg'); await keep(pics); doc = imageDoc(m.count || 0, n => url(pics[n - 1])); } else { await keep([u]); doc = await openPdf(await url(u)); }
-    $('#room').appendChild(h); b = Book(h, { dir: S.dir, zoom: S.zoom, links: S.links, onPage: setPage, onTouch: touch, onView: v => { view = v; if (sess && v.z > 1.05 && sess.zpg !== book?.page) { sess.zpg = book.page; sess.zooms[book.page] = (sess.zooms[book.page] || 0) + 1; } if (sess && v.z <= 1.05) sess.zpg = 0; report(); }, onLink }); await b.load(doc, 1); }
+    $('#room').appendChild(h); b = Book(h, { dir: S.dir, zoom: S.zoom, links: S.links, turn: S.turn, onPage: setPage, onTouch: touch, onView: v => { view = v; if (sess && v.z > 1.05 && sess.zpg !== book?.page) { sess.zpg = book.page; sess.zooms[book.page] = (sess.zooms[book.page] || 0) + 1; } if (sess && v.z <= 1.05) sess.zpg = 0; report(); }, onLink }); await b.load(doc, 1); }
     requestAnimationFrame(() => h.classList.remove('out')); const old = host, ob = book; host = h; book = b; pdf = doc; cur = mk; err = ''; $('#load')?.remove();
     $('#ttl').textContent = D.media[mk].name || ''; $('#aT').textContent = D.media[mk].name || S.name; kind = m.kind; tools(); thumbs(); if (old) { old.classList.add('out'); setTimeout(() => { ob.destroy(); old.remove(); }, 700); }
   } catch (x) { err = 'تعذّر فتح الملف'; console.log(x); }
@@ -161,7 +168,7 @@ let io = null; function thumbs() { const l = $('#thl'); l.innerHTML = ''; l.dir 
 function rest() { end(); attract = true; $('#att').classList.remove('off'); $('#sp').classList.remove('on'); waitMedia(true); $('#th').classList.remove('on'); $('#qrm').classList.remove('on'); book && book.home(); report(); }
 setInterval(() => { if (!attract && S.idle > 0 && Date.now() - last > S.idle * 1000) rest(); }, 1000);
 // what the board sees of this station
-let rt = 0, rAt = 0; function report() { clearTimeout(rt); rt = setTimeout(() => { rAt = Date.now(); link.raw({ report: { kind: 'station', id: me, sid, media: cur || '', page: book ? book.page : 0, pages: book ? book.pages : 0, z: view.z, x: view.x, y: view.y, touch: last, idle: attract, w: innerWidth, h: innerHeight, ready: !!book, kept: keptAll, qr: S.qr ? !!readKey : undefined, err, ver: link.version } }); }, Date.now() - rAt > 400 ? 30 : 400); }
+let rt = 0, rAt = 0; function report() { snapshot(); clearTimeout(rt); rt = setTimeout(() => { rAt = Date.now(); link.raw({ report: { kind: 'station', id: me, sid, media: cur || '', page: book ? book.page : 0, pages: book ? book.pages : 0, z: view.z, x: view.x, y: view.y, touch: last, idle: attract, w: innerWidth, h: innerHeight, ready: !!book, kept: keptAll, lag: Math.round(link.lag || 0), qr: S.qr ? !!readKey : undefined, err, ver: link.version } }); }, Date.now() - rAt > 400 ? 30 : 400); }
 setInterval(report, 10000);
 // the board sets the films' volume for every station (0: silent)
 let vol = 1; const films = new Set(); function setVol(x) { vol = x == null ? 1 : x; for (const v of films) { v.volume = vol; if (!vol) v.muted = true; } }
@@ -197,6 +204,15 @@ $('#sX').onclick = () => $('#sp').classList.remove('on'); $('#sp').addEventListe
 let keptAll = false; (async () => { const ks = new Set([S0.media, S0.attract, ...(S0.schedule || []).map(x => x.media)]), list = [];
   for (const k of ks) { const m = k && D.media[k]; if (!m) continue; if (m.kind === 'slides') for (let i = 1; i <= (m.count || 0); i++) list.push(link.base + m.src + 's-' + i + '.jpg'); else list.push(link.base + m.src); }
   const st = await keep(list); keptAll = Object.values(st).every(x => x.done); report(); })();
+// ----- what the visitor sees, as a small picture for the board (the page as brought close, the film's frame); sent when it changes, at most every 1.5 s
+let snapT = 0, snapAt = 0, snapKey = ''; function snapshot() { clearTimeout(snapT); snapT = setTimeout(async () => { try {
+  const W = 360, c = document.createElement('canvas'), g = c.getContext('2d'); let key;
+  if (attract) { key = 'att:' + cur; c.width = W; c.height = 225; g.fillStyle = getComputedStyle(document.body).backgroundColor; g.fillRect(0, 0, W, 225); g.fillStyle = '#888'; g.font = '600 18px sans-serif'; g.textAlign = 'center'; g.fillText('تنتظر زائراً', W / 2, 118); }
+  else if (book && book.film) { const v = document.querySelector('.film video'); if (!v || !v.videoWidth) return; key = 'f:' + Math.floor(v.currentTime / 3); c.width = W; c.height = Math.round(W * v.videoHeight / v.videoWidth); g.drawImage(v, 0, 0, c.width, c.height); }
+  else { const pc = document.querySelector('.bh:not(.out) .sl[data-k="0"] .pz canvas:last-of-type') || document.querySelector('.sl[data-k="0"] .pz canvas'); if (!pc) return; const z = view.z || 1, sw = pc.width / z, sh = pc.height / z, sx = Math.max(0, Math.min(pc.width - sw, view.x * pc.width - sw / 2)), sy = Math.max(0, Math.min(pc.height - sh, view.y * pc.height - sh / 2));
+    key = `p:${cur}:${book.page}:${z.toFixed(1)}:${view.x.toFixed(2)}:${view.y.toFixed(2)}`; c.width = W; c.height = Math.round(W * sh / sw); g.drawImage(pc, sx, sy, sw, sh, 0, 0, c.width, c.height); }
+  /* the same picture again every ten seconds, for a board opened since */ if (key === snapKey && Date.now() - snapAt < 9000) return; snapKey = key; snapAt = Date.now(); link.raw({ snap: { sid, d: c.toDataURL('image/jpeg', .6) } }); } catch {} }, Math.max(300, 1500 - (Date.now() - snapAt))); }
+setInterval(() => { if (book && book.film && !attract) snapshot(); }, 3000); setInterval(snapshot, 10000);
 // ----- the schedule: the station looks at the clock every half minute, and takes the file of the hour when its time comes
 setInterval(() => show(stationMedia(D, link.state || {}, sid)), 30000);
 let idT = 0, seenReload = null, msgT = 0;
