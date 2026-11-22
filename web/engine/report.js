@@ -21,4 +21,7 @@ export function visRead(v, esc = x => String(x ?? '').replace(/[&<>"]/g, c => ({
     return { f, N, ps, stop: stop.p, end, watch, curve }; });
   if (!notes.some(x => x.k !== 'good')) notes.unshift({ k: 'good', t: v.total ? 'كل شيء يسير جيدًا' : 'لا زيارات بعد', d: v.total ? 'كل المحطات زارها الناس، ولا صفحة يغادر عندها أكثرهم.' : '' });
   notes.sort((x, y) => ({ bad: 0, warn: 1, info: 2, good: 3 })[x.k] - ({ bad: 0, warn: 1, info: 2, good: 3 })[y.k]);
-  return { top, peak, hrs, used, empty, notes, files }; }
+  /* the files compared, when more than one was shown: visits, time spent, how far they read; the best one named */
+  const compare = files.length > 1 ? files.map(F => { const t = Object.values(F.f.dwell).reduce((x, y) => x + y, 0), far = F.ps.reduce((m, p) => m + (F.f.reach[p] || 0), 0); return { name: F.f.name, n: F.f.n, avg: t / F.f.n, pages: far / F.f.n, N: F.N, end: F.end }; }).sort((x, y) => y.n - x.n) : [];
+  if (compare.length) { const best = compare.slice().sort((x, y) => y.avg - x.avg)[0], most = compare[0]; notes.push({ k: 'info', t: `بين الملفات: «${esc(most.name)}» الأكثر زيارة، و«${esc(best.name)}» الأطول قراءة`, d: `يبقى معه الزائر ${mmss(best.avg)} في المتوسط${best.name !== most.name ? '. وقد يستحق مكانًا أبرز في القاعة' : ''}.` }); }
+  return { top, peak, hrs, used, empty, notes, files, compare }; }

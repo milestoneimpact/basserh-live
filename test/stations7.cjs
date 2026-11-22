@@ -69,7 +69,10 @@ const wait = ms => new Promise(r => setTimeout(r, ms));
   s3.cut = false; await s3.c.setOffline(false); await bd.waitForFunction(() => !/انقطعت/.test(document.querySelector('#alerts').textContent), null, { timeout: 40000 }).catch(() => {}); ok(!/انقطعت/.test(await bd.textContent('#alerts')), 'and takes it away when the station is back');
   // ----- the board on a phone
   const mc = await b.newContext({ ...devices['iPhone 13'] }), m = await mc.newPage(); m.on('pageerror', e => errs.push('phone board: ' + e.message));
-  await mc.addCookies((await ctx.cookies()).map(c => ({ ...c }))); await m.goto(`${B}/run/stations.html?e=${ev}`); await m.waitForSelector('.card canvas', { timeout: 30000 });
+  await mc.addCookies((await ctx.cookies()).map(c => ({ ...c }))); await m.goto(`${B}/run/stations.html?e=${ev}`); await m.waitForSelector('#ops .op', { timeout: 30000 });
+  ok(await m.locator('#ops .op').count() === 3 && await m.locator('#ops .op [data-om]').count() === 3 && !(await m.isVisible('#grid')), 'on a phone the board opens on the short list: each station with its state and the buttons of the day');
+  await m.click('#ops .op[data-s="s2"] [data-om]'); await m.waitForFunction(() => /إنهاء التجهيز/.test(document.querySelector('#ops .op[data-s="s2"] [data-om]').textContent), null, { timeout: 10000 }).catch(() => {}); ok(/إنهاء التجهيز/.test(await m.textContent('#ops .op[data-s="s2"] [data-om]')), 'and puts a station under repair from the phone'); await m.click('#ops .op[data-s="s2"] [data-om]');
+  await m.screenshot({ path: OUT + '7_board_phone_short.jpg', type: 'jpeg', quality: 75, fullPage: true }); await m.click('#cmp'); await m.waitForSelector('.card canvas', { timeout: 30000 });
   const lay = await m.evaluate(() => ({ cols: getComputedStyle(document.querySelector('main')).gridTemplateColumns.split(' ').length, wide: document.documentElement.scrollWidth <= innerWidth + 1, card: document.querySelector('.card').getBoundingClientRect().width / innerWidth }));
   ok(lay.cols === 1 && lay.wide && lay.card > .85, `the board on a phone: one column, no sideways scrolling (${JSON.stringify(lay)})`); await m.screenshot({ path: OUT + '7_board_phone.jpg', type: 'jpeg', quality: 75, fullPage: true });
   // ----- the visits of two days, compared

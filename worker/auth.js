@@ -5,7 +5,7 @@ export async function me(req, env) {
   const t = cookies(req).sid; if (!t) return null;
   const s = await env.DB.prepare('SELECT user_id FROM sessions WHERE token_hash = ? AND expires_at > ?').bind(await sha(t), now()).first(); if (!s) return null;
   const user = await env.DB.prepare('SELECT id, email, name FROM users WHERE id = ?').bind(s.user_id).first();
-  const { results } = await env.DB.prepare('SELECT o.id, o.name, o.slug, o.plan, o.events_limit, o.storage_limit_mb, o.paid_until, o.credits, o.features, m.role FROM members m JOIN orgs o ON o.id = m.org_id WHERE m.user_id = ? AND o.plan != ?').bind(s.user_id, 'off').all();   // a switched off organisation is closed to its members
+  const { results } = await env.DB.prepare('SELECT o.id, o.name, o.slug, o.plan, o.events_limit, o.storage_limit_mb, o.paid_until, o.credits, o.features, o.kind, m.role FROM members m JOIN orgs o ON o.id = m.org_id WHERE m.user_id = ? AND o.plan != ?').bind(s.user_id, 'off').all();   // a switched off organisation is closed to its members
   return { user, orgs: results };
 }
 // the organisation a request works in (header x-org, else the person's first), and the person's role in it

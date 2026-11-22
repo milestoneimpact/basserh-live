@@ -5,7 +5,7 @@ import { reduce, stationMedia } from '../web/engine/state.js';
 import { DUMMY, KEEP, failed, invite, locked, me, newPw, orgOf, platform, pwHash, pwOk, session, userFor } from './auth.js';
 import { readBrand } from './brand.js';
 import { dayMail, mailOn } from './report.js';
-import { takeSessions, visits, BLANK, FEATURES, ORGS, PUB, STARTER, audit, backup, exportOrg, hasFeat, kickOrg, listAll, orgExists, padd, readKey, site, sweep } from './data.js';
+import { takeSessions, visits, BLANK, STATION_STARTER, FEATURES, ORGS, PUB, STARTER, audit, backup, exportOrg, hasFeat, kickOrg, listAll, orgExists, padd, readKey, site, sweep } from './data.js';
 import { mail, mailJoin } from './mail.js';
 import { b64u, clientData, newChallenge, unb64u, verify } from './passkey.js';
 import { orgOfEvent, tdb } from './tenant.js';
@@ -45,11 +45,11 @@ const main = {
         if (await env.DB.prepare('SELECT 1 FROM orgs WHERE slug = ?').bind(s).first()) return err(`العنوان /${s} مستعمل لجهة موجودة في القائمة. اختر عنواناً آخر.`);
         const pw0 = String(b.password || '').trim(); if (pw0 && pw0.length < 8) return err('كلمة المرور ثمانية أحرف على الأقل');
         const u = await userFor(env, b.email, b.owner); if (!u) return err('بريد المالك غير صالح');
-        const id = 'o_' + rid(); await env.DB.batch([
-          env.DB.prepare('INSERT INTO orgs (id, name, slug, plan, events_limit, storage_limit_mb, paid_until, created_at) VALUES (?,?,?,?,?,?,?,?)').bind(id, b.name, s, b.plan || 'trial', b.events_limit || 3, b.storage_limit_mb || 20000, b.paid_until || null, now()),
+        const kind = KINDS.includes(b.kind) ? b.kind : null, id = 'o_' + rid(); await env.DB.batch([
+          env.DB.prepare('INSERT INTO orgs (id, name, slug, plan, events_limit, storage_limit_mb, paid_until, created_at, kind) VALUES (?,?,?,?,?,?,?,?,?)').bind(id, b.name, s, b.plan || 'trial', b.events_limit || 3, b.storage_limit_mb || 20000, b.paid_until || null, now(), kind),
           env.DB.prepare('INSERT INTO members (org_id, user_id, role) VALUES (?,?,?)').bind(id, u.id, 'owner')]);
         // the organisation's own database is born here, with its first event
-        await tdb(env, id).prepare('INSERT INTO events (id, org_id, slug, name, status, draft, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?)').bind('e_' + id.slice(2) + rid(8), id, 'first-' + rid(4), 'لقاؤكم الأول', 'draft', JSON.stringify(STARTER()), now(), now()).run();
+        if (b.starter !== false) { const st = kind === 'stations' ? STATION_STARTER() : STARTER(); await tdb(env, id).prepare('INSERT INTO events (id, org_id, slug, name, status, draft, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?)').bind('e_' + id.slice(2) + rid(8), id, 'first-' + rid(4), st.name, 'draft', JSON.stringify(st), now(), now()).run(); }   /* its first draft, of its kind; none if the owner chose so */
         await env.DB.prepare('UPDATE orgs SET credits = ? WHERE id = ?').bind(b.credits == null ? 1 : Math.max(0, +b.credits || 0), id).run();
         // the owner's password: the one the platform owner typed, or a generated one; shown once in the answer, kept hashed
         const password = pw0 || newPw(); await env.DB.prepare('UPDATE users SET pw = ? WHERE id = ?').bind(await pwHash(password), u.id).run();
@@ -86,7 +86,8 @@ const main = {
       if (p === '/api/admin/org' && M === 'PATCH') {   // the plan of an organisation: limits, the paid period, activation days added
         const b = await req.json(), o = await env.DB.prepare('SELECT * FROM orgs WHERE id = ?').bind(b.id).first(); if (!o) return err('لا يوجد', 404);
         const feats = Array.isArray(b.features) ? b.features.filter(f => FEATURES[f]).join(' ') : (o.features || '');
-        await env.DB.prepare('UPDATE orgs SET name = ?, plan = ?, events_limit = ?, storage_limit_mb = ?, paid_until = ?, credits = ?, features = ? WHERE id = ?').bind(b.name ?? o.name, b.plan ?? o.plan, b.events_limit ?? o.events_limit, b.storage_limit_mb ?? o.storage_limit_mb, b.paid_until === undefined ? o.paid_until : b.paid_until, Math.max(0, o.credits + (+b.add_credits || 0)), feats, o.id).run();
+        await env.DB.prepare('UPDATE orgs SET name = ?, plan = ?, events_limit = ?, storage_limit_mb = ?, paid_until = ?, credits = ?, features = ?, kind = ? WHERE id = ?').bind(b.name ?? o.name, b.plan ?? o.plan, b.events_limit ?? o.events_limit, b.storage_limit_mb ?? o.storage_limit_mb, b.paid_until === undefined ? o.paid_until : b.paid_until, Math.max(0, o.credits + (+b.add_credits || 0)), feats, b.kind === undefined ? o.kind : KINDS.includes(b.kind) ? b.kind : null, o.id).run();
+        if (b.kind !== undefined && b.kind !== o.kind) { ORGS.delete(o.id); await kickOrg(env, o.id); }   /* its studio opens again on its kind */
         if (b.plan === 'off') { ORGS.delete(o.id); await env.DB.prepare('DELETE FROM sessions WHERE user_id IN (SELECT user_id FROM members WHERE org_id = ?) AND user_id NOT IN (SELECT user_id FROM members m JOIN orgs x ON x.id = m.org_id WHERE x.plan != ? AND x.id != ?)').bind(o.id, 'off', o.id).run(); await kickOrg(env, o.id); }
         await audit(env, o.id, null, null, 'plan', JSON.stringify(b)); await padd(env, 'org_changed', `${o.name} /${o.slug} ${JSON.stringify({ ...b, id: undefined })}`); return J({ ok: true });
       }
@@ -325,6 +326,7 @@ const main = {
         const n = (await T.prepare('SELECT COUNT(*) AS n FROM events WHERE org_id = ? AND status != ?').bind(org.id, 'archived').first()).n;
         
         if (org.paid_until && org.paid_until < now()) return err('انتهى اشتراك الجهة', 402);
+        { const want = b.mode === 'stations' || (b.from && JSON.parse((await T.prepare('SELECT draft FROM events WHERE id = ? AND org_id = ?').bind(b.from, org.id).first() || { draft: '{}' }).draft).mode === 'stations') ? 'stations' : 'ceremony'; if (org.kind && org.kind !== want) return err(org.kind === 'stations' ? 'هذه الجهة للمعارض. أنشئوا معرضاً.' : 'هذه الجهة للقاءات. أنشئوا لقاءً.', 403); }
         let doc = BLANK(b.name); if (b.mode === 'stations') doc = { ...BLANK(b.name), mode: 'stations', cues: [], stations: [] }; else if (b.doc && !shape({ ...BLANK(b.name), ...b.doc, name: String(b.name) })) doc = { ...BLANK(b.name), ...b.doc, name: String(b.name) };   // a template chosen in the studio
         if (b.from) { const src = await T.prepare('SELECT draft FROM events WHERE id = ? AND org_id = ?').bind(b.from, org.id).first(); if (src) { const d0 = JSON.parse(src.draft); doc = { ...d0, name: String(b.name), media: {}, cues: (d0.cues || []).map(c => { const x = { ...c }; delete x.media; delete x.mediaTall; return x; }), identity: { before: { ...d0.identity.before, logo: '' }, after: d0.identity.after ? { ...d0.identity.after, logo: '' } : null } }; } }
         const id = 'e_' + org.id.slice(2) + rid(8), s = (slug(b.slug) || 'event') + '-' + rid(4);
@@ -404,6 +406,7 @@ const main = {
 // what the browser is told with every answer: do not guess types, do not show the site inside another site, do not pass our addresses on
 // (a screen's link carries its key), stay on https. The files of an organisation (/m/) are data: opened by themselves they run nothing.
 const GUARD = { 'X-Content-Type-Options': 'nosniff', 'X-Frame-Options': 'SAMEORIGIN', 'Referrer-Policy': 'same-origin', 'Strict-Transport-Security': 'max-age=31536000; includeSubDomains', 'Permissions-Policy': 'camera=(), microphone=(), geolocation=(), payment=()' };
+const KINDS = ['ceremony', 'stations'];   // the kinds of organisation the platform owner chooses from
 export default {
   scheduled: (e, env, ctx) => main.scheduled(e, env, ctx),
   async fetch(req, env, ctx) { const r = await main.fetch(req, env, ctx); if (r.status === 101 || r.webSocket) return r;
