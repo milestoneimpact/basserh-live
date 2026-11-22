@@ -45,6 +45,10 @@ const wait = ms => new Promise(r => setTimeout(r, ms));
   ok(await bd.getAttribute('[data-dot="s1"]', 'class') === 'dot on' && /dot (idle|on)/.test(await bd.getAttribute('[data-dot="s2"]', 'class')), 'station 1 (a visitor now) in green, station 2 waiting');
   await bd.screenshot({ path: OUT + '3_board_map.jpg', type: 'jpeg', quality: 80 }); await bd.click('[data-dot="s2"]'); await bd.waitForSelector('#big.on'); ok(/الشرقي/.test(await bd.textContent('#bN')), 'a dot opens its station, big'); await bd.click('#bX');
   await s2.close(); await wait(1500); await bd.waitForFunction(() => document.querySelector('[data-dot="s2"]').className === 'dot off', null, { timeout: 60000 }).catch(() => {}); ok(await bd.getAttribute('[data-dot="s2"]', 'class') === 'dot off', 'a station gone turns red on the map');
+  // the way back to the studio, to this event
+  await bd.waitForSelector('#back:not([hidden])', { timeout: 10000 }).catch(() => {}); ok(!(await bd.locator('#back').isHidden()), 'the board has a way back to the studio');
+  { const bk = await ctx.newPage(); await bk.goto(`${B}/run/stations.html?e=${ev}`); await bk.waitForSelector('#back:not([hidden])'); await bk.click('#back'); await bk.waitForSelector('.tabs [data-t="stations"].on', { timeout: 15000 }).catch(() => {});
+    ok(/معرض الخريطة/.test(await bk.inputValue('#evName').catch(() => '')) && await bk.locator('.tabs [data-t="stations"].on').count() === 1, 'it opens this very event in the studio, on its stations'); await bk.close(); }
   // a question in the board's own identity, no browser box
   await bd.click('#home'); ok(await bd.locator('.qd').count() === 1, 'the board asks in its own window'); await bd.click('.qd .b:not(.on)'); ok(await bd.locator('.qd').count() === 0, 'and «إلغاء» closes it, nothing sent');
   // ----- the report's map

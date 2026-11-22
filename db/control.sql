@@ -19,4 +19,4 @@ CREATE TABLE IF NOT EXISTS leads (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEX
 -- what the platform owner did, for the owner's own page
 CREATE TABLE IF NOT EXISTS platform_audit (id INTEGER PRIMARY KEY AUTOINCREMENT, action TEXT NOT NULL, detail TEXT, at TEXT NOT NULL);
 -- a screen waiting to be paired by its code (the operator types it on the stations' board); ten minutes, then gone. No content of any organisation
-CREATE TABLE IF NOT EXISTS pairs (code TEXT PRIMARY KEY, secret_hash TEXT NOT NULL, ip TEXT, go TEXT, created_at TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS pairs (code TEXT PRIMARY KEY, secret_hash TEXT NOT NULL, ip TEXT, go TEXT, created_at TEXT NOT NULL, org TEXT);   -- org: the organisation whose address the screen opened (its code is for it alone)

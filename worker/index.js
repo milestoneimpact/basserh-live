@@ -175,9 +175,11 @@ const main = {
       // ----- a link of one screen: opens that page of that event, with no account
       // ----- a screen paired by a code: the screen opens /screen and shows six digits; the operator types them on the board and picks the station.
       // The table holds no content of any organisation: a code, the screen's secret, and (once claimed) the screen link it is handed, for ten minutes
-      if (p === '/api/pair/new' && M === 'POST') { const ip = req.headers.get('CF-Connecting-IP') || 'local', ago = new Date(Date.now() - 6e5).toISOString();
+      // a screen at its organisation's own address (/<slug>/screen) asks for a code that organisation alone can claim, and shows its name
+      if (p === '/api/pair/new' && M === 'POST') { const ip = req.headers.get('CF-Connecting-IP') || 'local', ago = new Date(Date.now() - 6e5).toISOString(), pb = await req.json().catch(() => ({})), po = pb.slug ? await env.DB.prepare("SELECT id, name FROM orgs WHERE slug = ? AND plan != 'off'").bind(String(pb.slug).slice(0, 40)).first() : null;
+        if (pb.slug && !po) return err('عنوان الجهة غير صحيح', 404);
         await env.DB.prepare('DELETE FROM pairs WHERE created_at < ?').bind(ago).run(); if ((await env.DB.prepare('SELECT COUNT(*) AS n FROM pairs WHERE ip = ?').bind(ip).first()).n >= 20) return err('شاشات كثيرة تنتظر الربط من هذه الشبكة. انتظروا دقائق.', 429);
-        for (let i = 0; i < 8; i++) { const code = String(100000 + (crypto.getRandomValues(new Uint32Array(1))[0] % 900000)), secret = rid(24); try { await env.DB.prepare('INSERT INTO pairs (code, secret_hash, ip, created_at) VALUES (?,?,?,?)').bind(code, await sha(secret), ip, now()).run(); return J({ code, secret, ttl: 600 }); } catch {} }
+        for (let i = 0; i < 8; i++) { const code = String(100000 + (crypto.getRandomValues(new Uint32Array(1))[0] % 900000)), secret = rid(24); try { await env.DB.prepare('INSERT INTO pairs (code, secret_hash, ip, created_at, org) VALUES (?,?,?,?,?)').bind(code, await sha(secret), ip, now(), po ? po.id : null).run(); return J({ code, secret, ttl: 600, org: po ? po.name : '' }); } catch {} }
         return err('تعذّر إنشاء رمز. أعيدوا المحاولة.', 503); }
       { const pm = p.match(/^\/api\/pair\/(\d{6})$/); if (pm && M === 'GET') { const r = await env.DB.prepare('SELECT secret_hash, go, created_at FROM pairs WHERE code = ?').bind(pm[1]).first();
         if (!r || r.secret_hash !== await sha(url.searchParams.get('s') || '') || r.created_at < new Date(Date.now() - 6e5).toISOString()) return J({ gone: true }); if (!r.go) return J({ wait: true });
@@ -255,10 +257,11 @@ const main = {
         if (seg[4] === 'visits') { if (role !== 'console') return err('للمشغّل فقط', 403); const v = await visits(T, evId, doc, rehearse, +url.searchParams.get('tz') || 0); return J({ total: v.total, ms: v.ms, phone: v.phone, stations: v.stations.map(s => ({ station: s.station, n: s.n, ms: s.ms })) }); }
         if (seg[4] === 'pair' && M === 'POST') { if (role !== 'console') return err('للمشغّل فقط', 403); if (rehearse) return err('اعتمدوا اللقاء أولاً، فالربط للشاشات الحقيقية', 409);
           const b = await req.json().catch(() => ({})), code = String(b.code || '').replace(/\D/g, ''), st = stationOf(doc, b.station); if (!st) return err('اختر المحطة'); if (code.length !== 6) return err('الرمز ستة أرقام');
-          const r = await env.DB.prepare('SELECT go, created_at FROM pairs WHERE code = ?').bind(code).first(); if (!r || r.go || r.created_at < new Date(Date.now() - 6e5).toISOString()) return err('الرمز غير صحيح أو انتهى. انظروا إلى الشاشة: يتجدد رمزها كل عشر دقائق.', 404);
+          const r = await env.DB.prepare('SELECT go, created_at, org FROM pairs WHERE code = ?').bind(code).first(); if (!r || r.go || r.created_at < new Date(Date.now() - 6e5).toISOString()) return err('الرمز غير صحيح أو انتهى. انظروا إلى الشاشة: يتجدد رمزها كل عشر دقائق.', 404);
+          if (r.org && r.org !== ev.org_id) return err('هذا الرمز لشاشة فُتحت على عنوان جهة أخرى. افتحوا على الشاشة عنوان جهتكم: /' + ((await env.DB.prepare('SELECT slug FROM orgs WHERE id = ?').bind(ev.org_id).first()) || {}).slug + '/screen', 403);
           const tok = ev.org_id.slice(2) + '.' + rid(24); await T.prepare('INSERT INTO links (token_hash, org_id, event_id, role, label, created_at) VALUES (?,?,?,?,?,?)').bind(await sha(tok), ev.org_id, evId, 'station', st.id, now()).run();
           await env.DB.prepare('UPDATE pairs SET go = ? WHERE code = ? AND go IS NULL').bind('/go/' + tok, code).run(); await audit(env, ev.org_id, evId, who ? who.user.id : null, 'pair', st.id); return J({ ok: true, station: st.name }); }
-        if (seg[4] === 'config' && isStations(doc)) { const keys = {}; for (const st of doc.stations || []) if (stationCfg(st).qr && (role === 'console' || role === 'hall' || (role === 'station' && st.id === label))) keys[st.id] = await readKey(env, evId, st.id, rehearse); return J({ doc: { ...doc, id: evId }, role, label, version: ver, base: `/m/${ev.org_id}/${ev.id}/`, read: keys }); }
+        if (seg[4] === 'config' && isStations(doc)) { const keys = {}; for (const st of doc.stations || []) if (stationCfg(st).qr && (role === 'console' || role === 'hall' || (role === 'station' && st.id === label))) keys[st.id] = await readKey(env, evId, st.id, rehearse); return J({ doc: { ...doc, id: evId }, role, label, version: ver, base: `/m/${ev.org_id}/${ev.id}/`, read: keys, slug: role === 'console' ? ((await env.DB.prepare('SELECT slug FROM orgs WHERE id = ?').bind(ev.org_id).first()) || {}).slug : undefined }); }
         if (seg[4] === 'config') return J({ doc: ['console', 'script'].includes(role) ? { ...doc, id: evId } : { ...doc, id: evId, cues: doc.cues.map(c => ({ ...c, moderator: [] })) }, role, label, version: ver, base: `/m/${ev.org_id}/${ev.id}/` });   // label: the name the organisation gave this screen's link
         if (seg[4] === 'ws' || seg[4] === 'state' || seg[4] === 'cmd') {
           const room = env.ROOM.get(env.ROOM.idFromName(evId + (rehearse ? ':draft' : ':live'))), h = new Headers(req.headers);
@@ -270,7 +273,8 @@ const main = {
         return err('لا يوجد', 404);
       }
       if (!p.startsWith('/api/')) {   // /<slug>: the studio of that organisation (the same page; it sends the slug with every request)
-        if (p === '/screen' || p === '/screen/') return site(env, req, '/run/pair');   // the address a screen is set to open at every start: a code to pair it, then its station
+        if (p === '/screen' || p === '/screen/') return site(env, req, '/run/pair');
+        { const sm = p.match(/^\/([a-z0-9][a-z0-9-]{1,39})\/screen\/?$/); if (sm && await env.DB.prepare("SELECT 1 FROM orgs WHERE slug = ? AND plan != 'off'").bind(sm[1]).first()) return site(env, req, '/run/pair'); }   // the organisation's own pairing address   // the address a screen is set to open at every start: a code to pair it, then its station
         const sl = p.match(/^\/([a-z0-9][a-z0-9-]{1,39})\/?$/); if (p === '/login' || (sl && !['run', 'fonts', 'vendor', 'engine', 'admin', 'brand', 'studio'].includes(sl[1]) && await env.DB.prepare("SELECT 1 FROM orgs WHERE slug = ? AND plan != 'off'").bind(sl[1]).first())) return site(env, req, '/studio');   // «/» is the public page; the studio opens at /login and at each organisation's address
         return site(env, req, url.pathname); }
 

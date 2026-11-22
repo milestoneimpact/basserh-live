@@ -18,6 +18,7 @@ p{font:400 clamp(16px,1.6vw,24px)/1.9 Plex;color:#B9C2C0;margin:0 auto;max-width
 <script>
 for (const t of ['contextmenu', 'selectstart', 'dragstart']) addEventListener(t, e => e.preventDefault());
 if (navigator.serviceWorker) navigator.serviceWorker.register('/sw.js').catch(() => {});
+const SLUG = (location.pathname.match(/^\/([a-z0-9][a-z0-9-]{1,39})\/screen\/?$/) || [])[1] || '';   // opened at an organisation's own address: its codes are for it alone
 const K = 'screen:go', $ = s => document.querySelector(s), go = u => { location.replace(u); };
 async function start() {
   // a screen already paired: to its station, unless its link was cancelled. With no network it still goes: the station opens from its saved copy
@@ -27,8 +28,8 @@ async function start() {
 }
 let poll = 0, tick = 0;
 async function code() { clearInterval(poll); clearInterval(tick); let c;
-  try { const r = await fetch('/api/pair/new', { method: 'POST' }); c = await r.json(); if (!r.ok) throw new Error(c.error); } catch (x) { $('#code').textContent = '······'; $('#msg').textContent = (x && x.message) || 'لا اتصال بالشبكة. يعيد المحاولة.'; return setTimeout(code, 8000); }
-  $('#code').innerHTML = c.code.split('').map(d => `<span>${d}</span>`).join(''); const end = Date.now() + (c.ttl - 15) * 1000;
+  try { const r = await fetch('/api/pair/new', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(SLUG ? { slug: SLUG } : {}) }); c = await r.json(); if (!r.ok) throw new Error(c.error); } catch (x) { $('#code').textContent = '······'; $('#msg').textContent = (x && x.message) || 'لا اتصال بالشبكة. يعيد المحاولة.'; return setTimeout(code, 8000); }
+  $('#code').innerHTML = c.code.split('').map(d => `<span>${d}</span>`).join(''); if (c.org) $('h1').textContent = 'ربط هذه الشاشة · ' + c.org; const end = Date.now() + (c.ttl - 15) * 1000;
   tick = setInterval(() => { const left = end - Date.now(); $('#t').style.width = Math.max(0, left / ((c.ttl - 15) * 1000) * 100) + '%'; if (left <= 0) code(); }, 1000);
   poll = setInterval(async () => { try { const r = await (await fetch(`/api/pair/${c.code}?s=${c.secret}`, { cache: 'no-store' })).json(); if (r.go) { clearInterval(poll); clearInterval(tick); localStorage.setItem(K, r.go); $('#msg').textContent = 'رُبطت الشاشة. تفتح محطتها…'; setTimeout(() => go(r.go), 600); } else if (r.gone) code(); } catch {} }, 2000); }
 start();

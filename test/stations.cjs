@@ -21,7 +21,7 @@ const adm = (method, body) => fetch(B + '/api/admin/org', { method, headers: { '
   await p.click('#new'); await p.waitForSelector('[data-tpl="stations"]'); ok(await p.locator('[data-tpl="stations"] li').count() >= 4, 'every organisation that is switched on has the stations: a new event asks its kind, and each kind lists what it brings');
   await p.screenshot({ path: OUT + '1_kind.jpg', type: 'jpeg', quality: 80 });
   await p.click('[data-tpl="stations"]'); await p.click('#dlgOk'); await p.waitForSelector('#nSt'); await p.fill('#dlgIn', 'معرض الإنجازات'); await p.fill('#nSt', '3'); await p.click('#dlgOk');
-  await p.waitForFunction(() => document.querySelectorAll('[data-del]').length === 3); ok(await p.locator('.tabs button').count() === 4 && await p.locator('.tabs [data-t="stations"]').count() === 1, 'the event opens on its stations, with the steps and tabs of its kind (no cues, no people)');
+  await p.waitForFunction(() => document.querySelectorAll('[data-del]').length === 3); ok(await p.locator('.tabs button').count() === 5 && await p.locator('.tabs [data-t="stations"]').count() === 1, 'the event opens on its stations, with the steps and tabs of its kind (no cues, no people)');
   await p.click('[data-t="media"]'); await p.setInputFiles('#lib input[type=file]', [A, Bk]); await p.waitForFunction(() => document.querySelectorAll('#lib .lc').length === 2, null, { timeout: 60000 });
   const fl = await p.$$eval('#lib .lc .mt', l => l.map(e => e.textContent)); ok(fl.some(t => /5 صفحة/.test(t)) && fl.some(t => /3 صفحة/.test(t)) && await p.locator('#lib .lc .th img').count() === 2, 'two PDFs uploaded whole, each with its cover and its pages: ' + fl.join(' | '));
   await p.click('[data-t="stations"]');

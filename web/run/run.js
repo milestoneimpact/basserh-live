@@ -32,7 +32,7 @@ export async function connect() {
   // the clock: a question to the room, its answer, half the trip taken off. Three quick ones at the start, then one every four seconds; the answer that came back fastest is the one trusted
   let seen = Date.now(), best = Infinity, bestAt = 0, lagNow = 0, synced = false; const ping = () => { if (ws.readyState === 1) ws.send(JSON.stringify({ ping: Date.now() })); };
   open(); [300, 900, 1700].forEach(t => setTimeout(ping, t)); setInterval(() => { if (ws.readyState === 1) { ping(); if (Date.now() - seen > 10000) ws.close(); } }, 4000);
-  return { doc: cfg.doc, base: cfg.base, role: cfg.role, label: cfg.label || '', read: cfg.read || {}, version: cfg.version, draft: !!draft, get lag() { return lagNow; }, get synced() { return synced; }, get state() { return state; }, now: () => Date.now() + skew,
+  return { doc: cfg.doc, base: cfg.base, role: cfg.role, label: cfg.label || '', read: cfg.read || {}, slug: cfg.slug || '', version: cfg.version, draft: !!draft, get lag() { return lagNow; }, get synced() { return synced; }, get state() { return state; }, now: () => Date.now() + skew,
     on: f => { subs.push(f); if (state) f(state, { peers, online, hall, hands }); }, poke: tell, send: cmd => out({ cmd }), raw: o => out(o),
     get online() { return online; },
     // the hall computer alone, network down: its keyboard moves the event by the same rules; the room takes the result back on return
