@@ -17,7 +17,7 @@ const ok = (c, m) => { console.log((c ? '✓ ' : '✗ ') + m); if (!c) process.e
   { await p.click('#pkAdd'); await p.waitForSelector('[data-k]'); const n = (await p.$$('[data-k]')).length; await p.click('#pkNew'); await p.waitForFunction(n => document.querySelectorAll('[data-k]').length === n + 1, n); await p.click('[data-k]'); await p.click('#dlgOk'); await p.waitForFunction(n => document.querySelectorAll('[data-k]').length === n, n); ok(true, 'a second device added, and one taken out from the list'); }
   await p.waitForSelector('#tst'); if (!(await p.isChecked('#tst'))) await p.click('#tst'); await p.waitForSelector('#rows [data-id]'); ok((await p.$$('#rows [data-id]')).length >= 1, 'the owner\'s page lists the organisations');
   // a member of an organisation
-  const s = 'pk' + Date.now() % 1e6; await p.fill('#n', 'جهة مفتاح المرور'); await p.fill('#s', s); await p.fill('#e', s + '@t.test'); await p.click('#mk'); await p.waitForSelector('#join'); const join = await p.textContent('#join');
+  const s = 'pk' + Date.now() % 1e6; await p.fill('#n', 'جهة مفتاح المرور'); await p.fill('#s', s); await p.fill('#e', s + '@t.test'); await p.click('.kd[data-k="ceremony"]'); await p.click('#mk'); await p.waitForSelector('#join'); const join = await p.textContent('#join');
   await p.goto(B + '/api/logout'); await p.goto(join); await p.waitForSelector('#new'); await p.click('#pk'); await p.waitForFunction(() => /أُضيف مفتاح المرور/.test(document.querySelector('#toast').textContent)); ok(true, 'a member added a passkey in the studio');
   await p.goto(B + '/api/logout'); await p.waitForSelector('#pkIn');
   // two passkeys on this device now (the owner's and the member's): the authenticator answers with one; the server routes by it

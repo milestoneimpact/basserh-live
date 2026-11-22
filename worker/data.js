@@ -18,6 +18,8 @@ export const PUB = new Map();   // the audience's answer, kept three seconds for
 export const ORGS = new Map(); export async function orgExists(env, id) { const t = ORGS.get(id); if (t && Date.now() - t < 6e4) return true; const o = await env.DB.prepare("SELECT 1 AS x FROM orgs WHERE id = ? AND plan != 'off'").bind(id).first(); if (o) ORGS.set(id, Date.now()); return !!o; }
 export const padd = (env, action, detail = '') => env.DB.prepare('INSERT INTO platform_audit (action, detail, at) VALUES (?,?,?)').bind(action, String(detail).slice(0, 300), now()).run().catch(() => {});   // the platform owner's own record
 // what a new organisation finds on its first visit: a small event already laid out, to edit instead of starting from an empty page
+// the first exhibition of an organisation made for exhibitions: four stations, waiting for their files
+export const STATION_STARTER = () => ({ ...BLANK('معرضكم الأول'), mode: 'stations', cues: [], stations: ['الأولى', 'الثانية', 'الثالثة', 'الرابعة'].map((n, i) => ({ id: 's' + (i + 1), name: 'المحطة ' + n, media: '', idle: 90 })) });
 export const STARTER = () => ({ ...BLANK('لقاؤكم الأول'), people: { p1: { name: 'اسم المتحدث', honorific: 'الصفة' } },
   cues: [{ id: 'in', type: 'loop', title: 'الاستقبال', at: 'فتح الأبواب', dur: 15, moderator: [], fixed: true },
     { id: 'open', type: 'title', title: 'الافتتاح', text: 'بسم الله الرحمن الرحيم', at: 'بسم الله الرحمن الرحيم', dur: 3, moderator: ['بسم الله الرحمن الرحيم. نرحب بكم في لقائنا، ونبدأ بكلمة الافتتاح.'] },
