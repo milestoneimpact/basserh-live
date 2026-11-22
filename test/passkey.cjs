@@ -3,6 +3,7 @@
 //   node test/passkey.cjs      (local server: npm run db && npm run dev; ADMIN_KEY=dev)
 const { chromium } = require('playwright');
 const B = process.env.BASE || 'http://localhost:8790', AK = process.env.ADMIN_KEY || 'dev';
+if (/live\.basserh\.com/.test(B)) { console.log('passkey: this test adds passkeys to the platform owner\'s own account; run it on local or staging, never on the live site'); process.exit(0); }
 const ok = (c, m) => { console.log((c ? '✓ ' : '✗ ') + m); if (!c) process.exitCode = 1; };
 (async () => {
   const b = await chromium.launch(); const ctx = await b.newContext({ viewport: { width: 1280, height: 800 } }); const p = await ctx.newPage(); const errs = []; p.on('pageerror', e => errs.push(e.message)); p.on('dialog', d => d.accept());
