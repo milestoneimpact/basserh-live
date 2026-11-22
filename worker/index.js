@@ -1,155 +1,17 @@
 // The studio's server: organisations, people, events, files, links for the screens, and one room (Durable Object) per event.
 // Every query carries the organisation of the signed in person; a screen link opens one event only.
-import { problems, SCENES, launchTimes, FONTS, fontCss, shape, isStations, stationOf, stationCfg, MODES } from '../web/engine/config.js';
-import { initial, reduce, stationMedia } from '../web/engine/state.js';
+import { SCENES, fontCss, isStations, launchTimes, problems, shape, stationCfg, stationOf } from '../web/engine/config.js';
+import { reduce, stationMedia } from '../web/engine/state.js';
+import { DUMMY, KEEP, failed, invite, locked, me, newPw, orgOf, platform, pwHash, pwOk, session, userFor } from './auth.js';
+import { readBrand } from './brand.js';
+import { BLANK, FEATURES, features, ORGS, PUB, STARTER, audit, backup, exportOrg, hasFeat, kickOrg, listAll, orgExists, padd, readKey, site, sweep } from './data.js';
+import { mail, mailJoin } from './mail.js';
+import { b64u, clientData, newChallenge, unb64u, verify } from './passkey.js';
+import { orgOfEvent, tdb } from './tenant.js';
+import { J, LINK_ROLES, ROLES, cookies, err, now, rid, setCookie, sha, slug } from './util.js';
 export { Room } from './room.js';
 export { Tenant } from './tenant.js';
-import { tdb, orgOfEvent } from './tenant.js';
-import { b64u, unb64u, newChallenge, clientData, verify } from './passkey.js';
 
-const J = (o, status = 200) => new Response(JSON.stringify(o), { status, headers: { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' } });
-const err = (msg, status = 400) => J({ error: msg }, status);
-const now = () => new Date().toISOString();
-const rid = (n = 12) => [...crypto.getRandomValues(new Uint8Array(n))].map(b => 'abcdefghijkmnpqrstuvwxyz23456789'[b % 32]).join('');
-const sha = async t => [...new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(t)))].map(b => b.toString(16).padStart(2, '0')).join('');
-const cookies = req => Object.fromEntries((req.headers.get('Cookie') || '').split(/;\s*/).filter(Boolean).map(c => { const i = c.indexOf('='); return [c.slice(0, i), c.slice(i + 1)]; }));
-const setCookie = (k, v, days) => `${k}=${v}; Path=/; HttpOnly; SameSite=Lax; Secure; Max-Age=${days * 86400}`;
-const ROLES = { owner: 3, editor: 2, operator: 1, viewer: 0 };
-const LINK_ROLES = ['station', 'hall', 'stage', 'side', 'logo', 'tablet', 'console', 'script', 'clicker', 'audience'];   // audience: one link for everyone in the hall (the programme, a question), it sees nothing else   // console: operator commands; tablet: the launch press only
-const slug = s => String(s || '').trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 40);
-
-// the features the platform owner opened for an organisation (a list of words in orgs.features): 'stations' for now.
-// The column is added on the first request of a worker that finds a database without it, so an older control database keeps working
-let featured = null; const features = env => featured || (featured = Promise.all([env.DB.prepare("ALTER TABLE orgs ADD COLUMN features TEXT NOT NULL DEFAULT ''").run().catch(() => null),
-  env.DB.prepare('CREATE TABLE IF NOT EXISTS pairs (code TEXT PRIMARY KEY, secret_hash TEXT NOT NULL, ip TEXT, go TEXT, created_at TEXT NOT NULL)').run().catch(() => null)]));
-const FEATURES = { stations: 'المحطات التفاعلية' };
-const hasFeat = (org, f) => String((org && org.features) || '').split(/[\s,]+/).includes(f);
-// the key a station's QR code carries: the phone of a visitor reads that station's file, and nothing else, with no account
-const readKey = async (env, evId, sid, draft) => { const k = await crypto.subtle.importKey('raw', new TextEncoder().encode((env.ADMIN_KEY || 'dev') + ':reader'), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
-  return [...new Uint8Array(await crypto.subtle.sign('HMAC', k, new TextEncoder().encode(`read:${evId}:${sid}:${draft ? 'd' : 'l'}`)))].slice(0, 12).map(b => b.toString(16).padStart(2, '0')).join(''); };
-async function me(req, env) {
-  await features(env);
-  const t = cookies(req).sid; if (!t) return null;
-  const s = await env.DB.prepare('SELECT user_id FROM sessions WHERE token_hash = ? AND expires_at > ?').bind(await sha(t), now()).first(); if (!s) return null;
-  const user = await env.DB.prepare('SELECT id, email, name FROM users WHERE id = ?').bind(s.user_id).first();
-  const { results } = await env.DB.prepare('SELECT o.id, o.name, o.slug, o.plan, o.events_limit, o.storage_limit_mb, o.paid_until, o.credits, o.features, m.role FROM members m JOIN orgs o ON o.id = m.org_id WHERE m.user_id = ? AND o.plan != ?').bind(s.user_id, 'off').all();   // a switched off organisation is closed to its members
-  return { user, orgs: results };
-}
-// the organisation a request works in (header x-org, else the person's first), and the person's role in it
-const orgOf = (who, req) => { const s = req.headers.get('x-org-slug'); return s ? who.orgs.find(o => o.slug === s) : who.orgs[0]; };   // each organisation works under its own address: /<slug>
-const audit = (env, org, ev, user, action, detail = '') => tdb(env, org).prepare('INSERT INTO audit (org_id, event_id, user_id, action, detail, at) VALUES (?,?,?,?,?,?)').bind(org, ev, user, action, detail, now()).run();
-// one way out for every message: Cloudflare Email Service when the worker has the binding (EMAIL), else Resend (RESEND_KEY). 1 = sent
-async function mail(env, m) { const from = env.MAIL_FROM || 'noreply@basserh.com';
-  try { if (env.EMAIL) { await env.EMAIL.send({ from: { email: from, name: 'بصيرة · استوديو اللقاءات' }, to: m.to, replyTo: m.replyTo, subject: m.subject, text: m.text, html: m.html }); return 1; }
-    if (env.RESEND_KEY) return (await fetch('https://api.resend.com/emails', { method: 'POST', headers: { Authorization: 'Bearer ' + env.RESEND_KEY, 'Content-Type': 'application/json' }, body: JSON.stringify({ from: env.CONTACT_FROM || `Basserh Live <${from}>`, to: [m.to], reply_to: m.replyTo, subject: m.subject, text: m.text, html: m.html }) })).ok ? 1 : 0;
-  } catch (x) { console.log('mail', x.message); } return 0; }
-// the invitation by mail: the same one time link the page shows, so the owner need not copy it by hand
-const mailJoin = (env, origin, email, join, orgName) => mail(env, { to: email, subject: `دعوة إلى استوديو اللقاءات · ${orgName}`, text: `السلام عليكم،\n\nدُعيتم إلى ${orgName} في استوديو اللقاءات. الدخول من هذا الرابط، ويُستعمل مرة واحدة خلال 14 يوماً:\n${origin + join}\n\nبصيرة`,
-  html: `<div dir="rtl" style="font-family:Tahoma,Arial,sans-serif;font-size:16px;line-height:1.9;color:#1F2A2E;max-width:520px"><p>السلام عليكم،</p><p>دُعيتم إلى <b>${orgName.replace(/[<>&]/g, '')}</b> في استوديو اللقاءات.</p><p><a href="${origin + join}" style="display:inline-block;background:#B88A3D;color:#fff;text-decoration:none;padding:10px 26px;border-radius:8px">الدخول إلى الاستوديو</a></p><p style="font-size:13px;color:#777">الرابط يُستعمل مرة واحدة خلال 14 يوماً.</p><p>بصيرة</p></div>` });
-async function invite(env, email, days = 14) { const code = rid(28); await env.DB.prepare('INSERT INTO login_codes (code_hash, email, expires_at) VALUES (?,?,?)').bind(await sha(code), email, new Date(Date.now() + days * 864e5).toISOString()).run(); return '/join/' + code; }
-// a session of 30 days for a user; returns the cookie
-// passwords: PBKDF2 (SHA-256, 100000 rounds) with a salt of its own; only "salt:hash" is kept
-const hex = b => [...new Uint8Array(b)].map(x => x.toString(16).padStart(2, '0')).join('');
-async function pwHash(pw, salt = hex(crypto.getRandomValues(new Uint8Array(16)))) { const k = await crypto.subtle.importKey('raw', new TextEncoder().encode(pw), 'PBKDF2', false, ['deriveBits']);
-  return salt + ':' + hex(await crypto.subtle.deriveBits({ name: 'PBKDF2', hash: 'SHA-256', salt: new TextEncoder().encode(salt), iterations: 100000 }, k, 256)); }
-const pwOk = async (pw, kept) => { if (!kept || !pw) return false; const a = await pwHash(pw, kept.split(':')[0]); let d = a.length ^ kept.length; for (let i = 0; i < a.length; i++) d |= a.charCodeAt(i) ^ kept.charCodeAt(i % kept.length); return d === 0; };
-// a password a person can read out and type: four groups of four, no look-alike characters
-const DUMMY = 'a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1:' + '0'.repeat(64);   // an unknown email costs the same work as a known one
-const newPw = () => [0, 1, 2, 3].map(() => rid(4)).join('-');
-// five wrong attempts from one address close the door for fifteen minutes (the owner's page and the studio share the count)
-async function locked(env, ip) { const f = await env.DB.prepare('SELECT n, until FROM login_fail WHERE ip = ?').bind(ip).first(); return f && f.until && f.until > now() ? null : { n: f && !f.until ? f.n : 0 }; }
-const failed = (env, ip, n, limit = 5) => env.DB.prepare('INSERT INTO login_fail (ip, n, until) VALUES (?,?,?) ON CONFLICT (ip) DO UPDATE SET n = excluded.n, until = excluded.until').bind(ip, n + 1, n + 1 >= limit ? new Date(Date.now() + 9e5).toISOString() : null).run();
-// the open connections of an organisation's events are closed: each comes back by its own right, and whoever lost it does not
-async function kickOrg(env, orgId) { try { const { results } = await tdb(env, orgId).prepare("SELECT id FROM events WHERE status != 'archived' ORDER BY updated_at DESC LIMIT 12").all(); await Promise.all(results.flatMap(e => [':live', ':draft'].map(k => env.ROOM.get(env.ROOM.idFromName(e.id + k)).fetch(new Request('https://room/kick', { method: 'POST' })).catch(() => {})))); } catch {} }
-// an organisation that exists (asked of the control database once, then remembered): no database is ever opened for a made up id
-const PUB = new Map();   // the audience's answer, kept three seconds for each event
-const ORGS = new Map(); async function orgExists(env, id) { const t = ORGS.get(id); if (t && Date.now() - t < 6e4) return true; const o = await env.DB.prepare("SELECT 1 AS x FROM orgs WHERE id = ? AND plan != 'off'").bind(id).first(); if (o) ORGS.set(id, Date.now()); return !!o; }
-const padd = (env, action, detail = '') => env.DB.prepare('INSERT INTO platform_audit (action, detail, at) VALUES (?,?,?)').bind(action, String(detail).slice(0, 300), now()).run().catch(() => {});   // the platform owner's own record
-const KEEP = 180;   // days a device stays signed in: a device that entered once is not asked again for half a year, unless it signs out or the password is renewed
-async function session(env, uid) { const t = rid(32); await env.DB.prepare('INSERT INTO sessions (token_hash, user_id, expires_at, created_at) VALUES (?,?,?,?)').bind(await sha(t), uid, new Date(Date.now() + KEEP * 864e5).toISOString(), now()).run(); return setCookie('sid', t, KEEP); }
-// the platform owner as a person of the system (for sessions and passkeys); belongs to no organisation
-async function platform(env) { await env.DB.prepare('INSERT INTO users (id, email, name, created_at) VALUES (?,?,?,?) ON CONFLICT (id) DO NOTHING').bind('platform', 'platform@basserh', 'مالك المنصة', now()).run(); return 'platform'; }
-async function userFor(env, email, name) { email = String(email || '').trim().toLowerCase(); if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return null;
-  let u = await env.DB.prepare('SELECT id FROM users WHERE email = ?').bind(email).first(), fresh = false; if (!u) { fresh = true; u = { id: 'u_' + rid() }; await env.DB.prepare('INSERT INTO users (id, email, name, created_at) VALUES (?,?,?,?)').bind(u.id, email, name || '', now()).run(); } return { id: u.id, email, fresh }; }   // fresh: created by this very call
-// what a new organisation finds on its first visit: a small event already laid out, to edit instead of starting from an empty page
-const STARTER = () => ({ ...BLANK('لقاؤكم الأول'), people: { p1: { name: 'اسم المتحدث', honorific: 'الصفة' } },
-  cues: [{ id: 'in', type: 'loop', title: 'الاستقبال', at: 'فتح الأبواب', dur: 15, moderator: [], fixed: true },
-    { id: 'open', type: 'title', title: 'الافتتاح', text: 'بسم الله الرحمن الرحيم', at: 'بسم الله الرحمن الرحيم', dur: 3, moderator: ['بسم الله الرحمن الرحيم. نرحب بكم في لقائنا، ونبدأ بكلمة الافتتاح.'] },
-    { id: 'talk', type: 'speaker', title: 'كلمة الافتتاح', person: 'p1', at: '…ونبدأ بكلمة الافتتاح', dur: 7, moderator: ['شكراً لكم.'] },
-    { id: 'out', type: 'exit', title: 'الختام', at: 'خروج الضيوف', dur: 5, moderator: [] }] });
-const BLANK = name => ({ name, lang: 'ar', date: '', identity: { before: { logo: '', colors: { bg: '#F6F1E6', ink: '#14211E', accent: '#0F5A4E', gold: '#C2A063' } }, after: null }, people: {}, media: {},
-  cues: [{ id: 'in', type: 'loop', title: 'الاستقبال', at: 'فتح الأبواب', dur: 15, moderator: [], fixed: true }, { id: 'out', type: 'exit', title: 'الختام', at: 'خروج الضيوف', dur: 5, moderator: [] }] });
-
-// the static pages: the deploy's own assets when it has them (local development), else the copy kept in the bucket
-async function site(env, req, path) {
-  if (env.ASSETS) return env.ASSETS.fetch(new Request(new URL(path, req.url), req));
-  let f = path === '/' ? 'index.html' : path.slice(1); if (f.endsWith('/')) f += 'index.html';
-  const range = req.headers.get('Range'), opt = range ? { range: req.headers } : {};   // a video is asked for in ranges (seeking, Safari)
-  const inm = req.headers.get('If-None-Match'); let o = await env.MEDIA.get('_site/' + f, opt); if (!o && !/\.\w+$/.test(f)) o = await env.MEDIA.get('_site/' + f + '.html');
-  if (o && inm && !range && inm.replace(/^W\//, '') === o.httpEtag) return new Response(null, { status: 304, headers: { ETag: o.httpEtag, 'Cache-Control': /\.(woff2|png|jpg|mp4)$/.test(f) ? 'public, max-age=86400' : 'no-cache' } });
-  if (!o) return new Response('لا يوجد', { status: 404, headers: { 'Content-Type': 'text/plain; charset=utf-8' } });
-  const h = { 'Content-Type': o.httpMetadata?.contentType || 'application/octet-stream', 'Cache-Control': /\.(woff2|png|jpg|mp4)$/.test(f) ? 'public, max-age=86400' : 'no-cache', ETag: o.httpEtag, 'Accept-Ranges': 'bytes' };
-  if (range && o.range) { const r = o.range, st = 'suffix' in r ? o.size - r.suffix : (r.offset || 0), len = Math.min('suffix' in r ? r.suffix : (r.length ?? o.size - st), o.size - st); return new Response(o.body, { status: 206, headers: { ...h, 'Content-Range': `bytes ${st}-${st + len - 1}/${o.size}`, 'Content-Length': String(len) } }); }
-  return new Response(o.body, { headers: { ...h, 'Content-Length': String(o.size) } });
-}
-// ----- an organisation's identity read from its own website: its logo, its colours, its typeface. A proposal only; a person accepts it in the studio.
-const hexOf = c => { c = c.trim().toLowerCase(); let m = c.match(/^#([0-9a-f]{3})$/); if (m) return '#' + m[1].split('').map(x => x + x).join(''); m = c.match(/^#([0-9a-f]{6})/); if (m) return '#' + m[1]; m = c.match(/^rgba?\(\s*(\d+)[\s,]+(\d+)[\s,]+(\d+)/); return m ? '#' + [1, 2, 3].map(i => Math.min(255, +m[i]).toString(16).padStart(2, '0')).join('') : null; };
-const hsl = h => { const r = parseInt(h.slice(1, 3), 16) / 255, g = parseInt(h.slice(3, 5), 16) / 255, b = parseInt(h.slice(5, 7), 16) / 255, mx = Math.max(r, g, b), mn = Math.min(r, g, b), l = (mx + mn) / 2, d = mx - mn; let hu = 0; if (d) hu = mx === r ? ((g - b) / d) % 6 : mx === g ? (b - r) / d + 2 : (r - g) / d + 4; return { h: (hu * 60 + 360) % 360, s: d ? d / (1 - Math.abs(2 * l - 1)) : 0, l }; };
-const shade = (h, k) => '#' + [1, 3, 5].map(i => Math.round(Math.max(0, Math.min(255, parseInt(h.slice(i, i + 2), 16) * k))).toString(16).padStart(2, '0')).join('');
-async function grab(u, max, ms = 8000) { const c = new AbortController(), t = setTimeout(() => c.abort(), ms); try { let r, at = u; for (let hop = 0; hop < 4; hop++) { if (!publicUrl(at)) return null; r = await fetch(at, { signal: c.signal, redirect: 'manual', headers: { 'User-Agent': 'Mozilla/5.0 (compatible; brand-reader)', Accept: '*/*' } }); if (r.status >= 300 && r.status < 400 && r.headers.get('Location')) { at = new URL(r.headers.get('Location'), at).href; continue; } break; } if (!r || !r.ok) return null; const len = +r.headers.get('Content-Length') || 0; if (len > max) return null; const buf = await r.arrayBuffer(); return buf.byteLength > max ? null : { buf, type: (r.headers.get('Content-Type') || '').split(';')[0].trim().toLowerCase(), url: at }; } catch { return null; } finally { clearTimeout(t); } }
-// only a public web address: no address by number, no local or internal name
-const publicUrl = raw => { let u; try { u = new URL(/^https?:\/\//i.test(raw) ? raw : 'https://' + raw); } catch { return null; } const h = u.hostname.toLowerCase().replace(/\.+$/, ''); if (/(^|\.)(nip\.io|sslip\.io|localtest\.me|lvh\.me)$/.test(h)) return null; if (!/^https?:$/.test(u.protocol) || !h.includes('.') || /^[\d.]+$/.test(h) || h.includes(':') || /(^|\.)(localhost|local|internal|lan|home|corp|test|invalid)$/.test(h) || u.port && !['80', '443'].includes(u.port)) return null; return u; };
-async function readBrand(raw) { const u = publicUrl(String(raw || '').trim()); if (!u) return { error: 'عنوان الموقع غير صالح' }; const page = await grab(u.href, 2e6); if (!page || !/html/.test(page.type)) return { error: 'تعذّر فتح الموقع. تحقق من العنوان، أو أدخل الهوية يدوياً.' };
-  const html = new TextDecoder().decode(page.buf), base = page.url, abs = x => { try { const y = new URL(x.replace(/&amp;/g, '&'), base); return publicUrl(y.href) ? y.href : null; } catch { return null; } }, attr = (tag, n) => { const m = tag.match(new RegExp('\\s' + n + '\\s*=\\s*("([^"]*)"|\'([^\']*)\'|([^\\s>]+))', 'i')); return m ? (m[2] ?? m[3] ?? m[4] ?? '') : ''; };
-  const tags = n => html.match(new RegExp('<' + n + '\\b[^>]*>', 'gi')) || [], links = tags('link'), metas = tags('meta'), imgs = tags('img');
-  // the logo: an image that calls itself the logo, then the icon a phone would use, then the picture for sharing, then the tab's icon
-  const cand = []; for (const t of imgs) { const sig = (attr(t, 'src') + ' ' + attr(t, 'class') + ' ' + attr(t, 'id') + ' ' + attr(t, 'alt')).toLowerCase(), src = attr(t, 'src') || attr(t, 'data-src'); if (src && /logo|شعار|brand/.test(sig) && !/^data:/.test(src)) cand.push([src, /\.svg(\?|$)/i.test(src) ? 10 : 8]); }
-  for (const t of links) { const rel = attr(t, 'rel').toLowerCase(), href = attr(t, 'href'); if (!href) continue; if (/apple-touch-icon/.test(rel)) cand.push([href, 6]); else if (/icon/.test(rel)) cand.push([href, /\.svg(\?|$)/i.test(href) ? 5 : 3]); }
-  for (const t of metas) if (/og:image/i.test(attr(t, 'property') + attr(t, 'name')) && attr(t, 'content')) cand.push([attr(t, 'content'), 4]);
-  cand.sort((a, b) => b[1] - a[1]); let logo = null; for (const [src] of cand.slice(0, 5)) { const a2 = abs(src); if (!a2) continue; const f = await grab(a2, 3e6); if (f && /^image\/(png|jpeg|webp|svg\+xml|gif|x-icon|vnd\.microsoft\.icon)$/.test(f.type) && f.buf.byteLength > 200 && !/icon$/.test(f.type)) { logo = { buf: f.buf, type: f.type, from: a2 }; break; } }
-  // the styles: what is written in the page, and its first stylesheets
-  let css = (html.match(/<style\b[^>]*>[\s\S]*?<\/style>/gi) || []).join('\n') + '\n' + (html.match(/style\s*=\s*"[^"]*"/gi) || []).join('\n'); const sheets = links.filter(t => /stylesheet/i.test(attr(t, 'rel')) && attr(t, 'href')).map(t => abs(attr(t, 'href'))).filter(Boolean), gf = sheets.filter(x => /fonts\.googleapis\.com/.test(x)).join(' ');
-  for (const sh of sheets.filter(x => !/fonts\.googleapis\.com/.test(x)).slice(0, 4)) { const f = await grab(sh, 8e5, 6000); if (f) css += '\n' + new TextDecoder().decode(f.buf); }
-  // colours: the one the site declares for itself, the ones it names primary or brand, then the saturated colours it uses most
-  const count = new Map(), add = (c, w) => { const h = c && hexOf(c); if (h) count.set(h, (count.get(h) || 0) + w); }; for (const t of metas) if (/^theme-color$/i.test(attr(t, 'name'))) add(attr(t, 'content'), 400);
-  for (const m of css.matchAll(/--[\w-]*(primary|brand|main|accent|theme)[\w-]*\s*:\s*(#[0-9a-f]{3,8}|rgba?\([^)]+\))/gi)) add(m[2], 120); for (const m of css.matchAll(/--[\w-]*(secondary|second)[\w-]*\s*:\s*(#[0-9a-f]{3,8}|rgba?\([^)]+\))/gi)) add(m[2], 60);
-  for (const m of css.matchAll(/#[0-9a-f]{6}\b|#[0-9a-f]{3}\b|rgba?\(\s*\d+[\s,]+\d+[\s,]+\d+/gi)) add(m[0], 1);
-  // a logo drawn as vectors carries the organisation's colours itself
-  if (logo && logo.type === 'image/svg+xml') for (const m of new TextDecoder().decode(logo.buf).matchAll(/#[0-9a-f]{6}\b|#[0-9a-f]{3}\b|rgb\(\s*\d+[\s,]+\d+[\s,]+\d+/gi)) add(m[0], 90);
-  // the colours every site built on a common kit carries are not its identity
-  const KIT = new Set('0d6efd 6c757d 198754 dc3545 ffc107 0dcaf0 212529 007bff 28a745 17a2b8 6610f2 6f42c1 d63384 fd7e14 20c997 e83e8c 0073aa 0085ba 007cba 00a0d2 135e96 2271b1 ff0000 00ff00 0000ff ffff00 ff00ff 00ffff 337ab7 5cb85c d9534f f0ad4e 5bc0de ff6900 0693e3 cf2e2e fcb900 7bdcb5 00d084 8ed1fc 9b51e0 abb8c3 f78da7 eb144c 32373c'.split(' ').map(x => '#' + x)); for (const [h, n] of count) if (KIT.has(h) && n < 60) count.delete(h);
-  const vivid = [...count.entries()].map(([h, n]) => ({ hex: h, n, ...hsl(h) })).filter(c => c.s > .22 && c.l > .12 && c.l < .78).sort((a, b) => b.n - a.n), neutral = [...count.entries()].map(([h, n]) => ({ hex: h, n, ...hsl(h) })).filter(c => c.s <= .12);
-  const first = vivid[0], second = vivid.find(c => first && Math.min(Math.abs(c.h - first.h), 360 - Math.abs(c.h - first.h)) > 28) || vivid.find(c => first && Math.abs(c.l - first.l) > .2);
-  let accent = first ? first.hex : '#1F2A2E'; if (hsl(accent).l > .6) accent = shade(accent, .62); const gold = second ? second.hex : shade(accent, 1.5), dark = neutral.filter(c => c.l < .16).reduce((a, c) => a + c.n, 0) > neutral.filter(c => c.l > .9).reduce((a, c) => a + c.n, 0) * 3;
-  const colors = dark ? { bg: '#0E1114', ink: '#F6F2E8', accent: hsl(accent).l < .45 ? shade(accent, 1.9) : accent, gold } : { bg: '#FFFFFF', ink: '#1A1F22', accent, gold: hsl(gold).l > .8 ? shade(gold, .7) : gold };
-  // the typeface: the families the site names, matched to the ones the screens carry
-  const named = (decodeURIComponent(gf).match(/family=([^:&|]+)/g) || []).map(x => x.slice(7).replace(/\+/g, ' ')).concat([...css.matchAll(/font-family\s*:\s*([^;}{]+)/gi)].map(m => m[1])).join(',').toLowerCase().replace(/["']/g, ''); let font = null; const order = Object.entries(FONTS).map(([k, f]) => [k, Math.min(...f.seen.map(n => { const i = named.indexOf(n); return i < 0 ? 1e9 : i; }))]).filter(x => x[1] < 1e9).sort((a, b) => a[1] - b[1]); if (order.length) font = order[0][0];
-  const seenFont = (named.split(',').map(x => x.trim()).find(x => x && /^[\w\u0600-\u06FF][\w\u0600-\u06FF .-]{1,38}$/.test(x) && !/^(inherit|sans-serif|serif|monospace|system-ui|arial|helvetica|tahoma|verdana|segoe ui|roboto|var|-apple-system|blinkmacsystemfont|initial|unset|times|courier|georgia)/.test(x) && !/awesome|icon|mono|menlo|consolas|monaco|glyph|symbol|emoji|swiper|slick|dashicons|eicons|star/.test(x)) || '').slice(0, 40);
-  const title = ((html.match(/<title[^>]*>([^<]*)</i) || [])[1] || '').replace(/\s+/g, ' ').trim().slice(0, 80); return { logo, colors, font, seenFont, title, site: u.hostname, weak: !first }; }
-// every object of the bucket under a prefix (an organisation's folder, an event's folder)
-async function listAll(env, prefix) { const out = []; let cursor; do { const r = await env.MEDIA.list({ prefix, cursor, limit: 1000 }); out.push(...r.objects); cursor = r.truncated ? r.cursor : null; } while (cursor); return out; }
-// the files of an event that no document needs any more (neither the draft nor the published version) leave the bucket and the index.
-// A file younger than an hour is left alone: it may belong to an upload still on its way into the draft.
-async function sweep(env, T, org, ev) {
-  const docs = [JSON.parse(ev.draft)]; for (const v of (await T.prepare('SELECT doc FROM event_versions WHERE event_id = ? ORDER BY version DESC LIMIT 60').bind(ev.id).all()).results) { try { docs.push(JSON.parse(v.doc)); } catch {} }
-  const need = new Set(); for (const d of docs) { for (const m of Object.values(d.media || {})) { if (m.src) need.add(m.src); if (m.cover) need.add(m.cover); } for (const k of ['before', 'after']) if (d.identity && d.identity[k] && d.identity[k].logo) need.add(d.identity[k].logo); }
-  const base = `${org}/${ev.id}/`, old = Date.now() - 36e5, gone = [];
-  for (const o of await listAll(env, base)) { const f = o.key.slice(base.length), top = f.includes('/') ? f.split('/')[0] + '/' : f; if (!need.has(top) && o.uploaded.getTime() < old) gone.push(o.key); }
-  for (const k of gone) { const o = await env.MEDIA.get(k); if (o) await env.MEDIA.put('_trash/' + k, o.body, { httpMetadata: o.httpMetadata }); }   // kept 14 days, so a restored copy finds its files
-  for (let i = 0; i < gone.length; i += 500) await env.MEDIA.delete(gone.slice(i, i + 500));
-  if (gone.length) { const { results } = await T.prepare('SELECT id, r2_key FROM media WHERE event_id = ?').bind(ev.id).all(); const dead = results.filter(r => gone.includes(r.r2_key)); for (const r of dead) await T.prepare('DELETE FROM media WHERE id = ?').bind(r.id).run(); }
-  return gone.length;
-}
-// an organisation as one document: who it is, its people, and everything in its own database (files are listed, not included)
-async function exportOrg(env, id, raw) { const org = await env.DB.prepare('SELECT * FROM orgs WHERE id = ?').bind(id).first(); if (!org) return null;
-  const members = (await env.DB.prepare('SELECT u.email, u.name, m.role FROM members m JOIN users u ON u.id = m.user_id WHERE m.org_id = ?').bind(id).all()).results, data = await tdb(env, id).dump();
-  if (!raw) data.links = data.links.map(l => ({ ...l, token_hash: undefined })); return { exported_at: now(), org, members, ...data, files: (await listAll(env, id + '/')).map(o => ({ key: o.key, bytes: o.size })) }; }
-// the nightly copy: the control database and every organisation, as JSON in the bucket (_backup/<day>/), kept for 14 days
-async function backup(env) { const day = now().slice(0, 10), orgs = (await env.DB.prepare('SELECT id FROM orgs').all()).results, ctl = {};
-  for (const t of ['orgs', 'users', 'members', 'passkeys', 'leads']) ctl[t] = (await env.DB.prepare(`SELECT * FROM ${t}`).all()).results;
-  await env.MEDIA.put(`_backup/${day}/control.json`, JSON.stringify(ctl)); for (const o of orgs) await env.MEDIA.put(`_backup/${day}/${o.id}.json`, JSON.stringify(await exportOrg(env, o.id, true)));
-  const keep = new Date(Date.now() - 14 * 864e5).toISOString().slice(0, 10), old = [...(await listAll(env, '_backup/')).filter(o => o.key.split('/')[1] < keep), ...(await listAll(env, '_trash/')).filter(o => o.uploaded.toISOString().slice(0, 10) < keep)].map(o => o.key);   // the files taken out by the sweep wait in _trash/ as long as the copies that may still need them for (let i = 0; i < old.length; i += 500) await env.MEDIA.delete(old.slice(i, i + 500));
-  return { day, orgs: orgs.length, removed: old.length }; }
 let backupDay = '';
 const main = {
   async scheduled(event, env, ctx) { ctx.waitUntil(backup(env)); },

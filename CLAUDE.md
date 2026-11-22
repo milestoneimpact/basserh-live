@@ -8,3 +8,6 @@ The ceremony studio of «بصيرة» (Basserh), rented to several organisations
 * Rental model: building and rehearsing are free; the hall's links open inside the activation window only (credits).
 * Deploy: the worker with `wrangler.live.toml`; the pages of `web/` are pushed into the bucket with `tools/push_site.mjs` after every change in `web/`. `ADMIN_KEY` is a Cloudflare secret, never in the repository.
 * Arabic on every user facing text: plain, dignified; no dashes, no «ليس كذا، بل كذا».
+* The server is split by role: `worker/index.js` (routes), `util.js`, `auth.js`, `mail.js`, `brand.js`, `data.js`, plus `room.js`, `tenant.js`, `passkey.js`.
+* Control database changes are numbered files in `db/migrations/NNNN_name.sql`, applied once each with `node tools/migrate.mjs <staging|live>` (kept in `schema_migrations`).
+* Staging: `wrangler.staging.toml`, deployed with `tools/staging.sh` (its own database, bucket and admin key). Every change goes to staging and its tests first, then to live, never during a client's event.
