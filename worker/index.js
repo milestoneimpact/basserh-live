@@ -389,7 +389,7 @@ const main = {
         return err('لا يوجد', 404);
       }
       if (!p.startsWith('/api/')) {   // /<slug>: the studio of that organisation (the same page; it sends the slug with every request)
-        if (p === '/screen' || p === '/screen/') return site(env, req, '/run/pair.html');   // the address a screen is set to open at every start: a code to pair it, then its station
+        if (p === '/screen' || p === '/screen/') return site(env, req, '/run/pair');   // the address a screen is set to open at every start: a code to pair it, then its station
         const sl = p.match(/^\/([a-z0-9][a-z0-9-]{1,39})\/?$/); if (p === '/login' || (sl && !['run', 'fonts', 'vendor', 'engine', 'admin', 'brand', 'studio'].includes(sl[1]) && await env.DB.prepare("SELECT 1 FROM orgs WHERE slug = ? AND plan != 'off'").bind(sl[1]).first())) return site(env, req, '/studio');   // «/» is the public page; the studio opens at /login and at each organisation's address
         return site(env, req, url.pathname); }
 

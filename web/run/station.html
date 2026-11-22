@@ -80,6 +80,10 @@ window.prepScreen = async cfg => { const P = cfg.prep; document.body.style.touch
   $('#pw').textContent = Object.values(st).every(x => x.done) ? 'الملف محفوظ على هذا الجهاز. تفتح المحطة وحدها في موعد التفعيل.' : 'لم يكتمل الحفظ. يعيد المحاولة تلقائياً.';
   setTimeout(() => { window.leaving = true; location.reload(); }, 5 * 60000); };
 
+// the page keeps a copy of itself and of what it loaded (sw.js), so a screen restarted with no network opens its station again
+if (navigator.serviceWorker) navigator.serviceWorker.register('/sw.js').then(() => navigator.serviceWorker.ready).then(() => setTimeout(() => { const seen = new Set([location.href]); for (const e of performance.getEntriesByType('resource')) if (e.name.startsWith(location.origin) && !/\/(api|m)\//.test(e.name)) seen.add(e.name.split('#')[0]);
+  for (const u of seen) fetch(u, { cache: 'no-store' }).catch(() => {}); }, 4000)).catch(() => {});
+try { localStorage.setItem('screen:url', location.pathname + location.search); } catch {}
 const link = await connect(), D = link.doc, Q = new URLSearchParams(location.search);
 // the hall's one link: the screen asks once which station it is (the operator's choice, kept on this device); #pick asks again
 const PK = 'pick:' + Q.get('e'); if (link.role === 'hall' && (location.hash === '#pick' || !stationOf(D, localStorage.getItem(PK)))) { await pick(); }
