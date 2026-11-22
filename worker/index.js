@@ -41,7 +41,7 @@ const main = {
         const pw0 = String(b.password || '').trim(); if (pw0 && pw0.length < 8) return err('كلمة المرور ثمانية أحرف على الأقل');
         const u = await userFor(env, b.email, b.owner); if (!u) return err('بريد المالك غير صالح');
         const id = 'o_' + rid(); await env.DB.batch([
-          env.DB.prepare('INSERT INTO orgs (id, name, slug, plan, events_limit, storage_limit_mb, paid_until, created_at) VALUES (?,?,?,?,?,?,?,?)').bind(id, b.name, s, b.plan || 'trial', b.events_limit || 3, b.storage_limit_mb || 2000, b.paid_until || null, now()),
+          env.DB.prepare('INSERT INTO orgs (id, name, slug, plan, events_limit, storage_limit_mb, paid_until, created_at) VALUES (?,?,?,?,?,?,?,?)').bind(id, b.name, s, b.plan || 'trial', b.events_limit || 3, b.storage_limit_mb || 20000, b.paid_until || null, now()),
           env.DB.prepare('INSERT INTO members (org_id, user_id, role) VALUES (?,?,?)').bind(id, u.id, 'owner')]);
         // the organisation's own database is born here, with its first event
         await tdb(env, id).prepare('INSERT INTO events (id, org_id, slug, name, status, draft, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?)').bind('e_' + id.slice(2) + rid(8), id, 'first-' + rid(4), 'لقاؤكم الأول', 'draft', JSON.stringify(STARTER()), now(), now()).run();
@@ -295,7 +295,6 @@ const main = {
         const n = (await T.prepare('SELECT COUNT(*) AS n FROM events WHERE org_id = ? AND status != ?').bind(org.id, 'archived').first()).n;
         
         if (org.paid_until && org.paid_until < now()) return err('انتهى اشتراك الجهة', 402);
-        if (b.mode === 'stations' && !hasFeat(org, 'stations')) return err('المحطات التفاعلية غير مفعّلة لجهتكم. تواصلوا مع بصيرة لتفعيلها.', 403);
         let doc = BLANK(b.name); if (b.mode === 'stations') doc = { ...BLANK(b.name), mode: 'stations', cues: [], stations: [] }; else if (b.doc && !shape({ ...BLANK(b.name), ...b.doc, name: String(b.name) })) doc = { ...BLANK(b.name), ...b.doc, name: String(b.name) };   // a template chosen in the studio
         if (b.from) { const src = await T.prepare('SELECT draft FROM events WHERE id = ? AND org_id = ?').bind(b.from, org.id).first(); if (src) { const d0 = JSON.parse(src.draft); doc = { ...d0, name: String(b.name), media: {}, cues: (d0.cues || []).map(c => { const x = { ...c }; delete x.media; delete x.mediaTall; return x; }), identity: { before: { ...d0.identity.before, logo: '' }, after: d0.identity.after ? { ...d0.identity.after, logo: '' } : null } }; } }
         const id = 'e_' + org.id.slice(2) + rid(8), s = (slug(b.slug) || 'event') + '-' + rid(4);

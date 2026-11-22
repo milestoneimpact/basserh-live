@@ -5,7 +5,7 @@ import fs from 'fs'; import { execFileSync } from 'child_process'; import path f
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..'), [where = 'local', flag] = process.argv.slice(2);
 const T = { live: ['basserh-live', 'wrangler.live.toml', '--remote'], staging: ['basserh-staging', 'wrangler.staging.toml', '--remote'], local: ['basserh-live', 'wrangler.toml', '--local'] }[where];
 if (!T) { console.log('المكان: live أو staging أو local'); process.exit(1); }
-const d1 = args => JSON.parse(execFileSync('npx', ['wrangler@4', 'd1', 'execute', T[0], T[2], '-c', T[1], '--json', ...args], { cwd: ROOT, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }));
+const d1 = args => { const o = execFileSync('npx', ['wrangler@4', 'd1', 'execute', T[0], T[2], '-c', T[1], '--json', ...args], { cwd: ROOT, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }); return JSON.parse(o.slice(Math.min(...['[', '{'].map(c => o.indexOf(c)).filter(i => i >= 0)))); };   // wrangler prints its progress before the JSON when it uploads a file
 d1(['--command', 'CREATE TABLE IF NOT EXISTS schema_migrations (name TEXT PRIMARY KEY, at TEXT NOT NULL)']);
 const done = new Set(d1(['--command', 'SELECT name FROM schema_migrations'])[0].results.map(r => r.name));
 const files = fs.readdirSync(path.join(ROOT, 'db/migrations')).filter(f => /^\d{4}_[\w-]+\.sql$/.test(f)).sort();

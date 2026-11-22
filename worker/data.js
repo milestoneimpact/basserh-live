@@ -6,7 +6,7 @@ import { now } from './util.js';
 // the features the platform owner opened for an organisation (a list of words in orgs.features): 'stations' for now.
 // The column and the pairing table come from db/migrations/0005_stations.sql
 export const FEATURES = { stations: 'المحطات التفاعلية' };
-export const hasFeat = (org, f) => String((org && org.features) || '').split(/[\s,]+/).includes(f);
+export const hasFeat = (org, f) => !!org && !!FEATURES[f];   // owner, 22 Nov: an organisation that is switched on has every feature; the off switch is the only control
 // the key a station's QR code carries: the phone of a visitor reads that station's file, and nothing else, with no account
 export const readKey = async (env, evId, sid, draft) => { const k = await crypto.subtle.importKey('raw', new TextEncoder().encode((env.ADMIN_KEY || 'dev') + ':reader'), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
   return [...new Uint8Array(await crypto.subtle.sign('HMAC', k, new TextEncoder().encode(`read:${evId}:${sid}:${draft ? 'd' : 'l'}`)))].slice(0, 12).map(b => b.toString(16).padStart(2, '0')).join(''); };

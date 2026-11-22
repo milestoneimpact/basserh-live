@@ -16,9 +16,7 @@ const adm = (method, body) => fetch(B + '/api/admin/org', { method, headers: { '
   const org = await adm('POST', { name: 'معرض آلي', slug: 's' + Date.now(), email: `o${Date.now()}@t.test`, events_limit: 3 }); await adm('PATCH', { id: org.org, add_credits: 1 });
   const ctx = await b.newContext({ viewport: { width: 1440, height: 900 } }), p = await ctx.newPage(); p.on('pageerror', e => errs.push('studio: ' + e.message)); p.on('dialog', d => d.accept());
   await p.goto(B + org.join); await p.waitForSelector('#new');
-  await p.click('#new'); await p.waitForSelector('#dlg'); ok(!(await p.locator('[data-tpl="stations"]').count()), 'an organisation without the feature sees no stations'); await p.click('#dlgNo');
-  await adm('PATCH', { id: org.org, features: ['stations'] }); await p.reload(); await p.waitForSelector('#new');
-  await p.click('#new'); await p.waitForSelector('[data-tpl="stations"]'); ok(await p.locator('[data-tpl="stations"] li').count() >= 4, 'with the feature, a new event asks its kind, and each kind lists what it brings');
+  await p.click('#new'); await p.waitForSelector('[data-tpl="stations"]'); ok(await p.locator('[data-tpl="stations"] li').count() >= 4, 'every organisation that is switched on has the stations: a new event asks its kind, and each kind lists what it brings');
   await p.screenshot({ path: OUT + '1_kind.jpg', type: 'jpeg', quality: 80 });
   await p.click('[data-tpl="stations"]'); await p.click('#dlgOk'); await p.waitForSelector('#nSt'); await p.fill('#dlgIn', 'معرض الإنجازات'); await p.fill('#nSt', '3'); await p.click('#dlgOk');
   await p.waitForFunction(() => document.querySelectorAll('[data-del]').length === 3); ok(await p.locator('.tabs button').count() === 4 && await p.locator('.tabs [data-t="stations"]').count() === 1, 'the event opens on its stations, with the steps and tabs of its kind (no cues, no people)');

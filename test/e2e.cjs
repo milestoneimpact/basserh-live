@@ -10,7 +10,7 @@ const ok = (c, m) => { console.log((c ? '✓ ' : '✗ ') + m); if (!c) process.e
   const ctx = await b.newContext({ viewport: { width: 1440, height: 900 } }); const p = await ctx.newPage(); p.on('pageerror', e => errs.push('studio: ' + e.message));
   let ans = []; p.on('dialog', d => d.type() === 'prompt' ? d.accept(ans.shift() || 'x') : d.accept());
   await p.goto(B + org.join); await p.waitForSelector('#new'); ok(new URL(p.url()).pathname === '/' + org.slug, 'signed in by the invitation link, at the organisation\'s own address ' + new URL(p.url()).pathname);
-  await p.click('#new'); await p.fill('#dlgIn', 'ملتقى الشركاء السنوي'); await p.click('#dlgOk'); await p.waitForSelector('.tabs');
+  await p.click('#new'); await p.click('[data-tpl="ceremony"], .tpl.on'); await p.click('#dlgOk'); await p.fill('#dlgIn', 'ملتقى الشركاء السنوي'); await p.click('#dlgOk'); await p.waitForSelector('.tabs');
   // people
   await p.click('[data-t="people"]'); for (const [n, h] of [['أ. اسم المتحدث الأول', 'المدير العام'], ['د. اسم المتحدث الثاني', '']]) { await p.click('#addP'); const r = p.locator('#body .row').last(); await r.locator('input').nth(0).fill(n); await r.locator('input').nth(1).fill(h); }
   // files: a video, a reveal video, a PDF that becomes slides
