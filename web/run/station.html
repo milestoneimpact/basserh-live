@@ -136,7 +136,7 @@ function begin() { const t = Date.now(); sess = { id: Math.random().toString(36)
 function dwell(until) { if (!sess) return; const ms = Math.max(0, until - sess.pgAt); sess.pages[sess.pg] = (sess.pages[sess.pg] || 0) + ms; sess.pgAt = until; }
 function end() { if (!sess) return; const stop = Math.min(Date.now(), last + 15000); dwell(stop); const { pg, pgAt, zpg, ...x } = sess; x.ms = Math.max(0, stop - x.start); sess = null; const q = queue(); q.push(x); setQueue(q); flush(); }
 let flushing = false; async function flush() { const q = queue(); if (flushing || !q.length) return; flushing = true;
-  try { const part = q.slice(0, 200), r = await fetch(`/api/run/${Q.get('e')}/sessions${link.draft ? '?draft' : ''}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ list: part }) });
+  try { const part = q.slice(0, 200), r = await fetch(`/api/run/${Q.get('e')}/sessions?tz=${new Date().getTimezoneOffset()}${link.draft ? '&draft' : ''}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ list: part }) });
     if (r.ok || r.status === 410) { const sent = new Set(part.map(x => x.id)); setQueue(queue().filter(x => !sent.has(x.id))); } } catch {}   // 410: past the week after the day, nothing will take them
   flushing = false; if (queue().length && navigator.onLine) setTimeout(flush, 1500); }
 setInterval(flush, 15000); addEventListener('online', flush); addEventListener('pagehide', end);

@@ -4,10 +4,12 @@
 const { chromium } = require('playwright'); const B = process.env.BASE || 'http://localhost:8790', AK = process.env.ADMIN_KEY || 'dev';
 const ok = (c, m) => { console.log((c ? '✓ ' : '✗ ') + m); if (!c) process.exitCode = 1; };
 const adm = (p, m = 'GET', b) => fetch(B + '/api/admin/' + p, { method: m, headers: { 'x-admin-key': AK, 'content-type': 'application/json' }, body: b ? JSON.stringify(b) : undefined });
+let B_ = null, SLUG_ = null; /* closed and deleted at the end, passed or failed, so a failure never hangs the run or leaves an organisation behind */
+const tidy = async () => { try { if (B_) await B_.close(); } catch {} B_ = null; if (SLUG_) { const o = ((await (await adm('orgs')).json()).orgs || []).find(x => x.slug === SLUG_); if (o) await adm('org', 'DELETE', { id: o.id, confirm: SLUG_ }).catch(() => {}); SLUG_ = null; } };
 (async () => {
-  const b = await chromium.launch(), errs = [], t = Date.now(), slug = 'j' + t, mail = `owner${t}@t.test`;
+  const b = B_ = await chromium.launch(), errs = [], t = Date.now(), slug = SLUG_ = 'j' + t, mail = `owner${t}@t.test`;
   const actx = await b.newContext({ viewport: { width: 1440, height: 900 }, permissions: ['clipboard-read', 'clipboard-write'] }), a = await actx.newPage(); a.on('pageerror', e => errs.push('admin: ' + e.message));
-  await a.goto(B + '/admin.html'); await a.click('#pw'); await a.keyboard.type(AK); ok(await a.inputValue('#pw') === AK, 'the owner types his password with the keyboard, key by key, and the field takes it'); await a.keyboard.press('Enter'); await a.waitForSelector('#pkAdd'); await a.waitForSelector('#tst'); if (!(await a.isChecked('#tst'))) await a.click('#tst'); await a.waitForSelector('#rows [data-id]');
+  await a.goto(B + '/admin.html'); await a.click('#pw'); await a.keyboard.type(AK); ok(await a.inputValue('#pw') === AK, 'the owner types his password with the keyboard, key by key, and the field takes it'); await a.keyboard.press('Enter'); await a.waitForSelector('#pkAdd'); await a.waitForSelector('#tst'); if (!(await a.isChecked('#tst'))) await a.click('#tst'); await a.waitForSelector('#rows', { state: 'attached' }); await a.waitForSelector('#mk');  /* the list may be empty: every test now deletes what it made */
   await a.fill('#n', 'جمعية الرحلة الكاملة'); await a.fill('#s', slug); await a.fill('#e', mail); await a.click('#mk'); await a.waitForSelector('#pass');
   const pw = (await a.textContent('#pPw')).trim(), url = (await a.textContent('#pUrl')).trim(); ok(/^\d{8}$/.test(pw) && url.endsWith('/' + slug), 'the organisation is created; its access card shows the address and a generated password of eight digits');
   await a.click('#pCopy'); const clip = await a.evaluate(() => navigator.clipboard.readText()).catch(() => ''); ok(clip.includes(pw) && clip.includes(url) && !clip.includes('@'), 'one button copies the card as a message to send'); await a.screenshot({ path: (process.env.OUT || '/tmp/claude-0/sx/') + 'j_card.jpg', type: 'jpeg', quality: 80, clip: { x: 400, y: 60, width: 1040, height: 520 } });
@@ -65,5 +67,5 @@ const adm = (p, m = 'GET', b) => fetch(B + '/api/admin/' + p, { method: m, heade
   ok((await o2.request.post(B + '/api/login', { data: { slug: 'wamy', password: r.password } })).status() === 403, 'a password of one organisation does not open another');
   ok((await o2.request.post(B + '/api/login', { data: { email: mail, password: r.password } })).status() === 200, 'email and password still work from the general door');
   ok((await (await adm('password', 'POST', { org: org.id, email: 'stranger@t.test' })).status) === 404, 'no password for someone outside the organisation');
-  ok(!errs.length, 'page errors: ' + (errs.join(' | ') || 'none')); await b.close(); await adm('org', 'DELETE', { id: org.id, confirm: slug });
-})().catch(e => { console.log('✗ ' + (e.stack || e)); process.exitCode = 1; });
+  ok(!errs.length, 'page errors: ' + (errs.join(' | ') || 'none')); await tidy();
+})().catch(async e => { console.log('✗ ' + (e.stack || e)); process.exitCode = 1; await tidy(); process.exit(1); });
