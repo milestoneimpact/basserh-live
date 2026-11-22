@@ -17,7 +17,7 @@ const tidy = async () => { for (const o of MADE.splice(0)) await adm('DELETE', {
     const c = await b.newContext({ viewport: { width: 1440, height: 900 } }), p = await c.newPage(); p.on('pageerror', e => errs.push('studio: ' + e.message)); p.on('dialog', d => d.accept()); await p.goto(url); await p.fill('#lP', pw); await p.click('#lf2 button'); await p.waitForSelector('#new');
     const api = (path, body, method = 'POST') => p.evaluate(async ([path, body, method]) => { const r = await fetch(path, { method, headers: { 'x-org-slug': location.pathname.slice(1), 'content-type': 'application/json' }, body: body == null ? undefined : JSON.stringify(body) }); return { status: r.status, ...(await r.json()) }; }, [path, body, method]);
     return { o, p, api, slug }; };
-  await make(''); ok(/اختر نوع الجهة/.test(await a.textContent('#toast')), 'the owner must choose the kind before making an organisation');
+  await make(''); await a.waitForFunction(() => /اختر نوع الجهة/.test(document.querySelector('#toast').textContent), null, { timeout: 5000 }).catch(() => {}); ok(/اختر نوع الجهة/.test(await a.textContent('#toast')), 'the owner must choose the kind before making an organisation');
   const X = await make('stations'); ok(/معارضكم/.test(await X.p.textContent('.hero h2')) && /معرض جديد/.test(await X.p.textContent('#new')), 'an organisation for exhibitions: its studio speaks of exhibitions');
   const xe = await X.api('/api/events', null, 'GET'); ok(xe.events.length === 1 && xe.events[0].mode === 'stations' && xe.events[0].name === 'معرضكم الأول', 'and it starts with its first exhibition');
   const doc = await X.api('/api/events/' + xe.events[0].id, null, 'GET'); ok((doc.doc.stations || []).length === 4, 'of four stations');
