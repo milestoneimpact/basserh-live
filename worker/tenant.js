@@ -9,6 +9,8 @@ CREATE TABLE IF NOT EXISTS event_versions (event_id TEXT NOT NULL, version INTEG
 CREATE TABLE IF NOT EXISTS media (id TEXT PRIMARY KEY, org_id TEXT NOT NULL, event_id TEXT NOT NULL, kind TEXT NOT NULL, name TEXT NOT NULL, r2_key TEXT NOT NULL, preview_key TEXT, bytes INTEGER NOT NULL, length REAL, count INTEGER, created_at TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS links (token_hash TEXT PRIMARY KEY, org_id TEXT NOT NULL, event_id TEXT NOT NULL, role TEXT NOT NULL, label TEXT, revoked_at TEXT, created_at TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS audit (id INTEGER PRIMARY KEY AUTOINCREMENT, org_id TEXT NOT NULL, event_id TEXT, user_id TEXT, action TEXT NOT NULL, detail TEXT, at TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS sessions (id TEXT PRIMARY KEY, event_id TEXT NOT NULL, draft INTEGER NOT NULL DEFAULT 0, station TEXT NOT NULL, kind TEXT NOT NULL DEFAULT 'screen', media TEXT, started_at TEXT NOT NULL, ms INTEGER NOT NULL, pages TEXT NOT NULL, page_count INTEGER, max_page INTEGER, zooms TEXT, links_in INTEGER, links_out INTEGER, qr INTEGER, at TEXT NOT NULL);   -- one visitor at a station (or on a phone from its code): what was read, how long; nothing about who
+CREATE INDEX IF NOT EXISTS sessions_event ON sessions(event_id, draft);
 CREATE TABLE IF NOT EXISTS questions (id INTEGER PRIMARY KEY AUTOINCREMENT, event_id TEXT NOT NULL, text TEXT NOT NULL, name TEXT, ip TEXT, at TEXT NOT NULL, state TEXT NOT NULL DEFAULT 'new');
 CREATE INDEX IF NOT EXISTS media_event ON media(event_id); CREATE INDEX IF NOT EXISTS links_event ON links(event_id);`;
 export class Tenant {
@@ -16,7 +18,7 @@ export class Tenant {
   async fetch(req) {   // { statements: [{ sql, params }] }: all of them in one transaction; rows of each
     const path = new URL(req.url).pathname;
     // the whole database as data (export, backup); and its end (the organisation is deleted)
-    if (path === '/dump') return Response.json(Object.fromEntries(['events', 'event_versions', 'media', 'links', 'audit', 'questions'].map(t => [t, this.sql.exec(`SELECT * FROM ${t}`).toArray()])));
+    if (path === '/dump') return Response.json(Object.fromEntries(['events', 'event_versions', 'media', 'links', 'audit', 'questions', 'sessions'].map(t => [t, this.sql.exec(`SELECT * FROM ${t}`).toArray()])));
     if (path === '/wipe') { await this.ctx.storage.deleteAll(); return Response.json({ ok: true }); }
     const { statements } = await req.json();
     try { const out = this.ctx.storage.transactionSync(() => statements.map(s => this.sql.exec(s.sql, ...(s.params || [])).toArray())); return Response.json({ out }); }
