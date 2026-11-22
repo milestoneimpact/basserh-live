@@ -285,6 +285,7 @@ const main = {
       // ----- a link of one screen: opens that page of that event, with no account
       if (p.startsWith('/go/')) {
         const tok = p.slice(4), l = /^[a-z0-9]{12}\.[a-z0-9]+$/.test(tok) && await orgExists(env, 'o_' + tok.slice(0, 12)) ? await tdb(env, 'o_' + tok.slice(0, 12)).prepare('SELECT event_id, role FROM links WHERE token_hash = ? AND revoked_at IS NULL').bind(await sha(tok)).first() : null;
+        if (l) ctx.waitUntil(tdb(env, 'o_' + tok.slice(0, 12)).prepare('UPDATE links SET opened_at = ? WHERE token_hash = ?').bind(now(), await sha(tok)).run().catch(() => {}));   // the studio shows which links have reached their devices
         if (!l) return new Response('هذا الرابط أُلغي. اطلب رابطاً جديداً من منظّم اللقاء.', { status: 410, headers: { 'Content-Type': 'text/plain; charset=utf-8' } });
         return new Response(null, { status: 302, headers: { Location: `/run/${['side', 'logo'].includes(l.role) ? 'stage' : l.role}.html?e=${l.event_id}${['side', 'logo'].includes(l.role) ? '&' + l.role : ''}`, 'Set-Cookie': setCookie('lk_' + l.event_id, tok, 30) } });
       }
@@ -453,7 +454,7 @@ const main = {
           await T.prepare('INSERT INTO media (id, org_id, event_id, kind, name, r2_key, bytes, created_at) VALUES (?,?,?,?,?,?,?,?)').bind('m_' + rid(), org.id, id, kind, name, key, size, now()).run();
           return J({ id: mid, src: kind === 'slides' ? mid + '/' : file });
         }
-        if (sub === 'links' && M === 'GET') { const { results } = await T.prepare('SELECT token_hash AS id, role, label, created_at FROM links WHERE event_id = ? AND revoked_at IS NULL ORDER BY created_at').bind(id).all(); return J({ links: results.map(l => ({ ...l, id: l.id.slice(0, 16) })) }); }
+        if (sub === 'links' && M === 'GET') { const { results } = await T.prepare('SELECT token_hash AS id, role, label, created_at, opened_at FROM links WHERE event_id = ? AND revoked_at IS NULL ORDER BY created_at').bind(id).all(); return J({ links: results.map(l => ({ ...l, id: l.id.slice(0, 16) })) }); }
         if (sub === 'links' && M === 'POST') { if (!can('operator')) return err('لا تملك الصلاحية', 403); const b = await req.json(); if (!LINK_ROLES.includes(b.role)) return err('نوع شاشة غير معروف');
           const tok = org.id.slice(2) + '.' + rid(24); await T.prepare('INSERT INTO links (token_hash, org_id, event_id, role, label, created_at) VALUES (?,?,?,?,?,?)').bind(await sha(tok), org.id, id, b.role, b.label || '', now()).run();
           await audit(env, org.id, id, who.user.id, 'link', b.role); return J({ url: '/go/' + tok }); }   // the address is shown once; only its hash is kept

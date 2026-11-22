@@ -12,7 +12,7 @@ CREATE TABLE IF NOT EXISTS audit (id INTEGER PRIMARY KEY AUTOINCREMENT, org_id T
 CREATE TABLE IF NOT EXISTS questions (id INTEGER PRIMARY KEY AUTOINCREMENT, event_id TEXT NOT NULL, text TEXT NOT NULL, name TEXT, ip TEXT, at TEXT NOT NULL, state TEXT NOT NULL DEFAULT 'new');
 CREATE INDEX IF NOT EXISTS media_event ON media(event_id); CREATE INDEX IF NOT EXISTS links_event ON links(event_id);`;
 export class Tenant {
-  constructor(ctx) { this.sql = ctx.storage.sql; this.ctx = ctx; this.sql.exec(SCHEMA); }
+  constructor(ctx) { this.sql = ctx.storage.sql; this.ctx = ctx; this.sql.exec(SCHEMA); try { this.sql.exec('ALTER TABLE links ADD COLUMN opened_at TEXT'); } catch {} }   // opened_at: when the link was last opened (added after the first organisations)
   async fetch(req) {   // { statements: [{ sql, params }] }: all of them in one transaction; rows of each
     const path = new URL(req.url).pathname;
     // the whole database as data (export, backup); and its end (the organisation is deleted)
