@@ -5,6 +5,8 @@
 //   node test/stations.cjs        (OUT=<folder> for the screenshots)
 const { chromium, devices } = require('playwright'); const fs = require('fs');
 const B = process.env.BASE || 'http://localhost:8790', AK = process.env.ADMIN_KEY || 'dev', OUT = process.env.OUT || '/tmp/claude-0/st/'; fs.mkdirSync(OUT, { recursive: true });
+const pickFile = async (p, btn, kindRe) => { await p.click(btn); await p.waitForSelector('.lm .lc'); const cards = p.locator('.lm .lc'), n = await cards.count();
+  for (let i = 0; i < n; i++) { const t = await cards.nth(i).locator('.kd, .nm').allTextContents(); if (kindRe.test(t.join(' '))) { await cards.nth(i).click(); break; } } await p.click('.lm [data-ok]'); await p.waitForSelector('.lm', { state: 'detached' }); await p.waitForTimeout(300); };
 const ok = (c, m) => { console.log((c ? '✓ ' : '✗ ') + m); if (!c) process.exitCode = 1; };
 const adm = (method, body) => fetch(B + '/api/admin/org', { method, headers: { 'x-admin-key': AK, 'content-type': 'application/json' }, body: JSON.stringify(body) }).then(r => r.json());
 (async () => {
@@ -20,10 +22,10 @@ const adm = (method, body) => fetch(B + '/api/admin/org', { method, headers: { '
   await p.screenshot({ path: OUT + '1_kind.jpg', type: 'jpeg', quality: 80 });
   await p.click('[data-tpl="stations"]'); await p.click('#dlgOk'); await p.waitForSelector('#nSt'); await p.fill('#dlgIn', 'معرض الإنجازات'); await p.fill('#nSt', '3'); await p.click('#dlgOk');
   await p.waitForFunction(() => document.querySelectorAll('[data-del]').length === 3); ok(await p.locator('.tabs button').count() === 4 && await p.locator('.tabs [data-t="stations"]').count() === 1, 'the event opens on its stations, with the steps and tabs of its kind (no cues, no people)');
-  await p.click('[data-t="media"]'); await p.setInputFiles('#fi', [A, Bk]); await p.waitForFunction(() => document.querySelectorAll('.file').length === 2, null, { timeout: 60000 });
-  const fl = await p.$$eval('.file small', l => l.map(e => e.textContent)); ok(fl.some(t => /5 صفحة/.test(t)) && fl.some(t => /3 صفحة/.test(t)) && await p.locator('.file img').count() === 2, 'two PDFs uploaded whole, each with its cover and its pages: ' + fl.join(' | '));
-  await p.click('[data-t="stations"]'); const sel = p.locator('select[data-k="media"]');
-  await sel.nth(0).selectOption({ label: /book-a/ }).catch(async () => sel.nth(0).selectOption({ index: 1 })); await sel.nth(1).selectOption({ index: 2 }); await sel.nth(2).selectOption({ index: 1 });
+  await p.click('[data-t="media"]'); await p.setInputFiles('#lib input[type=file]', [A, Bk]); await p.waitForFunction(() => document.querySelectorAll('#lib .lc').length === 2, null, { timeout: 60000 });
+  const fl = await p.$$eval('#lib .lc .mt', l => l.map(e => e.textContent)); ok(fl.some(t => /5 صفحة/.test(t)) && fl.some(t => /3 صفحة/.test(t)) && await p.locator('#lib .lc .th img').count() === 2, 'two PDFs uploaded whole, each with its cover and its pages: ' + fl.join(' | '));
+  await p.click('[data-t="stations"]');
+  await pickFile(p, '[data-pick="media"][data-st="s1"]', /book-a/); await pickFile(p, '[data-pick="media"][data-st="s2"]', /book-b/); await pickFile(p, '[data-pick="media"][data-st="s3"]', /book-a/);
   await p.locator('[data-k="name"]').nth(0).fill('بوابة الإنجازات'); await p.locator('[data-k="qr"]').nth(0).check(); await p.waitForTimeout(900);
   await p.screenshot({ path: OUT + '2_stations.jpg', type: 'jpeg', quality: 80, fullPage: true });
   const evId = await p.evaluate(async () => { const r = await fetch('/api/events', { headers: { 'x-org-slug': location.pathname.slice(1) } }); return (await r.json()).events[0].id; });
@@ -97,9 +99,9 @@ const adm = (method, body) => fetch(B + '/api/admin/org', { method, headers: { '
   await p.reload(); await p.click('.ev:has-text("معرض الإنجازات")'); await p.waitForSelector('.tabs');   // the activation above went by the API, behind this page's back
   await p.click('[data-t="stations"]'); await p.waitForSelector('#stN'); await p.fill('#stN', '3'); await p.click('#stAdd'); await p.waitForFunction(() => document.querySelectorAll('[data-del]').length === 6); ok(true, 'three stations added in one move');
   await p.click('[data-cp="s1"]'); await p.waitForFunction(() => document.querySelectorAll('[data-del]').length === 7); ok(await p.locator('[data-k="name"]').nth(1).inputValue() === 'بوابة الإنجازات (نسخة)', 'a station copied, next to it');
-  await p.click('#stDist'); await p.waitForTimeout(300); const ms = await p.$$eval('select[data-k="media"]', l => l.map(x => x.value)); ok(ms.every(Boolean) && ms[0] !== ms[1] && ms[0] === ms[2], 'the files given to the stations in order: ' + ms.join(','));
-  const target = p.locator('[data-drop]').nth(0), want = await p.locator('[data-lib]').nth(1).getAttribute('data-lib'); await target.evaluate(e => e.scrollIntoView({ block: 'end' })); await p.locator('[data-lib]').nth(1).dragTo(target, { targetPosition: { x: 40, y: 30 } }); await p.waitForTimeout(400);
-  ok(await p.locator('select[data-k="media"]').nth(0).inputValue() === want, 'a cover dragged from the library onto a station gives it that file'); await p.screenshot({ path: OUT + '14_library.jpg', type: 'jpeg', quality: 80, fullPage: true });
+  await p.click('#stDist'); await p.waitForTimeout(300); const ms = await p.$$eval('[data-pick="media"] .ft b', l => l.map(x => x.textContent)); ok(ms.every(Boolean) && ms[0] !== ms[1] && ms[0] === ms[2], 'the files given to the stations in order: ' + ms.join(','));
+  const target = p.locator('[data-drop]').nth(0), want = await p.locator('[data-lib]').nth(1).locator('small').textContent(); await target.evaluate(e => e.scrollIntoView({ block: 'end' })); await p.locator('[data-lib]').nth(1).dragTo(target, { targetPosition: { x: 40, y: 30 } }); await p.waitForTimeout(400);
+  ok(await p.locator('[data-pick="media"] .ft b').nth(0).textContent() === want, 'a cover dragged from the library onto a station gives it that file'); await p.screenshot({ path: OUT + '14_library.jpg', type: 'jpeg', quality: 80, fullPage: true });
   ok(!errs.length, 'no page errors' + (errs.length ? ': ' + errs.join(' | ') : ''));
   await b.close();
 })().catch(e => { console.log('✗ ' + (e.stack || e)); process.exitCode = 1; process.exit(1); });

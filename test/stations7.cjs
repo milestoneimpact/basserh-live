@@ -4,6 +4,8 @@
 //   node test/stations7.cjs
 const { chromium, devices } = require('playwright'); const fs = require('fs'), { execFileSync } = require('child_process');
 const B = process.env.BASE || 'http://localhost:8790', AK = process.env.ADMIN_KEY || 'dev', OUT = process.env.OUT || '/tmp/claude-0/s7/'; fs.mkdirSync(OUT, { recursive: true });
+const pickFile = async (p, btn, kindRe) => { await p.click(btn); await p.waitForSelector('.lm .lc'); const cards = p.locator('.lm .lc'), n = await cards.count();
+  for (let i = 0; i < n; i++) { const t = await cards.nth(i).locator('.kd, .nm').allTextContents(); if (kindRe.test(t.join(' '))) { await cards.nth(i).click(); break; } } await p.click('.lm [data-ok]'); await p.waitForSelector('.lm', { state: 'detached' }); await p.waitForTimeout(300); };
 const ok = (c, m) => { console.log((c ? '✓ ' : '✗ ') + m); if (!c) process.exitCode = 1; };
 const adm = (method, body) => fetch(B + '/api/admin/org', { method, headers: { 'x-admin-key': AK, 'content-type': 'application/json' }, body: JSON.stringify(body) }).then(r => r.json());
 const wait = ms => new Promise(r => setTimeout(r, ms));
@@ -18,16 +20,15 @@ const wait = ms => new Promise(r => setTimeout(r, ms));
   const ctx = await b.newContext({ viewport: { width: 1440, height: 900 } }), p = await ctx.newPage(); p.on('dialog', d => d.accept()); p.on('pageerror', e => errs.push('studio: ' + e.message)); await p.goto(B + org.join); await p.waitForSelector('#new');
   // the studio: a stations event; the book, three pictures dropped together, a film, through the files tab
   await p.click('#new'); await p.click('[data-tpl="stations"]'); await p.click('#dlgOk'); await p.waitForSelector('#nSt'); await p.fill('#dlgIn', 'معرض الإضافات'); await p.fill('#nSt', '3'); await p.click('#dlgOk'); await p.waitForFunction(() => document.querySelectorAll('[data-del]').length === 3);
-  await p.click('[data-t="media"]'); await p.setInputFiles('#fi', [OUT + 'book.pdf', OUT + 'p1.jpg', OUT + 'p2.jpg', OUT + 'p3.jpg', OUT + 'film.mp4']); await p.waitForFunction(() => document.querySelectorAll('.file').length === 3, null, { timeout: 90000 });
-  const fl = await p.$$eval('.file small', l => l.map(e => e.textContent)); ok(fl.some(t => /معرض صور · 3 صورة/.test(t)) && fl.some(t => /فيديو/.test(t)) && fl.some(t => /كتاب PDF · 5 صفحة/.test(t)), 'three pictures dropped together became one gallery; the film and the book beside it: ' + fl.join(' | '));
-  await p.click('[data-t="stations"]'); const kinds = await p.$$eval('select[data-k="media"] >> nth=0', s => [...s[0].options].map(o => o.textContent));
-  const sel = (i, re) => p.locator('select[data-k="media"]').nth(i).selectOption({ label: kinds.find(t => re.test(t)) });
-  await sel(0, /PDF|صفحة/); await sel(1, /صورة/); await sel(2, /فيديو/);
-  const waitOpt = await p.$$eval('select[data-k="attract"] >> nth=0', s => [...s[0].options].map(o => o.textContent)); await p.locator('select[data-k="attract"]').nth(0).selectOption({ label: waitOpt.find(t => /صورة/.test(t)) });
+  await p.click('[data-t="media"]'); await p.setInputFiles('#lib input[type=file]', [OUT + 'book.pdf', OUT + 'p1.jpg', OUT + 'p2.jpg', OUT + 'p3.jpg', OUT + 'film.mp4']); await p.waitForFunction(() => document.querySelectorAll('#lib .lc').length === 3, null, { timeout: 90000 });
+  const fl = await p.$$eval('#lib .lc .mt', l => l.map(e => e.textContent)); ok(fl.some(t => /معرض صور · 3 صورة/.test(t)) && fl.some(t => /فيلم/.test(t)) && fl.some(t => /كتاب · 5 صفحة/.test(t)), 'three pictures dropped together became one gallery; the film and the book beside it: ' + fl.join(' | '));
+  await p.click('[data-t="stations"]');
+  await pickFile(p, '[data-pick="media"][data-st="s1"]', /كتاب/); await pickFile(p, '[data-pick="media"][data-st="s2"]', /معرض/); await pickFile(p, '[data-pick="media"][data-st="s3"]', /فيلم/);
+  await pickFile(p, '[data-pick="attract"][data-st="s1"]', /معرض/);
   // a schedule on the first station: from a time already passed today, the gallery
   await p.click('[data-scha="s1"]'); await p.waitForSelector('[data-sch="s1"][data-f="at"]');
   const tzNow = await p.evaluate(() => { const d = new Date(Date.now() - 2 * 60000); return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0'); });
-  await p.fill('[data-sch="s1"][data-f="at"]', tzNow); await p.dispatchEvent('[data-sch="s1"][data-f="at"]', 'change'); await p.selectOption('[data-sch="s1"][data-f="media"]', { label: kinds.find(t => /صورة/.test(t)) }); await p.dispatchEvent('[data-sch="s1"][data-f="media"]', 'change'); await wait(1200);
+  await p.fill('[data-sch="s1"][data-f="at"]', tzNow); await p.dispatchEvent('[data-sch="s1"][data-f="at"]', 'change'); await pickFile(p, '[data-pick="sch"][data-st="s1"]', /معرض/); await wait(1200);
   await p.screenshot({ path: OUT + '1_studio.jpg', type: 'jpeg', quality: 75, fullPage: true });
   await p.click('#pub'); await p.waitForFunction(() => /النسخة 1/.test(document.body.textContent), null, { timeout: 15000 }); ok(true, 'published: a book, a gallery, a film, a picture show to wait on, a schedule');
   const api = (path, body, method = 'POST') => p.evaluate(async ([path, body, method]) => { const r = await fetch(path, { method, headers: { 'x-org-slug': location.pathname.slice(1), 'content-type': 'application/json' }, body: body ? JSON.stringify(body) : undefined }); return r.json(); }, [path, body, method]);

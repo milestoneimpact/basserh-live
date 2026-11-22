@@ -52,6 +52,7 @@ main{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:
 <script type="module">
 import { connect, $, esc } from './run.js';
 import { openPdf, draw, imageDoc } from './book.js';
+import { Library, thumbOf } from '../library.js';
 import { stationCfg, STATION_KINDS, scheduled } from '../engine/config.js';
 import { stationMedia } from '../engine/state.js';
 const toast = t => { const e = $('#toast'); e.textContent = t; e.classList.add('on'); clearTimeout(toast.t); toast.t = setTimeout(() => e.classList.remove('on'), 2400); };
@@ -68,7 +69,7 @@ const drawn = new Map(); async function pageCv(k, n, w, h) { if (D.media[k] && D
 
 $('#grid').innerHTML = ST.map((s, i) => `<div class="card" data-s="${s.id}"><div class="scr"><div class="pv"><div class="em">ينتظر الاتصال</div></div><span class="tag"><i></i><em></em></span><span class="zm"></span><div class="dk">المحطة مطفأة</div></div>
   <div class="inf"><div class="nm"><b>${i + 1}. ${esc(s.name)}</b><span class="pg"></span></div><div class="sub"><span>${esc(s.place || '')}</span><span class="tc"></span></div><div class="sub vs"><span></span><span></span></div><div class="sub sc" style="color:var(--gold2)"></div>
-  <div class="row"><select data-f>${opts('')}</select><button class="b" data-h>البداية</button><button class="b" data-d></button><button class="b" data-z>تكبير</button><button class="b" data-r title="تعيد الشاشة تحميل نفسها، كما لو أُطفئت وشُغّلت">إعادة تشغيل</button></div></div></div>`).join('') || '<p style="grid-column:1/-1;text-align:center;color:#A9B2B4">لا محطات في هذا اللقاء. أضيفوها من الاستوديو.</p>';
+  <div class="row"><select data-f>${opts('')}</select><button class="b" data-h>البداية</button><button class="b" data-d></button><button class="b" data-lp title="اختيار ملف هذه الشاشة من المكتبة، بالصور والمعاينة">من المكتبة</button><button class="b" data-z>تكبير</button><button class="b" data-r title="تعيد الشاشة تحميل نفسها، كما لو أُطفئت وشُغّلت">إعادة تشغيل</button></div></div></div>`).join('') || '<p style="grid-column:1/-1;text-align:center;color:#A9B2B4">لا محطات في هذا اللقاء. أضيفوها من الاستوديو.</p>';
 
 let S = link.state || {}, HALL = {}, big = null; const send = c => link.send(c);
 // the station as the board knows it: the latest report of a screen of that station, and the room's state for it
@@ -121,7 +122,7 @@ $('#bO').onclick = () => window.open(`station.html?e=${Q.get('e')}&s=${big}${lin
 $('#ident').onclick = () => send({ type: 'ident' }); $('#home').onclick = () => { if (confirm('تعود كل المحطات إلى صفحتها الأولى، ومن يتصفح الآن يبدأ من جديد. متابعة؟')) send({ type: 'sreset' }); };
 $('#allGo').onclick = () => { const k = $('#allF').value; if (!k || !confirm(`«${D.media[k].name}» على كل المحطات؟`)) return; send({ type: 'assign', ids: ST.map(s => s.id), media: k }); toast('أُرسل الملف إلى كل المحطات'); };
 // the library: a cover dragged onto a screen gives it that file
-$('#lib').innerHTML = PDFS.map(([k, m]) => `<div class="cv" draggable="true" data-k="${k}" title="${esc(m.name)}"><div>${m.kind === 'slides' ? `<img src="${link.base + m.src}s-1.jpg">` : m.cover ? `<img src="${link.base + m.cover}">` : m.kind === 'video' ? '<b style="font-size:26px;color:#C9A45A">▶</b>' : 'PDF'}</div><small>${esc(m.name)}</small></div>`).join('');
+$('#lib').innerHTML = PDFS.map(([k, m]) => `<div class="cv" draggable="true" data-k="${k}" title="${esc(m.name)}"><div>${thumbOf(m, f => link.base + f) ? `<img src="${thumbOf(m, f => link.base + f)}">` : m.kind === 'video' ? '<b style="font-size:26px;color:#C9A45A">▶</b>' : 'PDF'}</div><small>${esc(m.name)}</small></div>`).join('');
 document.querySelectorAll('.cv').forEach(c => c.ondragstart = e => { e.dataTransfer.setData('text/x-media', c.dataset.k); e.dataTransfer.effectAllowed = 'copy'; });
 const dropOn = (el, sidOf) => { el.addEventListener('dragover', e => { if (e.dataTransfer.types.includes('text/x-media')) { e.preventDefault(); el.classList.add('hot'); } }); el.addEventListener('dragleave', () => el.classList.remove('hot'));
   el.addEventListener('drop', e => { e.preventDefault(); el.classList.remove('hot'); const k = e.dataTransfer.getData('text/x-media'); if (k && D.media[k]) assign(sidOf(), k); }); };
@@ -141,6 +142,9 @@ async function vis() { try { const v = await (await fetch(`/api/run/${Q.get('e')
   $('#vis').textContent = `الزوار ${v.total.toLocaleString('ar')}${v.total ? ' · متوسط ' + mmss(v.ms / v.total) : ''}${v.phone ? ' · على الجوال ' + v.phone.toLocaleString('ar') : ''}`;
   for (const x of v.stations) { const c = document.querySelector(`.card[data-s="${x.station}"] .vs`); if (c) { c.children[0].textContent = x.n ? `${x.n.toLocaleString('ar')} زائر` : 'لا زوار بعد'; c.children[1].textContent = x.n ? 'متوسط ' + mmss(x.ms / x.n) : ''; } } } catch {} }
 vis(); setInterval(vis, 20000);
+// the library, to choose a screen's file with its pictures and a preview (the board reads the published files; it changes nothing in them)
+const LIB = Library({ media: () => D.media || {}, src: f => link.base + f, used: k => ST.filter(x => stationMedia(D, S, x.id) === k).map(x => x.name), stations: () => ST, save() {}, toast, assign() {}, confirm: async () => false, prompt: async () => null });
+document.querySelectorAll('.card').forEach(c => { c.querySelector('[data-lp]').onclick = async () => { const sid = c.dataset.s, r = await LIB.pick({ title: `ملف «${(ST.find(x => x.id === sid) || {}).name}» الآن`, current: info(sid).media || '' }); if (r && r.key) assign(sid, r.key); }; });
 // ----- the further control: a screen restarted from here, the films' volume, a few words on every screen
 document.querySelectorAll('.card').forEach(c => { c.querySelector('[data-r]').onclick = () => { if (confirm('تُعاد تشغيل هذه الشاشة الآن. من يتصفحها يبدأ من جديد. متابعة؟')) { send({ type: 'sreload', sid: c.dataset.s }); toast('أُرسل أمر إعادة التشغيل'); } }; });
 $('#bR').onclick = () => { if (big && confirm('تُعاد تشغيل هذه الشاشة الآن. متابعة؟')) { send({ type: 'sreload', sid: big }); toast('أُرسل أمر إعادة التشغيل'); } };
