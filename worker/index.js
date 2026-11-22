@@ -1,7 +1,7 @@
 // The studio's server: organisations, people, events, files, links for the screens, and one room (Durable Object) per event.
 // Every query carries the organisation of the signed in person; a screen link opens one event only.
-import { problems, SCENES, launchTimes, FONTS, fontCss, shape } from '../web/engine/config.js';
-import { initial, reduce } from '../web/engine/state.js';
+import { problems, SCENES, launchTimes, FONTS, fontCss, shape, isStations, stationOf, stationCfg, MODES } from '../web/engine/config.js';
+import { initial, reduce, stationMedia } from '../web/engine/state.js';
 export { Room } from './room.js';
 export { Tenant } from './tenant.js';
 import { tdb, orgOfEvent } from './tenant.js';
@@ -15,14 +15,23 @@ const sha = async t => [...new Uint8Array(await crypto.subtle.digest('SHA-256', 
 const cookies = req => Object.fromEntries((req.headers.get('Cookie') || '').split(/;\s*/).filter(Boolean).map(c => { const i = c.indexOf('='); return [c.slice(0, i), c.slice(i + 1)]; }));
 const setCookie = (k, v, days) => `${k}=${v}; Path=/; HttpOnly; SameSite=Lax; Secure; Max-Age=${days * 86400}`;
 const ROLES = { owner: 3, editor: 2, operator: 1, viewer: 0 };
-const LINK_ROLES = ['stage', 'side', 'logo', 'tablet', 'console', 'script', 'clicker', 'audience'];   // audience: one link for everyone in the hall (the programme, a question), it sees nothing else   // console: operator commands; tablet: the launch press only
+const LINK_ROLES = ['station', 'stage', 'side', 'logo', 'tablet', 'console', 'script', 'clicker', 'audience'];   // audience: one link for everyone in the hall (the programme, a question), it sees nothing else   // console: operator commands; tablet: the launch press only
 const slug = s => String(s || '').trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 40);
 
+// the features the platform owner opened for an organisation (a list of words in orgs.features): 'stations' for now.
+// The column is added on the first request of a worker that finds a database without it, so an older control database keeps working
+let featured = null; const features = env => featured || (featured = env.DB.prepare("ALTER TABLE orgs ADD COLUMN features TEXT NOT NULL DEFAULT ''").run().catch(() => null));
+const FEATURES = { stations: 'المحطات التفاعلية' };
+const hasFeat = (org, f) => String((org && org.features) || '').split(/[\s,]+/).includes(f);
+// the key a station's QR code carries: the phone of a visitor reads that station's file, and nothing else, with no account
+const readKey = async (env, evId, sid, draft) => { const k = await crypto.subtle.importKey('raw', new TextEncoder().encode((env.ADMIN_KEY || 'dev') + ':reader'), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+  return [...new Uint8Array(await crypto.subtle.sign('HMAC', k, new TextEncoder().encode(`read:${evId}:${sid}:${draft ? 'd' : 'l'}`)))].slice(0, 12).map(b => b.toString(16).padStart(2, '0')).join(''); };
 async function me(req, env) {
+  await features(env);
   const t = cookies(req).sid; if (!t) return null;
   const s = await env.DB.prepare('SELECT user_id FROM sessions WHERE token_hash = ? AND expires_at > ?').bind(await sha(t), now()).first(); if (!s) return null;
   const user = await env.DB.prepare('SELECT id, email, name FROM users WHERE id = ?').bind(s.user_id).first();
-  const { results } = await env.DB.prepare('SELECT o.id, o.name, o.slug, o.plan, o.events_limit, o.storage_limit_mb, o.paid_until, o.credits, m.role FROM members m JOIN orgs o ON o.id = m.org_id WHERE m.user_id = ?').bind(s.user_id).all();
+  const { results } = await env.DB.prepare('SELECT o.id, o.name, o.slug, o.plan, o.events_limit, o.storage_limit_mb, o.paid_until, o.credits, o.features, m.role FROM members m JOIN orgs o ON o.id = m.org_id WHERE m.user_id = ?').bind(s.user_id).all();
   return { user, orgs: results };
 }
 // the organisation a request works in (header x-org, else the person's first), and the person's role in it
@@ -122,7 +131,7 @@ async function listAll(env, prefix) { const out = []; let cursor; do { const r =
 // A file younger than an hour is left alone: it may belong to an upload still on its way into the draft.
 async function sweep(env, T, org, ev) {
   const docs = [JSON.parse(ev.draft)]; for (const v of (await T.prepare('SELECT doc FROM event_versions WHERE event_id = ? ORDER BY version DESC LIMIT 60').bind(ev.id).all()).results) { try { docs.push(JSON.parse(v.doc)); } catch {} }
-  const need = new Set(); for (const d of docs) { for (const m of Object.values(d.media || {})) if (m.src) need.add(m.src); for (const k of ['before', 'after']) if (d.identity && d.identity[k] && d.identity[k].logo) need.add(d.identity[k].logo); }
+  const need = new Set(); for (const d of docs) { for (const m of Object.values(d.media || {})) { if (m.src) need.add(m.src); if (m.cover) need.add(m.cover); } for (const k of ['before', 'after']) if (d.identity && d.identity[k] && d.identity[k].logo) need.add(d.identity[k].logo); }
   const base = `${org}/${ev.id}/`, old = Date.now() - 36e5, gone = [];
   for (const o of await listAll(env, base)) { const f = o.key.slice(base.length), top = f.includes('/') ? f.split('/')[0] + '/' : f; if (!need.has(top) && o.uploaded.getTime() < old) gone.push(o.key); }
   for (let i = 0; i < gone.length; i += 500) await env.MEDIA.delete(gone.slice(i, i + 500));
@@ -194,12 +203,13 @@ const main = {
       if (p === '/api/admin/site' && M === 'PUT') { const f = url.searchParams.get('path') || ''; if (!/^[\w./-]+$/.test(f) || f.includes('..')) return err('مسار غير صالح'); await env.MEDIA.put('_site/' + f, req.body, { httpMetadata: { contentType: req.headers.get('Content-Type') || 'application/octet-stream' } }); return J({ ok: true }); }
       if (p === '/api/admin/org' && M === 'PATCH') {   // the plan of an organisation: limits, the paid period, activation days added
         const b = await req.json(), o = await env.DB.prepare('SELECT * FROM orgs WHERE id = ?').bind(b.id).first(); if (!o) return err('لا يوجد', 404);
-        await env.DB.prepare('UPDATE orgs SET name = ?, plan = ?, events_limit = ?, storage_limit_mb = ?, paid_until = ?, credits = ? WHERE id = ?').bind(b.name ?? o.name, b.plan ?? o.plan, b.events_limit ?? o.events_limit, b.storage_limit_mb ?? o.storage_limit_mb, b.paid_until === undefined ? o.paid_until : b.paid_until, Math.max(0, o.credits + (+b.add_credits || 0)), o.id).run();
+        const feats = Array.isArray(b.features) ? b.features.filter(f => FEATURES[f]).join(' ') : (o.features || '');
+        await env.DB.prepare('UPDATE orgs SET name = ?, plan = ?, events_limit = ?, storage_limit_mb = ?, paid_until = ?, credits = ?, features = ? WHERE id = ?').bind(b.name ?? o.name, b.plan ?? o.plan, b.events_limit ?? o.events_limit, b.storage_limit_mb ?? o.storage_limit_mb, b.paid_until === undefined ? o.paid_until : b.paid_until, Math.max(0, o.credits + (+b.add_credits || 0)), feats, o.id).run();
         await audit(env, o.id, null, null, 'plan', JSON.stringify(b)); await padd(env, 'org_changed', `${o.name} /${o.slug} ${JSON.stringify({ ...b, id: undefined })}`); return J({ ok: true });
       }
       if (p === '/api/admin/invite' && M === 'POST') { const b = await req.json(), u = await userFor(env, b.email); if (!u) return err('بريد غير صالح'); await env.DB.prepare('INSERT INTO members (org_id, user_id, role) VALUES (?,?,?) ON CONFLICT (org_id, user_id) DO NOTHING').bind(b.org, u.id, 'owner').run(); return J({ join: await invite(env, u.email) }); }
       if (p === '/api/admin/unlock' && M === 'POST') { const b = await req.json(), slug2 = String(b.slug || ''); if (!slug2) return err('أي جهة؟'); const r = await env.DB.prepare("DELETE FROM login_fail WHERE ip LIKE ?").bind('%|' + slug2).run(); await padd(env, 'door_unlocked', '/' + slug2); return J({ ok: true, cleared: r.meta ? r.meta.changes : 0 }); }
-      if (p === '/api/admin/orgs' && M === 'GET') {
+      if (p === '/api/admin/orgs' && M === 'GET') { await features(env);
         const { results } = await env.DB.prepare('SELECT o.*, (SELECT GROUP_CONCAT(u.email) FROM members m JOIN users u ON u.id = m.user_id WHERE m.org_id = o.id AND m.role = ?) AS owners FROM orgs o ORDER BY created_at DESC').bind('owner').all();
         // usage comes from each organisation's own database
         const fails = (await env.DB.prepare("SELECT ip, n, until FROM login_fail WHERE ip LIKE '%|%'").all()).results, lockOf = sl => { const f = fails.filter(x => x.ip.endsWith('|' + sl)); return { locked: f.some(x => x.until && x.until > now()), until: f.map(x => x.until).filter(x => x && x > now()).sort().pop() || null, wrong: f.reduce((a, x) => Math.max(a, x.n), 0) }; };
@@ -273,6 +283,18 @@ const main = {
         if (!l) return new Response('هذا الرابط أُلغي. اطلب رابطاً جديداً من منظّم اللقاء.', { status: 410, headers: { 'Content-Type': 'text/plain; charset=utf-8' } });
         return new Response(null, { status: 302, headers: { Location: `/run/${['side', 'logo'].includes(l.role) ? 'stage' : l.role}.html?e=${l.event_id}${['side', 'logo'].includes(l.role) ? '&' + l.role : ''}`, 'Set-Cookie': setCookie('lk_' + l.event_id, tok, 30) } });
       }
+      // ----- a visitor's phone, from a station's QR code: that station's file only, by a key only the station's screen was given; on the event's day (or in its rehearsal)
+      if (p.startsWith('/api/read/')) { const mm = p.match(/^\/api\/read\/(e_[a-z0-9]{20})\/([A-Za-z0-9][A-Za-z0-9_-]{0,39})\/([ld])\/([0-9a-f]{24})(?:\/(file|logo))?$/); if (!mm || M !== 'GET') return err('لا يوجد', 404);
+        const [, evId, sid, mode, key, what] = mm; if (!(await orgExists(env, orgOfEvent(evId)))) return err('لا يوجد', 404); if (key !== await readKey(env, evId, sid, mode === 'd')) return err('رمز غير صالح', 403);
+        const T = tdb(env, orgOfEvent(evId)), ev = await T.prepare('SELECT id, org_id, draft, published_version, active_from, active_until FROM events WHERE id = ?').bind(evId).first(); if (!ev) return err('لا يوجد', 404);
+        if (mode === 'l' && !(ev.published_version && ev.active_from && ev.active_from <= now() && now() < ev.active_until)) return err('انتهى وقت العرض. شكراً لزيارتكم.', 410);
+        const doc = mode === 'd' ? JSON.parse(ev.draft) : JSON.parse((await T.prepare('SELECT doc FROM event_versions WHERE event_id = ? AND version = ?').bind(evId, ev.published_version).first()).doc), st = stationOf(doc, sid);
+        if (!isStations(doc) || !st || !stationCfg(st).qr) return err('القراءة من الجوال غير متاحة لهذه المحطة', 403);
+        const room = await (await env.ROOM.get(env.ROOM.idFromName(evId + (mode === 'd' ? ':draft' : ':live'))).fetch(new Request('https://room/log'))).json().catch(() => ({})), mk = stationMedia(doc, room.state, sid), m = mk && doc.media[mk], I = doc.identity.before || {};
+        if (!what) return J({ name: doc.name, station: st.name, place: st.place || '', title: m ? m.name : '', pages: m ? m.count || 0 : 0, dir: stationCfg(st).dir, media: mk || '', colors: I.colors || {}, font: fontCss(I), logo: !!I.logo });
+        const file = what === 'logo' ? I.logo : m && m.src; if (!file) return err('لا يوجد', 404); const o = await env.MEDIA.get(`${ev.org_id}/${ev.id}/${file}`); if (!o) return err('لا يوجد', 404);
+        const ct = o.httpMetadata?.contentType || '', img = /^image\/(png|jpeg|webp|gif)$/.test(ct);
+        return new Response(o.body, { headers: { 'Content-Type': img ? ct : 'application/octet-stream', 'Content-Length': String(o.size), 'Cache-Control': 'private, max-age=600', ETag: o.httpEtag } }); }
       // ----- the running event (screens): who is asking, the document, the files, the room
       if (p.startsWith('/api/run/') || p.startsWith('/m/')) {
         const seg = p.split('/'), evId = p.startsWith('/m/') ? seg[3] : seg[3];
@@ -298,7 +320,8 @@ const main = {
         // the hall's screens open on the activation day only; building and rehearsing need no activation
         if (!rehearse && !(ev.active_from && ev.active_from <= now() && now() < ev.active_until)) { const why = ev.active_from && ev.active_from > now() ? 'يُفتح اللقاء في موعد تفعيله: ' + ev.active_from.slice(0, 10) : 'اللقاء غير مفعّل. فعّلوا يوم اللقاء من الاستوديو.';
           // a screen opened before the day still takes its files, so the hall's devices are ready before anyone arrives
-          if (seg[4] === 'config' && ['stage', 'side', 'logo', 'console'].includes(role)) { const d = JSON.parse((await T.prepare('SELECT doc FROM event_versions WHERE event_id = ? AND version = ?').bind(evId, ver).first()).doc), base = `/m/${ev.org_id}/${ev.id}/`, L = (d.cues || []).find(c => c.type === 'launch'), all = role !== 'side' && role !== 'logo', files = [];
+          if (seg[4] === 'config' && ['stage', 'side', 'logo', 'console', 'station'].includes(role)) { const d = JSON.parse((await T.prepare('SELECT doc FROM event_versions WHERE event_id = ? AND version = ?').bind(evId, ver).first()).doc), base = `/m/${ev.org_id}/${ev.id}/`, L = (d.cues || []).find(c => c.type === 'launch'), all = role !== 'side' && role !== 'logo', files = [];
+            if (role === 'station') { const st = stationOf(d, label); if (st && d.media[st.media]) files.push(base + d.media[st.media].src); for (const k of ['before']) { const I = (d.identity || {})[k]; if (I && I.logo) files.push(base + I.logo); } return J({ error: why, prep: { name: d.name, station: st ? st.name : '', files } }, 402); }
             for (const [k, m] of Object.entries(d.media || {})) { if (!all && !(L && L.media === k)) continue; if (m.kind === 'slides') for (let i = 1; i <= (m.count || 0); i++) files.push(base + m.src + 's-' + i + '.jpg'); else files.push(base + m.src); }
             for (const k of ['before', 'after']) { const I = (d.identity || {})[k]; if (I && I.logo) files.push(base + I.logo); }
             return J({ error: why, prep: { name: d.name, files } }, 402); }
@@ -306,6 +329,7 @@ const main = {
         const doc = rehearse ? JSON.parse(ev.draft) : JSON.parse((await T.prepare('SELECT doc FROM event_versions WHERE event_id = ? AND version = ?').bind(evId, ver).first()).doc);
         // ----- the audience's page: the programme and where it stands. Never the moderator's words, nor a cue or a logo of the new identity before the launch has revealed it
         if (role === 'audience' && !['pub', 'ask'].includes(seg[4])) return err('لا صلاحية', 403);
+        if (role === 'station' && !['config', 'ws', 'state'].includes(seg[4])) return err('لا صلاحية', 403);   // a station reads its event and its room, nothing else
         const theRoom = () => env.ROOM.get(env.ROOM.idFromName(evId + (rehearse ? ':draft' : ':live')));
         if (seg[4] === 'pub') { const pk = evId + (rehearse ? ':d' : ':l') + ver, hit = PUB.get(pk); if (hit && Date.now() - hit.at < 3000) return new Response(hit.body, { headers: { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' } });
           const st = ((await (await theRoom().fetch(new Request('https://room/log'))).json().catch(() => ({}))).state) || {}, launched = !!st.launchedAt && Date.now() >= st.launchedAt + launchTimes(doc).reveal * 1000, hasL = doc.cues.some(c => c.type === 'launch');
@@ -321,12 +345,13 @@ const main = {
         if (seg[4] === 'questions') { if (role !== 'console') return err('للمشغّل فقط', 403);
           if (M === 'POST') { const b = await req.json().catch(() => ({})); if (!['new', 'shown', 'hidden'].includes(b.state)) return err('حالة غير معروفة'); await T.prepare('UPDATE questions SET state = ? WHERE id = ? AND event_id = ?').bind(b.state, +b.id, evId).run(); return J({ ok: true }); }
           return J({ questions: (await T.prepare("SELECT id, text, name, at, state FROM questions WHERE event_id = ? AND state != 'hidden' ORDER BY id DESC LIMIT 100").bind(evId).all()).results }); }
+        if (seg[4] === 'config' && isStations(doc)) { const keys = {}; for (const st of doc.stations || []) if (stationCfg(st).qr && (role === 'console' || (role === 'station' && st.id === label))) keys[st.id] = await readKey(env, evId, st.id, rehearse); return J({ doc: { ...doc, id: evId }, role, label, version: ver, base: `/m/${ev.org_id}/${ev.id}/`, read: keys }); }
         if (seg[4] === 'config') return J({ doc: ['console', 'script'].includes(role) ? { ...doc, id: evId } : { ...doc, id: evId, cues: doc.cues.map(c => ({ ...c, moderator: [] })) }, role, label, version: ver, base: `/m/${ev.org_id}/${ev.id}/` });   // label: the name the organisation gave this screen's link
         if (seg[4] === 'ws' || seg[4] === 'state' || seg[4] === 'cmd') {
           const room = env.ROOM.get(env.ROOM.idFromName(evId + (rehearse ? ':draft' : ':live'))), h = new Headers(req.headers);
           h.set('x-role', role); h.set('x-ver', String(ver)); // the room needs the rules only, not the texts
           h.set('x-doc', encodeURIComponent(JSON.stringify({ cues: doc.cues.map(c => ({ id: c.id, type: c.type, media: c.media, after: c.after, fixed: c.fixed, off: c.off, style: c.style, count: c.count, hands: c.hands })),
-            media: Object.fromEntries(Object.entries(doc.media || {}).map(([k, v]) => [k, { kind: v.kind, count: v.count, length: v.length }])), identity: { after: !!(doc.identity && doc.identity.after) } })));
+            media: Object.fromEntries(Object.entries(doc.media || {}).map(([k, v]) => [k, { kind: v.kind, count: v.count, length: v.length }])), identity: { after: !!(doc.identity && doc.identity.after) }, mode: doc.mode, stations: (doc.stations || []).map(x => ({ id: x.id, media: x.media })) })));
           return room.fetch(new Request(req.url, { method: M, headers: h, body: M === 'POST' ? await req.text() : undefined }));
         }
         return err('لا يوجد', 404);
@@ -367,13 +392,14 @@ const main = {
         if (known || b.password) { await kickOrg(env, org.id); return J({ existing: known, join: null }); }
         const join = await invite(env, u.email); return J({ join, mailed: await mailJoin(env, url.origin, u.email, join, org.name) });
       }
-      if (p === '/api/events' && M === 'GET') { const { results } = await T.prepare('SELECT id, slug, name, status, published_version, updated_at FROM events WHERE org_id = ? ORDER BY updated_at DESC').bind(org.id).all(); return J({ events: results.filter(e => e.status !== 'archived'), archived: results.filter(e => e.status === 'archived'), org }); }
+      if (p === '/api/events' && M === 'GET') { const { results } = await T.prepare("SELECT id, slug, name, status, published_version, updated_at, json_extract(draft, '$.mode') AS mode FROM events WHERE org_id = ? ORDER BY updated_at DESC").bind(org.id).all(); return J({ events: results.filter(e => e.status !== 'archived'), archived: results.filter(e => e.status === 'archived'), org }); }
       if (p === '/api/events' && M === 'POST') {
         if (!can('editor')) return err('لا تملك صلاحية الإنشاء', 403); const b = await req.json(); if (!b.name) return err('اسم اللقاء مطلوب');
         const n = (await T.prepare('SELECT COUNT(*) AS n FROM events WHERE org_id = ? AND status != ?').bind(org.id, 'archived').first()).n;
         if (n >= org.events_limit) return err(`باقتكم تسمح بـ ${org.events_limit} لقاء. أرشفوا لقاءً أو رقّوا الباقة.`, 402);
         if (org.paid_until && org.paid_until < now()) return err('انتهى اشتراك الجهة', 402);
-        let doc = BLANK(b.name); if (b.doc && !shape({ ...BLANK(b.name), ...b.doc, name: String(b.name) })) doc = { ...BLANK(b.name), ...b.doc, name: String(b.name) };   // a template chosen in the studio
+        if (b.mode === 'stations' && !hasFeat(org, 'stations')) return err('المحطات التفاعلية غير مفعّلة لجهتكم. تواصلوا مع بصيرة لتفعيلها.', 403);
+        let doc = BLANK(b.name); if (b.mode === 'stations') doc = { ...BLANK(b.name), mode: 'stations', cues: [], stations: [] }; else if (b.doc && !shape({ ...BLANK(b.name), ...b.doc, name: String(b.name) })) doc = { ...BLANK(b.name), ...b.doc, name: String(b.name) };   // a template chosen in the studio
         if (b.from) { const src = await T.prepare('SELECT draft FROM events WHERE id = ? AND org_id = ?').bind(b.from, org.id).first(); if (src) { const d0 = JSON.parse(src.draft); doc = { ...d0, name: String(b.name), media: {}, cues: (d0.cues || []).map(c => { const x = { ...c }; delete x.media; delete x.mediaTall; return x; }), identity: { before: { ...d0.identity.before, logo: '' }, after: d0.identity.after ? { ...d0.identity.after, logo: '' } : null } }; } }
         const id = 'e_' + org.id.slice(2) + rid(8), s = (slug(b.slug) || 'event') + '-' + rid(4);
         await T.prepare('INSERT INTO events (id, org_id, slug, name, status, draft, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?)').bind(id, org.id, s, b.name, 'draft', JSON.stringify(doc), now(), now()).run();
@@ -423,15 +449,15 @@ const main = {
             const ext = (String(b.name).match(/\.(\w{2,5})$/) || [, 'mp4'])[1].toLowerCase(), file = 'f' + rid(8) + '.' + ext, key = `${org.id}/${id}/${file}`, up = await env.MEDIA.createMultipartUpload(key, { httpMetadata: { contentType: b.type || 'video/mp4' } }); return J({ file, key, uploadId: up.uploadId }); }
           if (b.done) { if (!String(b.key).startsWith(`${org.id}/${id}/`)) return err('لا يوجد', 404); await env.MEDIA.resumeMultipartUpload(b.key, b.uploadId).complete(b.parts); const real = (await env.MEDIA.head(b.key))?.size || 0, used2 = (await T.prepare('SELECT COALESCE(SUM(bytes),0) AS b FROM media WHERE org_id = ?').bind(org.id).first()).b;
             if (used2 + real > org.storage_limit_mb * 1048576) { await env.MEDIA.delete(b.key); return err('امتلأت مساحة الجهة', 402); }
-            await T.prepare('INSERT INTO media (id, org_id, event_id, kind, name, r2_key, bytes, created_at) VALUES (?,?,?,?,?,?,?,?)').bind('m_' + rid(), org.id, id, 'video', String(b.name).slice(0, 120), b.key, real, now()).run(); return J({ ok: true }); }
+            await T.prepare('INSERT INTO media (id, org_id, event_id, kind, name, r2_key, bytes, created_at) VALUES (?,?,?,?,?,?,?,?)').bind('m_' + rid(), org.id, id, b.kind === 'pdf' ? 'pdf' : 'video', String(b.name).slice(0, 120), b.key, real, now()).run(); return J({ ok: true }); }
         }
         if (sub === 'upload' && M === 'PUT') { if (!can('editor')) return err('لا تملك صلاحية الرفع', 403); const q = url.searchParams, key = q.get('key'); if (!String(key).startsWith(`${org.id}/${id}/`)) return err('لا يوجد', 404);
           const part = await env.MEDIA.resumeMultipartUpload(key, q.get('uploadId')).uploadPart(+q.get('n'), req.body); return J({ partNumber: part.partNumber, etag: part.etag }); }
         if (sub === 'media' && M === 'PUT') {   // one file; slides arrive page by page (?slides=<media id>&n=<page>)
           if (!can('editor')) return err('لا تملك صلاحية الرفع', 403);
-          const q = url.searchParams, kind = q.get('kind'), name = (q.get('name') || 'file').slice(0, 120), size = +req.headers.get('Content-Length') || 0; if (!['video', 'image', 'slides'].includes(kind)) return err('نوع غير معروف');
+          const q = url.searchParams, kind = q.get('kind'), name = (q.get('name') || 'file').slice(0, 120), size = +req.headers.get('Content-Length') || 0; if (!['video', 'image', 'slides', 'pdf'].includes(kind)) return err('نوع غير معروف'); if (kind === 'pdf' && size > 200 * 1048576) return err('ملف PDF أكبر من 200 ميغابايت');
           const used = (await T.prepare('SELECT COALESCE(SUM(bytes),0) AS b FROM media WHERE org_id = ?').bind(org.id).first()).b; if (used + size > org.storage_limit_mb * 1048576) return err('امتلأت مساحة الجهة', 402);
-          if (q.get('slides') && !/^f[a-z0-9]{6,12}$/.test(q.get('slides'))) return err('معرّف غير صالح'); const mid = q.get('slides') || 'f' + rid(8), ext = (name.match(/\.(\w{2,5})$/) || [, kind === 'video' ? 'mp4' : 'jpg'])[1].toLowerCase();
+          if (q.get('slides') && !/^f[a-z0-9]{6,12}$/.test(q.get('slides'))) return err('معرّف غير صالح'); const mid = q.get('slides') || 'f' + rid(8), ext = kind === 'pdf' ? 'pdf' : (name.match(/\.(\w{2,5})$/) || [, kind === 'video' ? 'mp4' : 'jpg'])[1].toLowerCase();
           const file = kind === 'slides' ? `${mid}/s-${+q.get('n') || 1}.jpg` : `${mid}.${ext}`, key = `${org.id}/${id}/${file}`;
           await env.MEDIA.put(key, req.body, { httpMetadata: { contentType: req.headers.get('Content-Type') || 'application/octet-stream' } });
           await T.prepare('INSERT INTO media (id, org_id, event_id, kind, name, r2_key, bytes, created_at) VALUES (?,?,?,?,?,?,?,?)').bind('m_' + rid(), org.id, id, kind, name, key, size, now()).run();
@@ -455,6 +481,6 @@ const GUARD = { 'X-Content-Type-Options': 'nosniff', 'X-Frame-Options': 'SAMEORI
 export default {
   scheduled: (e, env, ctx) => main.scheduled(e, env, ctx),
   async fetch(req, env, ctx) { const r = await main.fetch(req, env, ctx); if (r.status === 101 || r.webSocket) return r;
-    const h = new Headers(r.headers); for (const [k, v] of Object.entries(GUARD)) h.set(k, v); if (new URL(req.url).pathname.startsWith('/m/')) h.set('Content-Security-Policy', "default-src 'none'; style-src 'unsafe-inline'; sandbox");
+    const h = new Headers(r.headers); for (const [k, v] of Object.entries(GUARD)) h.set(k, v); if (/^\/(m|api\/read)\//.test(new URL(req.url).pathname)) h.set('Content-Security-Policy', "default-src 'none'; style-src 'unsafe-inline'; sandbox");
     return new Response(r.body, { status: r.status, statusText: r.statusText, headers: h }); },
 };

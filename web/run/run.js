@@ -23,7 +23,7 @@ export async function connect() {
   const open = () => { ws = new WebSocket(`${location.origin.replace(/^http/, 'ws')}/api/run/${e}/ws${draft}`);
     ws.onopen = () => { online = true; seen = Date.now(); for (const w of wait.splice(0)) if (Date.now() - w.at < 5000) ws.send(w.t); if (away) { ws.send(JSON.stringify({ adopt: { state, base: away } })); away = null; } tell(); };
     ws.onmessage = m => { seen = Date.now(); const d = JSON.parse(m.data); if (d.pong) { const rtt = Date.now() - d.pong; lagNow = rtt; if (rtt <= best * 1.3 || Date.now() - bestAt > 60000) { if (rtt < best || Date.now() - bestAt > 60000) { best = rtt; bestAt = Date.now(); } skew = d.now + rtt / 2 - Date.now(); synced = true; } return; }
-      if (d.now && !synced) skew = d.now - Date.now(); if (d.peers) peers = d.peers; if (d.hall !== undefined) hall = d.hall; if (d.hands !== undefined) hands = d.hands; if (d.reload !== undefined && d.reload !== cfg.version) return location.reload(); if (d.state && !away) state = d.state; tell(); };
+      if (d.now && !synced) skew = d.now - Date.now(); if (d.peers) peers = d.peers; if (d.hall !== undefined) hall = d.hall; if (d.hands !== undefined) hands = d.hands; if (d.reload !== undefined && d.reload !== cfg.version) { window.leaving = true; return location.reload(); } if (d.state && !away) state = d.state; tell(); };
     ws.onclose = async () => { online = false; tell();
       // closed by the server: is this screen still allowed? A revoked link (or an ended session) blanks the page and stops
       try { const r = await fetch(`/api/run/${e}/config${draft}`); if (r.status === 401) { localStorage.removeItem(K); localStorage.removeItem(K + ':s'); document.documentElement.style.background = '#000'; document.body.innerHTML = '<p style="font:600 20px sans-serif;text-align:center;margin-top:40vh;color:#666">أُلغي رابط هذه الشاشة</p>'; document.body.className = ''; subs.length = 0; for (let i = setTimeout(() => {}, 0); i > 0; i--) { clearTimeout(i); clearInterval(i); } return; } } catch {}
@@ -32,7 +32,7 @@ export async function connect() {
   // the clock: a question to the room, its answer, half the trip taken off. Three quick ones at the start, then one every four seconds; the answer that came back fastest is the one trusted
   let seen = Date.now(), best = Infinity, bestAt = 0, lagNow = 0, synced = false; const ping = () => { if (ws.readyState === 1) ws.send(JSON.stringify({ ping: Date.now() })); };
   open(); [300, 900, 1700].forEach(t => setTimeout(ping, t)); setInterval(() => { if (ws.readyState === 1) { ping(); if (Date.now() - seen > 10000) ws.close(); } }, 4000);
-  return { doc: cfg.doc, base: cfg.base, role: cfg.role, label: cfg.label || '', version: cfg.version, draft: !!draft, get lag() { return lagNow; }, get synced() { return synced; }, get state() { return state; }, now: () => Date.now() + skew,
+  return { doc: cfg.doc, base: cfg.base, role: cfg.role, label: cfg.label || '', read: cfg.read || {}, version: cfg.version, draft: !!draft, get lag() { return lagNow; }, get synced() { return synced; }, get state() { return state; }, now: () => Date.now() + skew,
     on: f => { subs.push(f); if (state) f(state, { peers, online, hall, hands }); }, poke: tell, send: cmd => out({ cmd }), raw: o => out(o),
     get online() { return online; },
     // the hall computer alone, network down: its keyboard moves the event by the same rules; the room takes the result back on return

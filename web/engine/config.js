@@ -11,6 +11,8 @@
 //   the launch cue: style ('video' | 'countdown' | 'light' | 'curtain'), count (seconds of the countdown), text (a name revealed),
 //                   hands (how many guests press together, each on a device of their own)
 // }
+//   mode: 'ceremony' (default) | 'stations': an exhibition of touch screens, each with its own PDF the visitors browse
+//   stations: [ { id, name, place, media (a pdf), idle (seconds, 0 = never), dir ('rtl'|'ltr'), zoom, links, qr, thumbs } ]
 // «after» marks a cue that carries the identity revealed by the launch: it can never be played before the launch.
 export const SCENES = {
   loop:    { label: 'الاستقبال',        needs: [],          fields: ['media'] },
@@ -47,9 +49,28 @@ export function launchTimes(ev) { const c = (ev.cues || []).find(c => c.type ===
   if (st === 'video') { const m = c && c.media && ev.media ? ev.media[c.media] : null; return { reveal: 0, end: (m && m.length) || 25 }; }
   return st === 'countdown' ? { reveal: n, end: n + 7, count: n } : st === 'light' ? { reveal: 3, end: 10 } : st === 'ribbon' ? { reveal: 2.2, end: 9 } : st === 'rays' ? { reveal: 3, end: 10 } : st === 'pulse' ? { reveal: 4, end: 11, beats: PULSE } : st === 'dust' ? { reveal: 3.5, end: 10.5 } : { reveal: 1, end: 9 }; }
 const ID = /^[a-z0-9][a-z0-9_-]{0,39}$/;
+// ----- the interactive stations (mode 'stations'): every screen holds a PDF of its own, browsed by the visitors' hands
+export const isStations = ev => !!ev && ev.mode === 'stations';
+export const IDLE = [0, 30, 60, 90, 120, 180, 300];   // seconds without a touch before a station goes back to its first page (0: never)
+export const stationOf = (ev, id) => (ev.stations || []).find(s => s.id === id) || null;
+// what a station shows by default: its settings, with the defaults filled in
+export const stationCfg = st => ({ idle: 90, dir: 'rtl', zoom: true, links: true, qr: false, thumbs: true, ...st });
+export const MODES = {
+  ceremony: { label: 'حفل تدشين', about: 'فقرات متتابعة يقودها المشغّل، وشاشات القاعة تتبعه حتى لحظة الكشف.', feats: ['برنامج فقرات وأشخاص وعروض', 'لحظة تدشين بأنماط متعددة', 'لوحة مشغّل ومدير جلسة', 'صفحة الحضور والأسئلة'] },
+  stations: { label: 'المحطات التفاعلية', about: 'شاشات لمس مستقلة، لكل شاشة ملف PDF يتصفحه الزائر بيده، وتبدّل الملفات من لوحة واحدة.', feats: ['ملف مختلف لكل شاشة', 'تصفح باللمس: سحب وتكبير ومصغرات', 'شاشة مقفلة لا يخرج منها الزائر', 'رمز QR يكمل به الزائر القراءة على جواله', 'لوحة تعرض كل الشاشات مباشرة وتبدّل ملفاتها'] },
+};
+function stationProblems(ev) { const out = [], seen = new Set(), list = ev.stations || [];
+  if (!ev.name || !String(ev.name).trim()) out.push('اسم اللقاء مطلوب');
+  if (!list.length) out.push('أضف محطة واحدة على الأقل');
+  for (const st of list) { const where = `«${st.name || st.id}»`;
+    if (!ID.test(st.id || '')) out.push(`معرّف المحطة ${where} غير صالح`); if (seen.has(st.id)) out.push(`معرّف مكرر: ${st.id}`); seen.add(st.id);
+    if (!st.name || !String(st.name).trim()) out.push('محطة بلا اسم');
+    if (!st.media) out.push(`${where}: ينقصها الملف`); else if (!(ev.media || {})[st.media]) out.push(`${where}: الملف غير موجود في مكتبة اللقاء`); else if (ev.media[st.media].kind !== 'pdf') out.push(`${where}: ملف المحطة يكون بصيغة PDF`); }
+  return out; }
 
 // problems of an event document, as sentences for the studio ([] when it can be published)
 export function problems(ev) {
+  if (isStations(ev)) return stationProblems(ev);
   const out = [], cues = ev.cues || [], ids = new Set();
   if (!ev.name || !String(ev.name).trim()) out.push('اسم اللقاء مطلوب');
   if (!cues.length) out.push('أضف فقرة واحدة على الأقل');
@@ -84,7 +105,12 @@ export function shape(ev) { const obj = x => x && typeof x === 'object' && !Arra
   if (JSON.stringify(ev).length > 600000) return 'وثيقة اللقاء أكبر من الحد (600 كيلوبايت). اختصروا نصوص مدير الجلسة.';
   if (ev.name != null && typeof ev.name !== 'string') return 'اسم اللقاء غير صالح'; if (ev.cues.length > 300) return 'عدد الفقرات أكبر من الحد';
   for (const c of ev.cues) { if (!obj(c) || !KEY.test(c.id || '') || typeof c.type !== 'string') return 'في اللقاء فقرة غير صالحة'; if (c.moderator != null && !(Array.isArray(c.moderator) && c.moderator.every(l => typeof l === 'string'))) return 'نص مدير الجلسة غير صالح'; for (const k of ['person', 'media', 'mediaTall']) if (c[k] != null && c[k] !== '' && !KEY.test(c[k])) return 'في اللقاء فقرة غير صالحة'; for (const k of ['title', 'text', 'at', 'url']) if (c[k] != null && typeof c[k] !== 'string') return 'في اللقاء فقرة غير صالحة'; }
-  for (const [n, o] of [['people', ev.people], ['media', ev.media]]) { if (o == null) continue; if (!obj(o)) return 'وثيقة اللقاء غير صالحة'; for (const [k, v] of Object.entries(o)) { if (!KEY.test(k) || !obj(v)) return n === 'people' ? 'في الأشخاص سجل غير صالح' : 'في الملفات سجل غير صالح'; if (n === 'media' && (!FILE.test(v.src || '') || !['video', 'image', 'slides'].includes(v.kind))) return 'في الملفات سجل غير صالح'; } }
+  for (const [n, o] of [['people', ev.people], ['media', ev.media]]) { if (o == null) continue; if (!obj(o)) return 'وثيقة اللقاء غير صالحة'; for (const [k, v] of Object.entries(o)) { if (!KEY.test(k) || !obj(v)) return n === 'people' ? 'في الأشخاص سجل غير صالح' : 'في الملفات سجل غير صالح'; if (n === 'media' && (!FILE.test(v.src || '') || !['video', 'image', 'slides', 'pdf'].includes(v.kind) || (v.cover != null && !FILE.test(v.cover)))) return 'في الملفات سجل غير صالح'; } }
+  if (ev.mode != null && !['ceremony', 'stations'].includes(ev.mode)) return 'نوع اللقاء غير معروف';
+  if (ev.stations != null) { if (!Array.isArray(ev.stations) || ev.stations.length > 40) return 'عدد المحطات أكبر من الحد (40)';
+    for (const st of ev.stations) { if (!obj(st) || !KEY.test(st.id || '')) return 'في اللقاء محطة غير صالحة'; for (const k of ['name', 'place']) if (st[k] != null && (typeof st[k] !== 'string' || st[k].length > 80)) return 'في اللقاء محطة غير صالحة';
+      if (st.media != null && st.media !== '' && !KEY.test(st.media)) return 'في اللقاء محطة غير صالحة'; if (st.dir != null && !['rtl', 'ltr'].includes(st.dir)) return 'في اللقاء محطة غير صالحة'; if (st.idle != null && !(Number.isFinite(+st.idle) && +st.idle >= 0 && +st.idle <= 3600)) return 'في اللقاء محطة غير صالحة';
+      for (const k of ['zoom', 'links', 'qr', 'thumbs']) if (st[k] != null && typeof st[k] !== 'boolean') return 'في اللقاء محطة غير صالحة'; } }
   for (const k of ['before', 'after']) { const I = ev.identity[k]; if (I == null) continue; if (!obj(I)) return 'هوية اللقاء غير صالحة'; if (I.logo && !FILE.test(I.logo)) return 'شعار الهوية غير صالح'; if (I.colors != null) { if (!obj(I.colors)) return 'ألوان الهوية غير صالحة'; for (const v of Object.values(I.colors)) if (v && !HEX.test(v)) return 'ألوان الهوية غير صالحة'; } }
   return ''; }
 export const cueOf = (ev, id) => (ev.cues || []).find(c => c.id === id);

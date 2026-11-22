@@ -1,0 +1,134 @@
+<!doctype html>
+<!-- A station: one touch screen of an exhibition, with its own PDF the visitors browse by hand. Locked: no address bar, no menu,
+     no way back or out from the page; it goes back to its first page when nobody touches it. The board (stations.html) gives it
+     another file whenever the organisation wants, and sees the page its visitor is on.
+     ?s=<station>: which station, for a member trying it from the studio (a station's own link carries it). -->
+<html lang="ar" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover"><title>المحطة</title>
+<meta name="mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-capable" content="yes"><link rel="stylesheet" href="../app.css"><link rel="stylesheet" href="../fonts/brand.css">
+<style>
+html,body{height:100%;margin:0;overflow:hidden;overscroll-behavior:none;touch-action:none;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none;-webkit-tap-highlight-color:transparent}
+body{background:var(--bg,#F6F1E6);color:var(--ink,#14211E);font-family:var(--ft,Kufi)}
+#room{position:absolute;inset:0 0 104px 0;background:color-mix(in srgb,var(--ink) 7%,var(--bg))}
+.bh{position:absolute;inset:0;transition:opacity .6s ease}.bh.out{opacity:0;pointer-events:none}
+#bar{direction:ltr;position:absolute;inset:auto 0 0 0;height:104px;display:grid;grid-template-columns:120px 1fr auto 120px;gap:18px;align-items:center;padding:0 22px;background:var(--bg);border-top:1px solid color-mix(in srgb,var(--ink) 12%,transparent)}
+.ar{width:104px;height:76px;border-radius:20px;border:0;background:var(--accent);color:var(--bg);font:900 40px/1 sans-serif;display:grid;place-items:center;cursor:pointer;transition:transform .12s,opacity .2s}.ar:active{transform:scale(.94)}.ar[disabled]{opacity:.22}
+.ar svg{width:40px;height:40px}
+.mid,.tools{direction:rtl}.mid{display:flex;align-items:center;gap:22px;min-width:0}.mid img{height:58px;max-width:170px;object-fit:contain}
+.cnt{font:700 24px var(--ft);white-space:nowrap}.cnt small{display:block;font:400 16px Plex;opacity:.65;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:40vw}
+.prog{flex:1;height:6px;border-radius:3px;background:color-mix(in srgb,var(--ink) 12%,transparent);overflow:hidden;min-width:60px}.prog i{display:block;height:100%;background:var(--gold);width:0;transition:width .35s}
+.tools{display:flex;gap:12px}.tb{height:76px;padding:0 24px;border-radius:20px;border:2px solid color-mix(in srgb,var(--ink) 18%,transparent);background:transparent;color:var(--ink);font:700 20px var(--ft);display:flex;align-items:center;gap:10px;cursor:pointer}.tb:active{background:color-mix(in srgb,var(--ink) 8%,transparent)}.tb svg{width:30px;height:30px}
+.tb[hidden]{display:none}
+/* the pages, small: a strip that rises from the bar */
+#th{position:absolute;inset:auto 0 104px 0;height:230px;background:color-mix(in srgb,var(--bg) 94%,var(--ink));border-top:1px solid color-mix(in srgb,var(--ink) 14%,transparent);transform:translateY(100%);opacity:0;transition:transform .35s cubic-bezier(.2,.75,.25,1),opacity .25s;pointer-events:none;z-index:5}
+#th.on{transform:none;opacity:1;pointer-events:auto}#thl{display:flex;gap:16px;overflow-x:auto;height:100%;padding:18px 22px;box-sizing:border-box;touch-action:pan-x;scrollbar-width:none}#thl::-webkit-scrollbar{display:none}
+.t{flex:0 0 auto;display:grid;justify-items:center;gap:6px;cursor:pointer}.t span{height:160px;min-width:100px;display:grid;place-items:center;border-radius:8px;border:3px solid transparent;overflow:hidden}.t.on span{border-color:var(--gold)}.t b{font:600 15px Plex}
+.t canvas{display:block;max-height:154px}
+/* what a screen shows to nobody: the invitation to touch */
+#att{position:absolute;inset:0;z-index:20;display:grid;place-items:center;text-align:center;background:radial-gradient(70% 60% at 50% 45%,color-mix(in srgb,var(--bg) 80%,transparent),color-mix(in srgb,var(--bg) 96%,var(--ink)));backdrop-filter:blur(6px);transition:opacity .6s,visibility 0s linear .6s}
+#att.off{opacity:0;visibility:hidden}#att img{max-height:22vh;max-width:50vw}#att h1{font:900 clamp(34px,5.2vw,84px)/1.35 var(--ft);color:var(--accent);margin:4vh 6vw 0;text-wrap:balance}#att p{font:400 clamp(18px,2vw,30px) Plex;color:var(--gold);margin:1.4vh 0 0}
+#att .tap{margin:6vh auto 0;width:clamp(110px,10vw,170px);aspect-ratio:1;border-radius:50%;border:3px solid var(--gold);display:grid;place-items:center;animation:beat 2.2s ease-in-out infinite}#att .tap svg{width:48%;height:48%;color:var(--accent)}
+#att .go{font:700 clamp(20px,2.2vw,34px) var(--ft);margin-top:2.6vh;color:var(--ink)}
+@keyframes beat{0%,100%{transform:scale(1);box-shadow:0 0 0 0 color-mix(in srgb,var(--gold) 50%,transparent)}50%{transform:scale(1.07);box-shadow:0 0 0 26px transparent}}
+#dark{position:absolute;inset:0;z-index:30;background:var(--bg);display:none;place-items:center}#dark.on{display:grid}#dark img{max-height:30vh;max-width:55vw}
+#qrm{position:absolute;inset:0;z-index:40;background:rgba(10,12,14,.66);display:none;place-items:center}#qrm.on{display:grid}
+#qrm .box{background:var(--bg);border-radius:28px;padding:38px 44px;text-align:center;max-width:min(620px,88vw);box-shadow:0 30px 90px rgba(0,0,0,.4)}#qrm h2{font:900 32px var(--ft);color:var(--accent);margin:0 0 6px}#qrm p{font:400 20px/1.7 Plex;margin:0 0 20px}
+#qrm canvas{width:300px;height:300px;border-radius:16px}#qrm button{margin-top:24px;height:64px;padding:0 44px;border-radius:18px;border:0;background:var(--accent);color:var(--bg);font:700 22px var(--ft);cursor:pointer}
+#id{position:absolute;inset:0;z-index:50;display:none;place-items:center;background:rgba(10,12,14,.82);color:#fff;text-align:center}#id.on{display:grid}#id b{display:block;font:900 120px Kufi;color:#E4CC97}#id span{font:600 40px Plex}
+#net{position:absolute;top:14px;left:14px;z-index:60;font:600 13px Plex;background:#4A1D16;color:#FFB4A4;border-radius:999px;padding:4px 12px;display:none}#net.on{display:block}
+#load{position:absolute;inset:0;display:grid;place-items:center;font:600 22px Plex;opacity:.6}
+#prep{position:fixed;inset:0;display:grid;place-items:center;text-align:center;background:#0E1114;color:#E9E2D0;font-family:Plex}#prep h1{font:900 40px Kufi;color:#E4CC97}#prep .bar{width:420px;height:6px;border-radius:3px;background:#2A3A3F;margin:20px auto}#prep .bar i{display:block;height:100%;width:0;background:#E4CC97;border-radius:3px}
+@media (max-width:900px){#bar{grid-template-columns:84px 1fr auto 84px;gap:10px;padding:0 10px}.ar{width:78px}.tb{padding:0 14px;font-size:16px}.tb span{display:none}.mid img{display:none}}
+</style></head><body>
+<div id="room"><div id="load">يفتح الملف…</div></div>
+<div id="th"><div id="thl"></div></div>
+<div id="bar"><button class="ar" id="bF" aria-label="الصفحة التالية"></button>
+  <div class="mid"><img id="lg" alt=""><div class="cnt"><span id="pc"></span><small id="ttl"></small></div><div class="prog"><i id="pg"></i></div></div>
+  <div class="tools"><button class="tb" id="bT"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="7" height="7" rx="1"/><rect x="14" y="4" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg><span>الصفحات</span></button>
+  <button class="tb" id="bH"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 11l9-7 9 7v9a1 1 0 0 1-1 1h-5v-6h-6v6H4a1 1 0 0 1-1-1z"/></svg><span>البداية</span></button>
+  <button class="tb" id="bQ" hidden><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="6" y="2" width="12" height="20" rx="2"/><path d="M11 18h2"/></svg><span>أكمل على جوالك</span></button></div>
+  <button class="ar" id="bB" aria-label="الصفحة السابقة"></button></div>
+<div id="att" class="off"><div><img id="aL" alt=""><h1 id="aT"></h1><p id="aP"></p><div class="tap"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M9 11V5a2 2 0 0 1 4 0v6m0-1a2 2 0 0 1 4 0v1m0 0a2 2 0 0 1 4 0v4a7 7 0 0 1-7 7h-1a7 7 0 0 1-6-3l-2.5-4a2 2 0 0 1 3.4-2L9 15"/></svg></div><div class="go">المس الشاشة للتصفح</div></div></div>
+<div id="dark"><img id="dL" alt=""></div>
+<div id="qrm"><div class="box"><h2 id="qT"></h2><p id="qP"></p><canvas id="qC"></canvas><br><button id="qX">إغلاق</button></div></div>
+<div id="id"><div><b id="iN"></b><span id="iP"></span></div></div><div id="net">لا اتصال · يعمل من نسخته المحفوظة</div>
+<script src="../vendor/qrcode.js"></script>
+<script type="module">
+import { connect, $, paint, deviceId } from './run.js';
+import { keep, url } from './store.js';
+import { Book, openPdf, draw, qr } from './book.js';
+import { stationOf, stationCfg } from '../engine/config.js';
+import { stationMedia } from '../engine/state.js';
+
+// ----- the lock: the visitor stays on this page. No menu, no selection, no keys that leave, no way back; full screen at the first touch.
+// (the device itself is locked too: Chrome in kiosk mode, screen pinning on Android, Guided Access on an iPad; see the studio's links page)
+const stop = e => { e.preventDefault(); e.stopPropagation(); return false; };
+for (const t of ['contextmenu', 'selectstart', 'dragstart', 'gesturestart', 'gesturechange', 'dblclick']) addEventListener(t, stop, { capture: true, passive: false });
+addEventListener('keydown', e => { const k = e.key; if (e.ctrlKey || e.metaKey || e.altKey || /^F\d+$/.test(k) || k === 'Escape' || k === 'Tab' || k === 'BrowserBack' || k === 'ContextMenu') return stop(e); }, { capture: true });
+addEventListener('touchmove', e => { if (e.touches.length > 1 || !e.target.closest('#thl')) e.preventDefault(); }, { passive: false });
+history.pushState({ k: 1 }, '', location.href); addEventListener('popstate', () => history.pushState({ k: 1 }, '', location.href));
+addEventListener('beforeunload', e => { if (window.leaving) return; e.preventDefault(); e.returnValue = ''; });
+const full = () => { const d = document.documentElement; if (!document.fullscreenElement && d.requestFullscreen) d.requestFullscreen({ navigationUI: 'hide' }).catch(() => {}); };
+addEventListener('pointerdown', full, { capture: true });
+let wl = null; const wake = async () => { try { if (!wl && navigator.wakeLock) { wl = await navigator.wakeLock.request('screen'); wl.addEventListener('release', () => { wl = null; }); } } catch {} }; document.addEventListener('visibilitychange', () => document.visibilityState === 'visible' && wake()); wake();
+// links never open on this screen: a window.open or a page change from anything inside is refused
+window.open = () => null;
+
+// before the day: the screen keeps its file and waits
+window.prepScreen = async cfg => { const P = cfg.prep; document.body.style.touchAction = 'none'; document.body.innerHTML = `<div id="prep"><div><h1></h1><p id="ps"></p><div class="bar"><i></i></div><p id="pw">يحفظ هذا الجهاز ملف المحطة…</p><p id="pe" style="font-size:14px;margin-top:26px;opacity:.7"></p></div></div>`;
+  $('#prep h1').textContent = P.name; $('#ps').textContent = P.station || ''; $('#pe').textContent = cfg.error;
+  const st = await keep(P.files, s => { const v = Object.values(s), pct = v.reduce((a, x) => a + (x.done ? 100 : x.pct || 0), 0) / Math.max(1, v.length); $('#prep .bar i').style.width = pct + '%'; });
+  $('#pw').textContent = Object.values(st).every(x => x.done) ? 'الملف محفوظ على هذا الجهاز. تفتح المحطة وحدها في موعد التفعيل.' : 'لم يكتمل الحفظ. يعيد المحاولة تلقائياً.';
+  setTimeout(() => { window.leaving = true; location.reload(); }, 5 * 60000); };
+
+const link = await connect(), D = link.doc, Q = new URLSearchParams(location.search), sid = link.label || Q.get('s') || ((D.stations || [])[0] || {}).id, S0 = stationOf(D, sid);
+if (!S0) { document.body.innerHTML = '<p style="font:600 22px sans-serif;text-align:center;margin-top:40vh;color:#888">هذه المحطة لم تعد في اللقاء</p>'; throw new Error('station'); }
+const S = stationCfg(S0), rtl = S.dir !== 'ltr', me = deviceId(); document.title = S.name || 'المحطة';
+const I = paint(link, link.state || {}); for (const im of ['#lg', '#aL', '#dL']) { if (I.logo) url(I.logo).then(u => $(im).src = u); else $(im).style.display = 'none'; }
+$('#aP').textContent = S.place || '';
+// the arrows point the way the book reads: in Arabic «next» is on the left
+const arrow = d => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="${d === 'l' ? 'M15 5l-7 7 7 7' : 'M9 5l7 7-7 7'}"/></svg>`;
+const left = $('#bF'), right = $('#bB'); left.innerHTML = arrow('l'); right.innerHTML = arrow('r');
+const goLeft = () => (rtl ? book && book.fwd() : book && book.back()), goRight = () => (rtl ? book && book.back() : book && book.fwd());
+left.onclick = () => { touch(); goLeft(); }; right.onclick = () => { touch(); goRight(); };
+if (!S.thumbs) $('#bT').hidden = true;
+const readKey = S.qr ? link.read[sid] || null : null; if (readKey) $('#bQ').hidden = false;
+
+let book = null, host = null, pdf = null, cur = null, want = null, loading = false, last = 0, attract = false, seenReset = null, err = '', view = { z: 1, x: .5, y: .5 };
+const touch = () => { last = Date.now(); if (attract) { attract = false; $('#att').classList.add('off'); } report(); };
+addEventListener('pointerdown', touch, { capture: true });
+function setPage(n, N) { $('#pc').textContent = `صفحة ${n.toLocaleString('ar')} من ${N.toLocaleString('ar')}`; $('#pg').style.width = (n / N * 100) + '%';
+  const atStart = n <= 1, atEnd = n >= N; (rtl ? right : left).disabled = atStart; (rtl ? left : right).disabled = atEnd; document.querySelectorAll('.t').forEach(t => t.classList.toggle('on', +t.dataset.n === n)); report(); }
+// a file, opened on its own layer; the old one leaves only when the new one is ready, so the screen is never empty
+async function show(mk) { if (!mk || !D.media[mk]) { err = 'لا ملف لهذه المحطة'; report(); return; } want = mk; if (loading || mk === cur) return; loading = true;
+  try { // a visitor turning pages now: the new file waits for a pause of five seconds (thirty at most)
+    const t0 = Date.now(); while (book && !attract && Date.now() - last < 5000 && Date.now() - t0 < 30000) await new Promise(r => setTimeout(r, 500));
+    const u = link.base + D.media[mk].src; await keep([u]); const doc = await openPdf(await url(u)), h = document.createElement('div'); h.className = 'bh out'; $('#room').appendChild(h);
+    const b = Book(h, { dir: S.dir, zoom: S.zoom, links: S.links, onPage: setPage, onTouch: touch, onView: v => { view = v; report(); }, onLink });
+    await b.load(doc, 1); requestAnimationFrame(() => h.classList.remove('out')); const old = host, ob = book; host = h; book = b; pdf = doc; cur = mk; err = ''; $('#load')?.remove();
+    $('#ttl').textContent = D.media[mk].name || ''; $('#aT').textContent = D.media[mk].name || S.name; thumbs(); if (old) { old.classList.add('out'); setTimeout(() => { ob.destroy(); old.remove(); }, 700); }
+  } catch (x) { err = 'تعذّر فتح الملف'; console.log(x); }
+  loading = false; report(); if (want !== cur) show(want); }
+function onLink(l) { if (!l.url) return; if (!S.links) return; showQr('رابط خارجي', 'امسح الرمز بكاميرا جوالك لتفتح الرابط عليه.', l.url); }
+function showQr(t, p, text) { $('#qT').textContent = t; $('#qP').textContent = p; qr($('#qC'), text, 600); $('#qrm').classList.add('on'); }
+$('#qX').onclick = () => $('#qrm').classList.remove('on'); $('#qrm').onclick = e => { if (e.target.id === 'qrm') $('#qrm').classList.remove('on'); };
+$('#bQ').onclick = () => { if (!readKey || !book) return; const u = `${location.origin}/run/reader.html#${new URLSearchParams({ e: Q.get('e'), s: sid, m: link.draft ? 'd' : 'l', k: readKey, p: book.page })}`; showQr('أكمل القراءة على جوالك', `امسح الرمز بكاميرا جوالك، فيفتح الملف عليه من الصفحة ${book.page.toLocaleString('ar')}.`, u); };
+$('#bH').onclick = () => { $('#th').classList.remove('on'); book && book.home(); };
+$('#bT').onclick = () => $('#th').classList.toggle('on');
+// the pages, small, drawn only when they come into the strip
+let io = null; function thumbs() { const l = $('#thl'); l.innerHTML = ''; l.dir = rtl ? 'rtl' : 'ltr'; io && io.disconnect(); if (!S.thumbs) return; io = new IntersectionObserver(es => es.forEach(async e => { if (!e.isIntersecting || e.target.dataset.done) return; e.target.dataset.done = 1; io.unobserve(e.target); const r = await draw(pdf, +e.target.dataset.n, 120, 154); e.target.querySelector('span').replaceChildren(r.cv); }), { root: l, rootMargin: '0px 400px' });
+  for (let i = 1; i <= pdf.numPages; i++) { const t = document.createElement('div'); t.className = 't' + (i === (book ? book.page : 1) ? ' on' : ''); t.dataset.n = i; t.innerHTML = `<span></span><b>${i.toLocaleString('ar')}</b>`; t.onclick = () => { book.go(i, 'fade'); $('#th').classList.remove('on'); }; l.appendChild(t); io.observe(t); } }
+// nobody has touched it for a while: back to the first page, and the invitation to touch
+function rest() { attract = true; $('#att').classList.remove('off'); $('#th').classList.remove('on'); $('#qrm').classList.remove('on'); book && book.home(); report(); }
+setInterval(() => { if (!attract && S.idle > 0 && Date.now() - last > S.idle * 1000) rest(); }, 1000);
+// what the board sees of this station
+let rt = 0, rAt = 0; function report() { clearTimeout(rt); rt = setTimeout(() => { rAt = Date.now(); link.raw({ report: { kind: 'station', id: me, sid, media: cur || '', page: book ? book.page : 0, pages: book ? book.pages : 0, z: view.z, x: view.x, y: view.y, touch: last, idle: attract, w: innerWidth, h: innerHeight, ready: !!book, err, ver: link.version } }); }, Date.now() - rAt > 400 ? 30 : 400); }
+setInterval(report, 10000);
+let idT = 0;
+link.on((s, info) => { $('#net').classList.toggle('on', !info.online && !link.draft); const x = (s.st || {})[sid] || {};
+  $('#dark').classList.toggle('on', !!x.dark);
+  if (seenReset === null) seenReset = x.reset || 0; else if (x.reset && x.reset > seenReset) { seenReset = x.reset; rest(); }   // a reset older than this page is not replayed
+  if (s.identAt && link.now() - s.identAt < 6000) { $('#iN').textContent = S.name; $('#iP').textContent = S.place || ''; $('#id').classList.add('on'); clearTimeout(idT); idT = setTimeout(() => $('#id').classList.remove('on'), Math.max(500, 6000 - (link.now() - s.identAt))); }
+  show(stationMedia(D, s, sid)); if (info.online) report(); });
+if (!link.state) show(S.media);
+rest();
+</script></body></html>

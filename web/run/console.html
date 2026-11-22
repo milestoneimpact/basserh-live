@@ -100,7 +100,7 @@ html,body{overflow-x:hidden}
 <script type="module">
 import { connect, $, esc, cueOf, shown, slidesOf, pausable, handsOf } from './run.js';
 import { order as orderOf, offOf } from '../engine/state.js'; import { orderProblem } from '../engine/config.js';
-const link = await connect(), D = link.doc; $('#evName').textContent = D.name; if (link.draft) $('#reh').style.display = '';
+const link = await connect(), D = link.doc; if (D.mode === 'stations') { location.replace('stations.html' + location.search); await new Promise(() => {}); } $('#evName').textContent = D.name; if (link.draft) $('#reh').style.display = '';
 const toast = t => { const e = $('#toast'); e.textContent = t; e.classList.add('on'); clearTimeout(toast.t); toast.t = setTimeout(() => e.classList.remove('on'), 2400); };
 const fmt = ms => { const s = Math.max(0, Math.floor(ms / 1000)); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; };
 const send = c => link.send(c); let S = null, drawnThumbs = '', back = null, lastInfo = null;
