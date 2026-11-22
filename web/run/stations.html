@@ -31,17 +31,23 @@ main{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:
 /* on a phone: one column, the tools wrap, big targets for a thumb */
 @media (max-width:760px){header{padding:10px 14px;gap:8px}header h1{font-size:16px;flex-basis:100%;order:-1}.wm{display:none}header .b{flex:1 1 auto;padding:10px}.all,.lib{padding:10px 14px}.all select{min-width:0;flex:1 1 100%}.lib span{display:none}
   main{grid-template-columns:1fr;padding:12px 14px;gap:12px}.row .b,.row select{padding:10px;font-size:14px}#big .ft{padding:10px 14px}#big .ft .b,#big .ft select{flex:1 1 45%}#big .scr{margin:0 10px}#alerts{padding:8px 14px}#pm .box{padding:18px}}
+#rm{position:fixed;inset:0;z-index:60;background:rgba(5,7,8,.85);display:none;place-items:center;padding:16px}#rm.on{display:grid}#rm .box{background:#171D21;border:1px solid rgba(228,204,151,.3);border-radius:18px;padding:22px;width:min(1100px,100%);max-height:92vh;overflow:auto}#rm h2{font:900 22px Kufi;color:#E4CC97;margin:0}
+#rmS{font:700 17px Plex;margin:10px 0 14px}#rmT table{width:100%;border-collapse:collapse;font:600 13px Plex}#rmT th{color:#A9B2B4;text-align:start;padding:6px;border-bottom:1px solid rgba(228,204,151,.2)}#rmT td{padding:7px 6px;border-bottom:1px solid rgba(228,204,151,.08);vertical-align:top}.ok{color:#8FE3B5}.no{color:#FFB4A4}.wa{color:#F0DDB0}
+.ctl input[type=range]{height:30px}
 #toast{position:fixed;bottom:22px;left:50%;transform:translateX(-50%);background:#E4CC97;color:#0E1114;font:600 15px Plex;padding:10px 20px;border-radius:12px;opacity:0;transition:.3s;pointer-events:none;z-index:99}#toast.on{opacity:1}
 </style></head><body>
 <header><div class="wm">بصيرة<i></i><span>BASSERH</span></div><h1 id="ttl">لوحة المحطات</h1><span class="pill" id="mode"></span><span class="pill" id="cnt"></span><span class="pill" id="vis" title="الجلسات المكتملة: من أول لمسة حتى عودة الشاشة إلى البداية"></span><span class="sp"></span>
-  <button class="b" id="alOn" title="صوت وإشعار حين تنقطع شاشة أو يتعذر فتح ملفها"></button><button class="b on" id="pair" title="شاشة تعرض رمز الربط: اكتبوا رمزها واختاروا محطتها">ربط شاشة</button><button class="b" id="ident" title="تظهر على كل شاشة اسمها ست ثوانٍ، فتطابق القائمة مع المكان">تعريف الشاشات</button><button class="b" id="home">كل المحطات إلى البداية</button></header>
+  <button class="b on" id="rdy" title="يفحص كل شاشة: الاتصال، والملف، والحفظ على الجهاز، والنسخة، والمقاس، ورمز الجوال">فحص الجاهزية</button><button class="b" id="alOn" title="صوت وإشعار حين تنقطع شاشة أو يتعذر فتح ملفها"></button><button class="b on" id="pair" title="شاشة تعرض رمز الربط: اكتبوا رمزها واختاروا محطتها">ربط شاشة</button><button class="b" id="ident" title="تظهر على كل شاشة اسمها ست ثوانٍ، فتطابق القائمة مع المكان">تعريف الشاشات</button><button class="b" id="home">كل المحطات إلى البداية</button></header>
+<div class="all ctl"><span>صوت الأفلام:</span><button class="b" id="vMute"></button><input type="range" id="vLvl" min="0" max="100" step="5" style="width:150px;accent-color:#C9A45A"><span id="vTxt" style="min-width:40px"></span>
+  <span style="margin-inline-start:18px">رسالة على كل الشاشات:</span><input id="mTxt" maxlength="140" placeholder="مثل: يُغلق المعرض بعد ربع ساعة" style="flex:1;min-width:200px;background:#1F2A2E;color:var(--cream);border:1px solid rgba(228,204,151,.25);border-radius:10px;padding:8px 10px;font:600 14px Plex"><select id="mMin"><option value="5">٥ دقائق</option><option value="15" selected>ربع ساعة</option><option value="30">نصف ساعة</option><option value="60">ساعة</option></select><button class="b on" id="mGo">إظهار</button><button class="b" id="mOff">إزالة</button><span id="mNow" style="color:#E4CC97"></span></div>
 <div class="all"><span>ملف واحد لكل المحطات:</span><select id="allF"></select><button class="b" id="allGo">تطبيق على الكل</button><button class="b" id="allBack" title="كل محطة تعود إلى الملف المحدد لها في الاستوديو">إرجاع ملفاتها الأصلية</button></div>
 <div id="alerts"></div>
 <div class="lib"><span>اسحب غلافاً إلى أي شاشة لتبديل ملفها:</span><div id="lib"></div></div>
 <main id="grid"></main>
 <div id="pm"><div class="box"><h2>ربط شاشة</h2><p>افتحوا على الشاشة العنوان <code dir="ltr" id="pmU"></code> فيظهر عليها رمز من ستة أرقام.</p><input id="pmC" inputmode="numeric" maxlength="7" placeholder="000000" dir="ltr"><select id="pmS"></select><div id="pmE"></div><div class="row"><button class="b on" id="pmGo">ربط</button><button class="b" id="pmX">إغلاق</button></div></div></div>
 <div id="big"><header><h1 id="bN"></h1><span class="pill" id="bS"></span><span class="sp"></span><button class="b" id="bX">إغلاق</button></header><div class="scr" id="bScr"><div class="pv"></div><span class="zm"></span><div class="dk">المحطة مطفأة</div></div>
-  <div class="ft"><select id="bF"></select><button class="b" id="bH">إلى البداية</button><button class="b" id="bD"></button><button class="b" id="bO">فتح المحطة للتجربة</button><span class="sp"></span><span id="bI" style="font:600 14px Plex;color:#A9B2B4"></span></div></div>
+  <div class="ft"><select id="bF"></select><button class="b" id="bH">إلى البداية</button><button class="b" id="bD"></button><button class="b" id="bR">إعادة تشغيل الشاشة</button><button class="b" id="bO">فتح المحطة للتجربة</button><span class="sp"></span><span id="bI" style="font:600 14px Plex;color:#A9B2B4"></span></div></div>
+<div id="rm"><div class="box"><div style="display:flex;justify-content:space-between;align-items:center;gap:10px"><h2>فحص الجاهزية</h2><span><button class="b" id="rmP">طباعة</button> <button class="b" id="rmX">إغلاق</button></span></div><p id="rmS"></p><div id="rmT"></div></div></div>
 <div id="toast"></div>
 <script type="module">
 import { connect, $, esc } from './run.js';
@@ -62,7 +68,7 @@ const drawn = new Map(); async function pageCv(k, n, w, h) { if (D.media[k] && D
 
 $('#grid').innerHTML = ST.map((s, i) => `<div class="card" data-s="${s.id}"><div class="scr"><div class="pv"><div class="em">ينتظر الاتصال</div></div><span class="tag"><i></i><em></em></span><span class="zm"></span><div class="dk">المحطة مطفأة</div></div>
   <div class="inf"><div class="nm"><b>${i + 1}. ${esc(s.name)}</b><span class="pg"></span></div><div class="sub"><span>${esc(s.place || '')}</span><span class="tc"></span></div><div class="sub vs"><span></span><span></span></div><div class="sub sc" style="color:var(--gold2)"></div>
-  <div class="row"><select data-f>${opts('')}</select><button class="b" data-h>البداية</button><button class="b" data-d></button><button class="b" data-z>تكبير</button></div></div></div>`).join('') || '<p style="grid-column:1/-1;text-align:center;color:#A9B2B4">لا محطات في هذا اللقاء. أضيفوها من الاستوديو.</p>';
+  <div class="row"><select data-f>${opts('')}</select><button class="b" data-h>البداية</button><button class="b" data-d></button><button class="b" data-z>تكبير</button><button class="b" data-r title="تعيد الشاشة تحميل نفسها، كما لو أُطفئت وشُغّلت">إعادة تشغيل</button></div></div></div>`).join('') || '<p style="grid-column:1/-1;text-align:center;color:#A9B2B4">لا محطات في هذا اللقاء. أضيفوها من الاستوديو.</p>';
 
 let S = link.state || {}, HALL = {}, big = null; const send = c => link.send(c);
 // the station as the board knows it: the latest report of a screen of that station, and the room's state for it
@@ -95,7 +101,7 @@ function ping(t) { try { if (window.Notification && Notification.permission === 
   try { const ac = ping.ac || (ping.ac = new (window.AudioContext || window.webkitAudioContext)()), o = ac.createOscillator(), g = ac.createGain(); o.frequency.value = 880; g.gain.setValueAtTime(.0001, ac.currentTime); g.gain.exponentialRampToValueAtTime(.2, ac.currentTime + .02); g.gain.exponentialRampToValueAtTime(.0001, ac.currentTime + .5); o.connect(g).connect(ac.destination); o.start(); o.stop(ac.currentTime + .55); } catch {} }
 $('#alOn').textContent = alertOn ? 'التنبيهات مفعّلة' : 'تفعيل التنبيهات'; $('#alOn').classList.toggle('on', alertOn);
 $('#alOn').onclick = async () => { alertOn = !alertOn; try { localStorage.setItem('alerts:' + Q.get('e'), alertOn ? '1' : '0'); } catch {} if (alertOn && window.Notification && Notification.permission === 'default') { try { await Notification.requestPermission(); } catch {} } $('#alOn').textContent = alertOn ? 'التنبيهات مفعّلة' : 'تفعيل التنبيهات'; $('#alOn').classList.toggle('on', alertOn); if (alertOn) ping('ستصلك التنبيهات هنا'); };
-function paint() { alerts(); const on = ST.filter(s => info(s.id).on).length; $('#cnt').textContent = `متصلة ${on.toLocaleString('ar')} من ${ST.length.toLocaleString('ar')}`; $('#cnt').className = 'pill ' + (on === ST.length && on ? 'ok' : on ? '' : 'bad');
+function paint() { alerts(); volPaint(); msgPaint(); if ($('#rm.on')) readiness(); const on = ST.filter(s => info(s.id).on).length; $('#cnt').textContent = `متصلة ${on.toLocaleString('ar')} من ${ST.length.toLocaleString('ar')}`; $('#cnt').className = 'pill ' + (on === ST.length && on ? 'ok' : on ? '' : 'bad');
   for (const card of document.querySelectorAll('.card')) { const sid = card.dataset.s, i = info(sid), [k, t] = status(i), tag = card.querySelector('.tag');
     card.classList.toggle('live', i.busy); tag.className = 'tag ' + k; tag.querySelector('em').textContent = t;
     card.querySelector('.pg').textContent = i.pages ? `صفحة ${i.page.toLocaleString('ar')} من ${i.pages.toLocaleString('ar')}` : '';
@@ -135,5 +141,32 @@ async function vis() { try { const v = await (await fetch(`/api/run/${Q.get('e')
   $('#vis').textContent = `الزوار ${v.total.toLocaleString('ar')}${v.total ? ' · متوسط ' + mmss(v.ms / v.total) : ''}${v.phone ? ' · على الجوال ' + v.phone.toLocaleString('ar') : ''}`;
   for (const x of v.stations) { const c = document.querySelector(`.card[data-s="${x.station}"] .vs`); if (c) { c.children[0].textContent = x.n ? `${x.n.toLocaleString('ar')} زائر` : 'لا زوار بعد'; c.children[1].textContent = x.n ? 'متوسط ' + mmss(x.ms / x.n) : ''; } } } catch {} }
 vis(); setInterval(vis, 20000);
+// ----- the further control: a screen restarted from here, the films' volume, a few words on every screen
+document.querySelectorAll('.card').forEach(c => { c.querySelector('[data-r]').onclick = () => { if (confirm('تُعاد تشغيل هذه الشاشة الآن. من يتصفحها يبدأ من جديد. متابعة؟')) { send({ type: 'sreload', sid: c.dataset.s }); toast('أُرسل أمر إعادة التشغيل'); } }; });
+$('#bR').onclick = () => { if (big && confirm('تُعاد تشغيل هذه الشاشة الآن. متابعة؟')) { send({ type: 'sreload', sid: big }); toast('أُرسل أمر إعادة التشغيل'); } };
+const volNow = () => (S.vol == null ? 1 : S.vol), volPaint = () => { const v = volNow(); if (document.activeElement !== $('#vLvl')) $('#vLvl').value = Math.round(v * 100); $('#vTxt').textContent = Math.round(v * 100) + '%'; $('#vMute').textContent = v ? 'كتم' : 'إرجاع الصوت'; $('#vMute').classList.toggle('on', !v); };
+let vT = 0; $('#vLvl').oninput = () => { $('#vTxt').textContent = $('#vLvl').value + '%'; clearTimeout(vT); vT = setTimeout(() => send({ type: 'vol', level: +$('#vLvl').value / 100 }), 250); };
+let lastVol = 1; $('#vMute').onclick = () => { const v = volNow(); if (v) { lastVol = v; send({ type: 'vol', level: 0 }); } else send({ type: 'vol', level: lastVol || 1 }); };
+$('#mGo').onclick = () => { const t = $('#mTxt').value.trim(); if (!t) return toast('اكتب الرسالة أولاً'); send({ type: 'msg', text: t, minutes: +$('#mMin').value }); toast('ظهرت الرسالة على كل الشاشات'); };
+$('#mOff').onclick = () => send({ type: 'msg', text: '' });
+const msgPaint = () => { const m = S.msg && link.now() < S.msg.until ? S.msg : null; $('#mNow').textContent = m ? `معروضة حتى ${new Date(m.until).toLocaleTimeString('ar', { hour: 'numeric', minute: '2-digit' })}` : ''; };
+// ----- the readiness check before the doors open: every screen, one line each, what is ready and what is missing
+const CH = [['on', 'متصلة'], ['open', 'الملف مفتوح'], ['kept', 'محفوظ على الجهاز'], ['ver', 'آخر نسخة'], ['size', 'المقاس'], ['qr', 'رمز الجوال'], ['sched', 'الجدولة']];
+function readiness() { const rows = [], now2 = Date.now(); let ready = 0;
+  for (const st of ST) { const i = info(st.id), r = liveOf(st.id), c = {};
+    c.on = r && i.on ? ['ok', '✓'] : ['no', i.r ? 'انقطعت ' + ago(i.r.at) : 'لم تُفتح بعد'];
+    c.open = !r ? ['no', '·'] : r.err ? ['no', r.err] : r.ready ? ['ok', '✓'] : ['no', 'لم يُفتح'];
+    c.kept = !r ? ['no', '·'] : r.kept ? ['ok', '✓'] : ['wa', 'يحفظ الآن'];
+    c.ver = !r ? ['no', '·'] : r.ver === link.version ? ['ok', '✓'] : ['no', 'نسخة قديمة: أعيدوا تشغيلها'];
+    c.size = !r ? ['no', '·'] : Math.min(r.w, r.h) >= 600 ? ['ok', `${r.w}×${r.h}`] : ['wa', `${r.w}×${r.h} صغيرة`];
+    c.qr = !st.qr ? ['ok', 'غير مطلوب'] : !r ? ['no', '·'] : r.qr ? ['ok', '✓'] : ['no', 'لا يعمل'];
+    const sc = (st.schedule || []).length, nx = nextOf(st.id); c.sched = !sc ? ['ok', 'بلا جدولة'] : ['ok', `${sc} ${sc === 1 ? 'وقت' : 'أوقات'}${nx ? ' · التالي ' + nx.at : ''}`];
+    if (i.dark) c.on = ['wa', 'مطفأة من اللوحة'];
+    const good = Object.values(c).every(x => x[0] !== 'no'); if (good) ready++; rows.push({ st, c, good }); }
+  $('#rmS').innerHTML = ready === ST.length ? `<span class="ok">كل الشاشات جاهزة (${ready.toLocaleString('ar')} من ${ST.length.toLocaleString('ar')})</span>` : `<span class="no">جاهزة ${ready.toLocaleString('ar')} من ${ST.length.toLocaleString('ar')}</span> <span style="color:#A9B2B4;font-weight:400">· ما يحتاج انتباهاً بالأحمر</span>`;
+  $('#rmT').innerHTML = `<table><tr><th>المحطة</th>${CH.map(([, t]) => `<th>${t}</th>`).join('')}</tr>${rows.map(x => `<tr><td><b>${esc(x.st.name)}</b><br><small style="color:#A9B2B4">${esc(x.st.place || '')}</small></td>${CH.map(([k]) => `<td class="${x.c[k][0]}">${esc(x.c[k][1])}</td>`).join('')}</tr>`).join('')}</table>`;
+  return { ready, rows }; }
+$('#rdy').onclick = () => { readiness(); $('#rm').classList.add('on'); }; $('#rmX').onclick = () => $('#rm').classList.remove('on');
+$('#rmP').onclick = () => { const w = window.open('', '_blank'); w.document.write(`<html dir="rtl" lang="ar"><head><meta charset="utf-8"><title>فحص الجاهزية · ${esc(D.name)}</title><style>body{font-family:Tahoma,Arial,sans-serif;color:#1F2A2E;margin:24px}table{width:100%;border-collapse:collapse;font-size:12px}td,th{border:1px solid #ddd;padding:5px;text-align:right}.ok{color:#2E6B3A}.no{color:#A8402F;font-weight:700}.wa{color:#8A6A1F}</style></head><body><h2>فحص الجاهزية: ${esc(D.name)}</h2><p>${new Date().toLocaleString('ar')}</p><p>${$('#rmS').textContent}</p>${$('#rmT').innerHTML}</body></html>`); w.document.close(); w.print(); };
 link.on((s, inf) => { S = s; if (inf.hall) HALL = inf.hall; paint(); }); setInterval(paint, 5000); addEventListener('resize', () => { document.querySelectorAll('.scr').forEach(e => last.delete(e)); paint(); });
 </script></body></html>

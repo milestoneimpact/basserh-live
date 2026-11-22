@@ -41,6 +41,7 @@
 حساب Cloudflare الخاص ببصيرة: قاعدة التحكم D1 «basserh-live»، حاوية الملفات R2 «basserh-live-media»، الخادم «basserh-live» على النطاق live.basserh.com.
 * الخادم: `npx wrangler deploy -c wrangler.live.toml` (بلا ملفات ثابتة). إن كان رمز الدخول بلا صلاحية R2 يرفض wrangler النشر، فيُرفع الناتج مباشرة:
   `npx wrangler deploy -c wrangler.live.toml --dry-run --outdir dist` ثم `PUT /accounts/<id>/workers/scripts/basserh-live` (metadata بالارتباطات الأربعة و index.js).
+* **الطريقة الموصى بها:** `ADMIN_KEY_STAGING=... ADMIN_KEY_LIVE=... tools/release.sh` تنشر على المرحلة التجريبية، وتفحص المحطات عليها، ثم تنشر على الموقع الحي بعد كتابة `live`.
 * الصفحات: `BASE=https://live.basserh.com ADMIN_KEY=... node tools/push_site.mjs` ترفع `web/` إلى الحاوية (`_site/`) عبر الخادم، وهو يقدّمها منها. تُعاد بعد أي تعديل في `web/`.
 * جهة جديدة مجهّزة مسبقاً: `BASE=... ADMIN_KEY=... OWNER=... MEDIA=... node tools/seed_tenant.mjs tenants/<slug>`.
 * التحقق بلا صرف يوم تفعيل: `node test/live_check.cjs <رابط دخول مالك> <اسم اللقاء>`.
