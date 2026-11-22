@@ -5,9 +5,7 @@ main = "worker/index.js"
 compatibility_date = "2025-09-01"
 routes = [{ pattern = "live.basserh.com", custom_domain = true }]
 
-# the nightly copy of every database into the bucket (_backup/), 23:20 UTC
-[triggers]
-crons = ["20 23 * * *"]
+# the daily copy (_backup/) is made by the first request of each day (worker/index.js); no cron trigger: the free plan's five are taken
 
 # errors and requests are kept in Cloudflare's logs
 [observability]
