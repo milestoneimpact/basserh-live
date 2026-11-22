@@ -52,3 +52,21 @@ test('the templates of a new event are sound documents', async () => {
   for (const t of TEMPLATES.filter(t => t.doc)) { const p = problems({ ...t.doc, name: 'لقاء' }); assert.ok(p.every(x => /ينقصها الملف/.test(x)), t.id + ': ' + p.join(' | ')); assert.equal(t.doc.cues.length, t.cues, t.id); }
   assert.deepEqual(problems({ ...TEMPLATES.find(t => t.id === 'signing').doc, name: 'توقيع' }), []);
 });
+test('the interactive stations: a file per station, changed live, back to the first page, put out', async () => {
+  const { shape, isStations } = await import('../web/engine/config.js'); const { stationMedia } = await import('../web/engine/state.js');
+  const e = { name: 'معرض', mode: 'stations', identity: { before: { logo: '', colors: {} }, after: null }, people: {}, cues: [],
+    media: { a: { kind: 'pdf', name: 'أ', src: 'fa.pdf', count: 12 }, b: { kind: 'pdf', name: 'ب', src: 'fb.pdf', count: 4 }, v: { kind: 'video', name: 'v', src: 'v.mp4' } },
+    stations: [{ id: 's1', name: 'الأولى', media: 'a' }, { id: 's2', name: 'الثانية', media: 'b' }] };
+  assert.ok(isStations(e)); assert.equal(shape(e), ''); assert.deepEqual(problems(e), []);
+  assert.ok(problems({ ...e, stations: [] }).length); assert.ok(problems({ ...e, stations: [{ id: 's1', name: 'x', media: 'v' }] }).some(p => /PDF/.test(p)));
+  assert.ok(shape({ ...e, stations: [{ id: '<x>' }] })); assert.ok(shape({ ...e, mode: 'other' }));
+  let s = initial(e); assert.equal(stationMedia(e, s, 's1'), 'a');
+  s = run(e, s, { type: 'assign', sid: 's1', media: 'b' }); assert.equal(stationMedia(e, s, 's1'), 'b'); assert.equal(stationMedia(e, s, 's2'), 'b');
+  assert.equal(run(e, s, { type: 'assign', sid: 's1', media: 'v' }), s, 'a video is not a station file');
+  assert.equal(run(e, s, { type: 'assign', sid: 'nope', media: 'a' }), s, 'no such station');
+  assert.equal(reduce(e, s, { type: 'assign', sid: 's1', media: 'a' }, 1e7, false), s, 'only the operator');
+  s = run(e, s, { type: 'assign', ids: ['s1', 's2'], media: 'a' }); assert.deepEqual(['s1', 's2'].map(x => stationMedia(e, s, x)), ['a', 'a']);
+  s = run(e, s, { type: 'assign', ids: ['s1', 's2'], media: null }); assert.deepEqual(['s1', 's2'].map(x => stationMedia(e, s, x)), ['a', 'b'], 'back to their own files');
+  s = run(e, s, { type: 'sreset', sid: 's2' }); assert.ok(s.st.s2.reset && !s.st.s1.reset);
+  s = run(e, s, { type: 'sdark', sid: 's1', on: true }); assert.equal(s.st.s1.dark, true); s = run(e, s, { type: 'sdark', on: false }); assert.equal(s.st.s1.dark, false);
+});

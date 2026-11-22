@@ -1,0 +1,35 @@
+<!doctype html>
+<!-- The visitor's phone, from a station's QR code: the same file, from the page the visitor left, in the organisation's identity.
+     Opens on the event's day only; reads that station's file and nothing else. The key travels after the # (never sent to a server log). -->
+<html lang="ar" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover"><title>القراءة</title><link rel="stylesheet" href="../app.css"><link rel="stylesheet" href="../fonts/brand.css">
+<style>
+html,body{height:100%;margin:0;overflow:hidden;overscroll-behavior:none}body{background:var(--bg,#F6F1E6);color:var(--ink,#14211E);font-family:var(--ft,Kufi)}
+header{position:absolute;inset:0 0 auto 0;height:58px;display:flex;align-items:center;gap:12px;padding:0 14px;border-bottom:1px solid color-mix(in srgb,var(--ink) 12%,transparent);background:var(--bg)}
+header img{height:36px;max-width:90px;object-fit:contain}header div{min-width:0}header b{display:block;font:700 16px var(--ft);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}header small{font:400 12px Plex;opacity:.65}
+#room{position:absolute;inset:58px 0 70px 0;background:color-mix(in srgb,var(--ink) 6%,var(--bg))}
+footer{position:absolute;inset:auto 0 0 0;height:70px;display:grid;grid-template-columns:64px 1fr 64px;align-items:center;gap:10px;padding:0 10px calc(env(safe-area-inset-bottom)) 10px;background:var(--bg);border-top:1px solid color-mix(in srgb,var(--ink) 12%,transparent)}
+footer button{height:52px;border-radius:14px;border:0;background:var(--accent);color:var(--bg);display:grid;place-items:center}footer button[disabled]{opacity:.25}footer svg{width:26px;height:26px}
+.c{text-align:center;font:600 15px Plex}.c i{display:block;height:4px;border-radius:2px;background:color-mix(in srgb,var(--ink) 12%,transparent);margin-top:6px;overflow:hidden}.c i b{display:block;height:100%;background:var(--gold);width:0;transition:width .3s}
+#msg{position:absolute;inset:0;display:grid;place-items:center;text-align:center;padding:30px;font:600 18px/1.8 Plex;color:#777}
+</style></head><body>
+<header><img id="lg" alt="" hidden><div><b id="tt"></b><small id="st"></small></div></header>
+<div id="room"></div>
+<footer><button id="bR"></button><div class="c"><span id="pc"></span><i><b id="pg"></b></i></div><button id="bL"></button></footer>
+<div id="msg">يفتح الملف…</div>
+<script type="module">
+import { Book, openPdf } from './book.js';
+const $ = s => document.querySelector(s), H = new URLSearchParams(location.hash.slice(1)), e = H.get('e'), s = H.get('s'), k = H.get('k'), m = H.get('m') === 'd' ? 'd' : 'l', start = +H.get('p') || 1;
+const api = `/api/read/${e}/${s}/${m}/${k}`; history.replaceState(null, '', location.pathname + '#' + new URLSearchParams({ e, s, m, k }));   // the page number is not kept in the address: a reload opens where the reader is (below)
+const fail = t => { $('#msg').textContent = t; $('#msg').style.display = 'grid'; };
+try { const r = await fetch(api), d = await r.json(); if (!r.ok) throw new Error(d.error || 'تعذّر فتح الملف');
+  const R = document.documentElement.style, c = d.colors || {}; for (const [n, v] of Object.entries({ bg: c.bg || '#F6F1E6', ink: c.ink || '#14211E', accent: c.accent || '#0F5A4E', gold: c.gold || '#C2A063' })) R.setProperty('--' + n, v); R.setProperty('--ft', d.font || 'Kufi');
+  if (d.logo) { $('#lg').src = api + '/logo'; $('#lg').hidden = false; } $('#tt').textContent = d.title || d.station; $('#st').textContent = [d.station, d.name].filter(Boolean).join(' · '); document.title = d.title || d.station;
+  const K = 'rd:' + e + ':' + s + ':' + d.media, rtl = d.dir !== 'ltr', arrow = l => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="${l ? 'M15 5l-7 7 7 7' : 'M9 5l7 7-7 7'}"/></svg>`;
+  $('#bL').innerHTML = arrow(true); $('#bR').innerHTML = arrow(false);
+  const book = Book($('#room'), { dir: d.dir, zoom: true, links: true, pad: 8, padY: 8, onLink: l => { if (l.url) window.open(l.url, '_blank', 'noopener'); },
+    onPage: (n, N) => { $('#pc').textContent = `صفحة ${n.toLocaleString('ar')} من ${N.toLocaleString('ar')}`; $('#pg').style.width = n / N * 100 + '%'; (rtl ? $('#bR') : $('#bL')).disabled = n <= 1; (rtl ? $('#bL') : $('#bR')).disabled = n >= N; try { sessionStorage.setItem(K, n); } catch {} } });
+  $('#bL').onclick = () => (rtl ? book.fwd() : book.back()); $('#bR').onclick = () => (rtl ? book.back() : book.fwd());
+  const pdf = await openPdf(api + '/file', { whole: true }); let p = start; if (!H.has('p')) try { p = +sessionStorage.getItem(K) || 1; } catch {}
+  await book.load(pdf, p); $('#msg').style.display = 'none';
+} catch (x) { fail(x.message || 'تعذّر فتح الملف'); }
+</script></body></html>
