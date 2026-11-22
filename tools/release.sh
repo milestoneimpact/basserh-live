@@ -8,7 +8,7 @@ STAGING=https://basserh-staging.omarabdelhaamid.workers.dev; LIVE=https://live.b
 : "${ADMIN_KEY_STAGING:?ضعوا مفتاح المرحلة التجريبية في ADMIN_KEY_STAGING}"
 say() { printf '\n\033[1m%s\033[0m\n' "$1"; }
 [ -z "$(git status --porcelain)" ] || { echo "في المجلد تعديلات لم تُحفظ في git. احفظوها أو تجاهلوها قبل النشر."; exit 1; }
-git fetch -q origin main; [ "$(git rev-parse HEAD)" = "$(git rev-parse origin/main)" ] || { echo "هذه ليست آخر نسخة من main. نفّذوا: git checkout main && git pull"; exit 1; }
+git fetch -q origin main; [ "$(git rev-parse HEAD)" = "$(git rev-parse FETCH_HEAD)" ] || { echo "هذه ليست آخر نسخة من main. نفّذوا: git checkout main && git pull"; exit 1; }
 say "١. المرحلة التجريبية: قاعدة التحكم"; node tools/migrate.mjs staging
 say "٢. المرحلة التجريبية: الخادم"; npx wrangler@4 deploy -c wrangler.staging.toml
 say "٣. المرحلة التجريبية: الصفحات"; BASE=$STAGING ADMIN_KEY=$ADMIN_KEY_STAGING node tools/push_site.mjs
