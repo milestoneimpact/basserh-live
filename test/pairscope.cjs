@@ -4,7 +4,9 @@
 const { chromium } = require('playwright');
 const B = process.env.BASE || 'http://localhost:8790', AK = process.env.ADMIN_KEY || 'dev';
 const ok = (c, m) => { console.log((c ? '✓ ' : '✗ ') + m); if (!c) process.exitCode = 1; };
-const adm = (method, body) => fetch(B + '/api/admin/org', { method, headers: { 'x-admin-key': AK, 'content-type': 'application/json' }, body: JSON.stringify(body) }).then(r => r.json());
+const MADE = [], adm = (method, body) => fetch(B + '/api/admin/org', { method, headers: { 'x-admin-key': AK, 'content-type': 'application/json' }, body: JSON.stringify(body) }).then(r => r.json()).then(j => { if (method === 'POST' && j && j.org) MADE.push(j); return j; });
+// every organisation this test made is deleted at the end, passed or failed, so nothing is left on the server it ran against
+const tidy = async () => { for (const o of MADE.splice(0)) await adm('DELETE', { id: o.org, confirm: o.slug }).catch(() => {}); };
 (async () => { const b = await chromium.launch(), errs = [];
   // two organisations, each with a published stations event
   const make = async name => { const o = await adm('POST', { name, slug: 'p' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5), email: `p${Date.now()}${Math.random().toString(36).slice(2, 5)}@t.test` }), c = await b.newContext(), p = await c.newPage(); await p.goto(B + o.join); await p.waitForSelector('#new');
@@ -27,5 +29,5 @@ const adm = (method, body) => fetch(B + '/api/admin/org', { method, headers: { '
   ok((await fetch(`${B}/nosuchorg/screen`)).status !== 200, 'an address of no organisation is not a pairing page');
   const g = await code('/screen'); ok(/^ربط هذه الشاشة بمحطتها$/.test(g.h1), 'the shared /screen still gives a code (for screens set up before)');
   const old = await Bo.api(`/api/run/${Bo.ev}/pair`, { code: g.code, station: 's1' }); ok(old.status === 200, 'and any organisation can claim that one, as before');
-  ok(!errs.length, 'no page errors' + (errs.length ? ': ' + errs.join(' | ') : '')); await b.close();
-})().catch(e => { console.log('✗ ' + (e.stack || e)); process.exit(1); });
+  ok(!errs.length, 'no page errors' + (errs.length ? ': ' + errs.join(' | ') : '')); await b.close(); await tidy();
+})().catch(async e => { console.log('✗ ' + (e.stack || e)); await tidy(); process.exit(1); });

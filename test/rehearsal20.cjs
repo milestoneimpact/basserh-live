@@ -5,7 +5,9 @@
 const { chromium } = require('playwright'); const fs = require('fs');
 const B = process.env.BASE || 'http://localhost:8790', AK = process.env.ADMIN_KEY || 'dev', OUT = process.env.OUT || '/tmp/claude-0/r20/'; fs.mkdirSync(OUT, { recursive: true });
 const ok = (c, m) => { console.log((c ? '✓ ' : '✗ ') + m); if (!c) process.exitCode = 1; };
-const adm = (method, body) => fetch(B + '/api/admin/org', { method, headers: { 'x-admin-key': AK, 'content-type': 'application/json' }, body: JSON.stringify(body) }).then(r => r.json());
+const MADE = [], adm = (method, body) => fetch(B + '/api/admin/org', { method, headers: { 'x-admin-key': AK, 'content-type': 'application/json' }, body: JSON.stringify(body) }).then(r => r.json()).then(j => { if (method === 'POST' && j && j.org) MADE.push(j); return j; });
+// every organisation this test made is deleted at the end, passed or failed, so nothing is left on the server it ran against
+const tidy = async () => { for (const o of MADE.splice(0)) await adm('DELETE', { id: o.org, confirm: o.slug }).catch(() => {}); };
 // the sizes a hall meets: wide and upright, small and 4K, tablets, ultra-wide
 const SIZES = [[1920, 1080, 1], [1080, 1920, 1], [3840, 2160, 1], [2160, 3840, 1], [1366, 768, 1], [1280, 800, 1], [2560, 1440, 1], [3440, 1440, 1], [1024, 1366, 2], [1366, 1024, 2],
   [1920, 1200, 1], [1200, 1920, 1], [1600, 900, 1], [800, 1280, 1.5], [1280, 720, 1], [2732, 2048, 1], [1440, 900, 1], [768, 1024, 2], [3840, 1080, 1], [1080, 1080, 1]];
@@ -83,5 +85,5 @@ const SIZES = [[1920, 1080, 1], [1080, 1920, 1], [3840, 2160, 1], [2160, 3840, 1
     if (!boot) { await x.s.waitForTimeout(3000); console.log('   at', x.s.url(), await x.s.evaluate(() => document.body.innerText.slice(0, 200)).catch(e => 'ERR ' + e.message)); await x.s.screenshot({ path: OUT + 'boot_fail.jpg', scale: 'css' }).catch(() => {}); }
     ok(boot, 'a paired screen switched on with no network goes from /screen to its station, and its book opens'); await on(x); }
   ok(!errs.length, 'no page errors on the twenty screens and the board' + (errs.length ? ': ' + errs.slice(0, 5).join(' | ') : ''));
-  await b.close();
-})().catch(e => { console.log('✗ ' + (e.stack || e)); process.exit(1); });
+  await b.close(); await tidy();
+})().catch(async e => { console.log('✗ ' + (e.stack || e)); await tidy(); process.exit(1); });

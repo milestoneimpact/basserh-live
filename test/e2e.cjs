@@ -74,5 +74,6 @@ const ok = (c, m) => { console.log((c ? '✓ ' : '✗ ') + m); if (!c) process.e
   const o2 = await (await fetch(B + '/api/admin/org', { method: 'POST', headers: { 'x-admin-key': AK, 'content-type': 'application/json' }, body: JSON.stringify({ name: 'اختبار آلي ٢', slug: 'u' + Date.now(), email: `x${Date.now()}@t.test` }) })).json();
   const c2 = await b.newContext(); const q = await c2.newPage(); await q.goto(B + o2.join); await q.waitForSelector('#new'); const evId = await p.evaluate(() => fetch('/api/events').then(r => r.json()).then(j => j.events[0].id));
   const leak = await q.evaluate(async id => [(await fetch('/api/events/' + id)).status, (await fetch('/api/run/' + id + '/config')).status, (await (await fetch('/api/events')).json()).events.length], evId); ok(leak.join() === '404,401,1', 'another organisation: event 404, screens 401, its list holds only its own first event -> ' + leak.join());
-  ok(!errs.length, 'page errors: ' + (errs.join(' | ') || 'none')); await b.close();
+  ok(!errs.length, 'page errors: ' + (errs.join(' | ') || 'none')); await b.close(); await fetch(B + '/api/admin/org', { method: 'DELETE', headers: { 'x-admin-key': AK, 'content-type': 'application/json' }, body: JSON.stringify({ id: org.org, confirm: org.slug }) }); if (typeof o2 !== 'undefined' && o2.org) await fetch(B + '/api/admin/org', { method: 'DELETE', headers: { 'x-admin-key': AK, 'content-type': 'application/json' }, body: JSON.stringify({ id: o2.org, confirm: o2.slug }) });   // the test's organisation is not left on the server
+ 
 })();

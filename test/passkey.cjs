@@ -3,6 +3,7 @@
 //   node test/passkey.cjs      (local server: npm run db && npm run dev; ADMIN_KEY=dev)
 const { chromium } = require('playwright');
 const B = process.env.BASE || 'http://localhost:8790', AK = process.env.ADMIN_KEY || 'dev';
+if (/live\.basserh\.com/.test(B)) { console.log('passkey: this test adds passkeys to the platform owner\'s own account; run it on local or staging, never on the live site'); process.exit(0); }
 const ok = (c, m) => { console.log((c ? '✓ ' : '✗ ') + m); if (!c) process.exitCode = 1; };
 (async () => {
   const b = await chromium.launch(); const ctx = await b.newContext({ viewport: { width: 1280, height: 800 } }); const p = await ctx.newPage(); const errs = []; p.on('pageerror', e => errs.push(e.message)); p.on('dialog', d => d.accept());
@@ -14,7 +15,7 @@ const ok = (c, m) => { console.log((c ? '✓ ' : '✗ ') + m); if (!c) process.e
   await p.click('#pkAdd'); await p.waitForSelector('#pkNew'); await p.waitForTimeout(500); const n0 = (await p.$$('[data-k]')).length; await p.click('#pkNew'); await p.waitForFunction(n => document.querySelectorAll('[data-k]').length === n + 1, n0); ok(true, 'the owner opened the passkeys, added one, and it is listed');
   await p.goto(B + '/api/logout'); await p.goto(B + '/admin.html'); await p.waitForSelector('#pkIn'); await p.click('#pkIn'); await p.waitForSelector('#pkAdd'); ok((await p.textContent('#pkAdd')).match(/مفاتيح المرور \([1-9]/), 'signed out, then back in with the passkey alone');
   { await p.click('#pkAdd'); await p.waitForSelector('[data-k]'); const n = (await p.$$('[data-k]')).length; await p.click('#pkNew'); await p.waitForFunction(n => document.querySelectorAll('[data-k]').length === n + 1, n); await p.click('[data-k]'); await p.click('#dlgOk'); await p.waitForFunction(n => document.querySelectorAll('[data-k]').length === n, n); ok(true, 'a second device added, and one taken out from the list'); }
-  await p.waitForSelector('#rows tr'); ok((await p.$$('#rows tr')).length >= 1, 'the owner\'s page lists the organisations');
+  await p.waitForSelector('#tst'); if (!(await p.isChecked('#tst'))) await p.click('#tst'); await p.waitForSelector('#rows [data-id]'); ok((await p.$$('#rows [data-id]')).length >= 1, 'the owner\'s page lists the organisations');
   // a member of an organisation
   const s = 'pk' + Date.now() % 1e6; await p.fill('#n', 'جهة مفتاح المرور'); await p.fill('#s', s); await p.fill('#e', s + '@t.test'); await p.click('#mk'); await p.waitForSelector('#join'); const join = await p.textContent('#join');
   await p.goto(B + '/api/logout'); await p.goto(join); await p.waitForSelector('#new'); await p.click('#pk'); await p.waitForFunction(() => /أُضيف مفتاح المرور/.test(document.querySelector('#toast').textContent)); ok(true, 'a member added a passkey in the studio');

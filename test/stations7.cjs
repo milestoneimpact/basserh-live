@@ -7,7 +7,9 @@ const B = process.env.BASE || 'http://localhost:8790', AK = process.env.ADMIN_KE
 const pickFile = async (p, btn, kindRe) => { await p.click(btn); await p.waitForSelector('.lm .lc'); const cards = p.locator('.lm .lc'), n = await cards.count();
   for (let i = 0; i < n; i++) { const t = await cards.nth(i).locator('.kd, .nm').allTextContents(); if (kindRe.test(t.join(' '))) { await cards.nth(i).click(); break; } } await p.click('.lm [data-ok]'); await p.waitForSelector('.lm', { state: 'detached' }); await p.waitForTimeout(300); };
 const ok = (c, m) => { console.log((c ? '✓ ' : '✗ ') + m); if (!c) process.exitCode = 1; };
-const adm = (method, body) => fetch(B + '/api/admin/org', { method, headers: { 'x-admin-key': AK, 'content-type': 'application/json' }, body: JSON.stringify(body) }).then(r => r.json());
+const MADE = [], adm = (method, body) => fetch(B + '/api/admin/org', { method, headers: { 'x-admin-key': AK, 'content-type': 'application/json' }, body: JSON.stringify(body) }).then(r => r.json()).then(j => { if (method === 'POST' && j && j.org) MADE.push(j); return j; });
+// every organisation this test made is deleted at the end, passed or failed, so nothing is left on the server it ran against
+const tidy = async () => { for (const o of MADE.splice(0)) await adm('DELETE', { id: o.org, confirm: o.slug }).catch(() => {}); };
 const wait = ms => new Promise(r => setTimeout(r, ms));
 (async () => {
   const b = await chromium.launch(), errs = [];
@@ -56,7 +58,7 @@ const wait = ms => new Promise(r => setTimeout(r, ms));
   await s1.s.screenshot({ path: OUT + '4_search.jpg', type: 'jpeg', quality: 75 }); await s1.s.click('#sr button >> nth=1'); await wait(900); ok(/^صفحة (٤|4) /.test(await s1.s.textContent('#pc')) && !(await s1.s.locator('#sp.on').count()), 'a result opens its page');
   // ----- station 3: a film
   const s3 = await open('s3'); await wait(1500); const film = await s3.s.evaluate(() => { const v = document.querySelector('.film video'); return v ? { muted: v.muted, playing: !v.paused, t: v.currentTime } : null; });
-  ok(film && film.muted && film.playing, 'a film station plays its film silently while it waits'); await s3.s.touchscreen.tap(800, 300); await wait(700); await s3.s.touchscreen.tap(800, 400); await wait(700);
+  ok(film && film.muted && film.playing, 'a film station plays its film silently while it waits'); await s3.s.waitForFunction(() => { const v = document.querySelector('.film video'); return v && v.readyState >= 3 && !v.paused; }, null, { timeout: 15000 }).catch(() => {}); await s3.s.touchscreen.tap(800, 300); await s3.s.waitForFunction(() => !document.querySelector('.film video').muted, null, { timeout: 5000 }).catch(() => {}); await s3.s.touchscreen.tap(800, 400); await wait(700);   // over a slow network the film must be ready before the touch counts
   const film2 = await s3.s.evaluate(() => { const v = document.querySelector('.film video'); return { muted: v.muted, t: v.currentTime }; }); ok(!film2.muted, 'a touch brings its sound');
   const t0 = film2.t; await s3.s.click('#bF'); await wait(300); const t1 = await s3.s.evaluate(() => document.querySelector('.film video').currentTime); ok(Math.abs(t1 - t0 - 10) < 2.5 || t1 > t0 + 7, `the arrow moves ten seconds (${t0.toFixed(1)} → ${t1.toFixed(1)})`);
   ok(await s3.s.locator('#bT').isHidden() && await s3.s.locator('#bS').isHidden() && /من 0:30|من ٠:٣٠/.test(await s3.s.textContent('#pc')), 'no pages strip, no search; the bar shows the time: ' + await s3.s.textContent('#pc')); await s3.s.screenshot({ path: OUT + '5_film.jpg', type: 'jpeg', quality: 70 });
@@ -79,5 +81,5 @@ const wait = ms => new Promise(r => setTimeout(r, ms));
   await p.selectOption('#visD', days[1]); await p.waitForFunction(d => document.querySelector('#visD')?.value === d, days[1], { timeout: 15000 }); await p.waitForFunction(() => /^3$/.test(document.querySelector('#vis b')?.textContent.trim() || ''), null, { timeout: 15000 }).catch(() => {});
   ok(/^3$/.test((await p.$$eval('#vis b', l => l.map(x => x.textContent.trim())))[0] || ''), 'one day chosen: its own figures (3 visits yesterday)');
   ok(!errs.length, 'no page errors' + (errs.length ? ': ' + errs.slice(0, 5).join(' | ') : ''));
-  await b.close();
-})().catch(e => { console.log('✗ ' + (e.stack || e)); process.exit(1); });
+  await b.close(); await tidy();
+})().catch(async e => { console.log('✗ ' + (e.stack || e)); await tidy(); process.exit(1); });

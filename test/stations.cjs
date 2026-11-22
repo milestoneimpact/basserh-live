@@ -8,7 +8,9 @@ const B = process.env.BASE || 'http://localhost:8790', AK = process.env.ADMIN_KE
 const pickFile = async (p, btn, kindRe) => { await p.click(btn); await p.waitForSelector('.lm .lc'); const cards = p.locator('.lm .lc'), n = await cards.count();
   for (let i = 0; i < n; i++) { const t = await cards.nth(i).locator('.kd, .nm').allTextContents(); if (kindRe.test(t.join(' '))) { await cards.nth(i).click(); break; } } await p.click('.lm [data-ok]'); await p.waitForSelector('.lm', { state: 'detached' }); await p.waitForTimeout(300); };
 const ok = (c, m) => { console.log((c ? '✓ ' : '✗ ') + m); if (!c) process.exitCode = 1; };
-const adm = (method, body) => fetch(B + '/api/admin/org', { method, headers: { 'x-admin-key': AK, 'content-type': 'application/json' }, body: JSON.stringify(body) }).then(r => r.json());
+const MADE = [], adm = (method, body) => fetch(B + '/api/admin/org', { method, headers: { 'x-admin-key': AK, 'content-type': 'application/json' }, body: JSON.stringify(body) }).then(r => r.json()).then(j => { if (method === 'POST' && j && j.org) MADE.push(j); return j; });
+// every organisation this test made is deleted at the end, passed or failed, so nothing is left on the server it ran against
+const tidy = async () => { for (const o of MADE.splice(0)) await adm('DELETE', { id: o.org, confirm: o.slug }).catch(() => {}); };
 (async () => {
   const b = await chromium.launch(); const errs = [];
   // two books made here: pages with a link to another page, and a link out
@@ -103,5 +105,5 @@ const adm = (method, body) => fetch(B + '/api/admin/org', { method, headers: { '
   const target = p.locator('[data-drop]').nth(0), want = await p.locator('[data-lib]').nth(1).locator('small').textContent(); await target.evaluate(e => e.scrollIntoView({ block: 'end' })); await p.locator('[data-lib]').nth(1).dragTo(target, { targetPosition: { x: 40, y: 30 } }); await p.waitForTimeout(400);
   ok(await p.locator('[data-pick="media"] .ft b').nth(0).textContent() === want, 'a cover dragged from the library onto a station gives it that file'); await p.screenshot({ path: OUT + '14_library.jpg', type: 'jpeg', quality: 80, fullPage: true });
   ok(!errs.length, 'no page errors' + (errs.length ? ': ' + errs.join(' | ') : ''));
-  await b.close();
-})().catch(e => { console.log('✗ ' + (e.stack || e)); process.exitCode = 1; process.exit(1); });
+  await b.close(); await tidy();
+})().catch(async e => { console.log('✗ ' + (e.stack || e)); await tidy(); process.exitCode = 1; process.exit(1); });
