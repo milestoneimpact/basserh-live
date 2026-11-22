@@ -88,3 +88,27 @@ export function Book(host, o = {}) {
 
 // a QR code drawn on a canvas (vendor/qrcode.js must be on the page)
 export function qr(cv, text, px = 264) { const q = window.qrcode(0, 'M'); q.addData(text); q.make(); const n = q.getModuleCount(), m = 2, g = cv.getContext('2d'), z = px / (n + m * 2); cv.width = cv.height = px; g.fillStyle = '#fff'; g.fillRect(0, 0, px, px); g.fillStyle = '#0E1114'; for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) if (q.isDark(y, x)) g.fillRect((x + m) * z, (y + m) * z, z + .5, z + .5); return cv; }
+
+// ----- a gallery of pictures read as a book: the same turning, zoom and strip of pages as a PDF. src(n): where picture n is (a local copy or the network)
+export function imageDoc(count, src) { const imgs = new Map(), load = n => { if (!imgs.has(n)) imgs.set(n, (async () => { const im = new Image(); im.decoding = 'async'; im.src = await src(n); await im.decode(); return im; })()); return imgs.get(n); };
+  return { numPages: count, gallery: true,
+    async getPage(n) { const im = await load(n), w = im.naturalWidth || 1, h = im.naturalHeight || 1;
+      return { getViewport: ({ scale }) => ({ width: w * scale, height: h * scale, convertToViewportRectangle: r => r }), getAnnotations: async () => [], getTextContent: async () => ({ items: [] }),
+        render: ({ canvasContext: g, viewport: v }) => ({ promise: Promise.resolve().then(() => { g.fillStyle = '#fff'; g.fillRect(0, 0, v.width, v.height); g.imageSmoothingQuality = 'high'; g.drawImage(im, 0, 0, v.width, v.height); }) }) }; },
+    getDestination: async () => null, getPageIndex: async () => 0 }; }
+
+// ----- searching a book: the text of every page, read once, made plain (Arabic letter forms joined to their letters, no marks, no tatweel,
+// the alef forms as one), so «الإنجازات» finds «الانجازات». Answers the pages with a few words around the first place found
+const plain = t => String(t || '').normalize('NFKC').replace(/[ً-ٰٟۖ-ۭـ]/g, '').replace(/[أإآٱ]/g, 'ا').replace(/ى/g, 'ي').replace(/ة/g, 'ه').toLowerCase().replace(/\s+/g, ' ');
+const texts = new WeakMap();
+export async function pagesText(pdf) { if (!texts.has(pdf)) texts.set(pdf, (async () => { const out = []; for (let n = 1; n <= pdf.numPages; n++) { try { const c = await (await pdf.getPage(n)).getTextContent(); out.push(c.items.map(i => i.str).join(' ')); } catch { out.push(''); } } return out; })()); return texts.get(pdf); }
+// many PDFs keep Arabic as letter forms in the order they are seen, often split and reversed in pieces: the letters are joined, a word is
+// found as written, backwards, or as the same letters in one stretch of the page (any order), which is what those pieces leave
+const letters = t => plain(t).replace(/[^\p{L}\p{N}]/gu, '');
+const sameLetters = (a, b) => { if (a.length !== b.length) return false; const c = {}; for (const x of a) c[x] = (c[x] || 0) + 1; for (const x of b) { if (!c[x]) return false; c[x]--; } return true; };
+export async function search(pdf, q) { const w = letters(q); if (w.length < 2) return []; const all = await pagesText(pdf), hits = [], back = [...w].reverse().join('');
+  for (const [i, t] of all.entries()) { const L = letters(t); let at = L.indexOf(w), k = 0;
+    for (const v of [w, back]) { let f = 0; while ((f = L.indexOf(v, f)) >= 0) { k++; if (at < 0) at = f; f += v.length; } }
+    if (!k && w.length >= 3) for (let x = 0; x + w.length <= L.length; x++) if (sameLetters(L.slice(x, x + w.length), w)) { k++; if (at < 0) at = x; x += w.length - 1; }
+    if (!k) continue; const words = plain(t).replace(/\s{2,}/g, ' ').trim(), toks = words.split(' '), torn = toks.filter(x => x.length === 1).length > toks.length * .4;   // letters kept apart: no words to quote
+    hits.push({ page: i + 1, count: k, around: torn ? '' : words.length > 90 ? words.slice(0, 90) + '…' : words }); } return hits; }

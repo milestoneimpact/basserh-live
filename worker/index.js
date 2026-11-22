@@ -180,10 +180,13 @@ const main = {
         if (!isStations(doc) || !st || !stationCfg(st).qr) return err('القراءة من الجوال غير متاحة لهذه المحطة', 403);
         const room = await (await env.ROOM.get(env.ROOM.idFromName(evId + (mode === 'd' ? ':draft' : ':live'))).fetch(new Request('https://room/log'))).json().catch(() => ({})), mk = stationMedia(doc, room.state, sid), m = mk && doc.media[mk], I = doc.identity.before || {};
         if (what === 'session') { const b = await req.json().catch(() => ({})); return J({ ok: true, kept: await takeSessions(T, evId, mode === 'd', [b], x => x === sid, 'phone') }); }   // what the visitor read on the phone
-        if (!what) return J({ name: doc.name, station: st.name, place: st.place || '', title: m ? m.name : '', pages: m ? m.count || 0 : 0, dir: stationCfg(st).dir, media: mk || '', colors: I.colors || {}, font: fontCss(I), logo: !!I.logo });
-        const file = what === 'logo' ? I.logo : m && m.src; if (!file) return err('لا يوجد', 404); const o = await env.MEDIA.get(`${ev.org_id}/${ev.id}/${file}`); if (!o) return err('لا يوجد', 404);
-        const ct = o.httpMetadata?.contentType || '', img = /^image\/(png|jpeg|webp|gif)$/.test(ct);
-        return new Response(o.body, { headers: { 'Content-Type': img ? ct : 'application/octet-stream', 'Content-Length': String(o.size), 'Cache-Control': 'private, max-age=600', ETag: o.httpEtag } }); }
+        if (!what) return J({ name: doc.name, station: st.name, place: st.place || '', title: m ? m.name : '', kind: m ? m.kind : '', pages: m ? m.count || 0 : 0, dir: stationCfg(st).dir, media: mk || '', colors: I.colors || {}, font: fontCss(I), logo: !!I.logo });
+        // the file: a picture of a gallery by its number (?n=), a film in ranges (a phone plays it while it comes)
+        const n = Math.max(1, Math.min(5000, Math.round(+url.searchParams.get('n') || 1))), file = what === 'logo' ? I.logo : m && (m.kind === 'slides' ? m.src + 's-' + n + '.jpg' : m.src); if (!file) return err('لا يوجد', 404);
+        const range = req.headers.get('Range'), o = await env.MEDIA.get(`${ev.org_id}/${ev.id}/${file}`, range ? { range: req.headers } : {}); if (!o) return err('لا يوجد', 404);
+        const ct = o.httpMetadata?.contentType || '', safe = /^(image\/(png|jpeg|webp|gif)|video\/(mp4|webm|quicktime))$/.test(ct), h = { 'Content-Type': safe ? ct : 'application/octet-stream', 'Accept-Ranges': 'bytes', 'Cache-Control': 'private, max-age=600', ETag: o.httpEtag };
+        if (range && o.range) { const r = o.range, a = 'suffix' in r ? o.size - r.suffix : (r.offset || 0), len = 'suffix' in r ? r.suffix : (r.length ?? o.size - a); return new Response(o.body, { status: 206, headers: { ...h, 'Content-Range': `bytes ${a}-${a + len - 1}/${o.size}`, 'Content-Length': String(len) } }); }
+        return new Response(o.body, { headers: { ...h, 'Content-Length': String(o.size) } }); }
       // ----- the running event (screens): who is asking, the document, the files, the room
       if (p.startsWith('/api/run/') || p.startsWith('/m/')) {
         const seg = p.split('/'), evId = p.startsWith('/m/') ? seg[3] : seg[3];
@@ -215,8 +218,10 @@ const main = {
         if (!rehearse && !(ev.active_from && ev.active_from <= now() && now() < ev.active_until)) { const why = ev.active_from && ev.active_from > now() ? 'يُفتح اللقاء في موعد تفعيله: ' + ev.active_from.slice(0, 10) : 'اللقاء غير مفعّل. فعّلوا يوم اللقاء من الاستوديو.';
           // a screen opened before the day still takes its files, so the hall's devices are ready before anyone arrives
           if (seg[4] === 'config' && ['stage', 'side', 'logo', 'console', 'station', 'hall'].includes(role)) { const d = JSON.parse((await T.prepare('SELECT doc FROM event_versions WHERE event_id = ? AND version = ?').bind(evId, ver).first()).doc), base = `/m/${ev.org_id}/${ev.id}/`, L = (d.cues || []).find(c => c.type === 'launch'), all = role !== 'side' && role !== 'logo', files = [];
-            if (role === 'hall') { for (const m of Object.values(d.media || {})) if (m.kind === 'pdf') files.push(base + m.src); const I = (d.identity || {}).before; if (I && I.logo) files.push(base + I.logo); return J({ error: why, prep: { name: d.name, station: '', files } }, 402); }
-            if (role === 'station') { const st = stationOf(d, label); if (st && d.media[st.media]) files.push(base + d.media[st.media].src); for (const k of ['before']) { const I = (d.identity || {})[k]; if (I && I.logo) files.push(base + I.logo); } return J({ error: why, prep: { name: d.name, station: st ? st.name : '', files } }, 402); }
+            // a station keeps every file it may show: its own, its schedule's, its waiting picture or film (a hall screen: all of the stations')
+            if (role === 'hall' || role === 'station') { const sts = (d.stations || []).filter(x => role === 'hall' || x.id === label), keys = new Set(); for (const x of sts) { keys.add(x.media); keys.add(x.attract); for (const y of x.schedule || []) keys.add(y.media); }
+              for (const k of keys) { const m = k && d.media[k]; if (!m) continue; if (m.kind === 'slides') for (let i = 1; i <= (m.count || 0); i++) files.push(base + m.src + 's-' + i + '.jpg'); else files.push(base + m.src); }
+              const I = (d.identity || {}).before; if (I && I.logo) files.push(base + I.logo); return J({ error: why, prep: { name: d.name, station: role === 'station' && sts[0] ? sts[0].name : '', files } }, 402); }
             for (const [k, m] of Object.entries(d.media || {})) { if (!all && !(L && L.media === k)) continue; if (m.kind === 'slides') for (let i = 1; i <= (m.count || 0); i++) files.push(base + m.src + 's-' + i + '.jpg'); else files.push(base + m.src); }
             for (const k of ['before', 'after']) { const I = (d.identity || {})[k]; if (I && I.logo) files.push(base + I.logo); }
             return J({ error: why, prep: { name: d.name, files } }, 402); }
@@ -316,7 +321,7 @@ const main = {
           const at = now(); await T.prepare('UPDATE events SET draft = ?, name = ?, updated_at = ? WHERE id = ?').bind(JSON.stringify(doc), doc.name || ev.name, at, id).run(); return J({ ok: true, rev: at, problems: problems(doc) }); }
         // the published versions of the event, and a version brought back as the draft (the versions themselves never change)
         if (sub === 'visits' && M === 'GET') { const draft = url.searchParams.has('draft'), d = draft || !ev.published_version ? JSON.parse(ev.draft) : JSON.parse((await T.prepare('SELECT doc FROM event_versions WHERE event_id = ? AND version = ?').bind(id, ev.published_version).first()).doc);
-          return J({ name: d.name, ...(await visits(T, id, d, draft, +url.searchParams.get('tz') || 0)) }); }
+          return J({ name: d.name, ...(await visits(T, id, d, draft, +url.searchParams.get('tz') || 0, /^\d{4}-\d\d-\d\d$/.test(url.searchParams.get('day') || '') ? url.searchParams.get('day') : '')) }); }
         if (sub === 'report' && M === 'GET') { if (!ev.published_version) return J({ rows: [] }); const r = await (await env.ROOM.get(env.ROOM.idFromName(id + ':live')).fetch(new Request('https://room/log'))).json().catch(() => ({ log: [] }));
           const d = JSON.parse((await T.prepare('SELECT doc FROM event_versions WHERE event_id = ? AND version = ?').bind(id, ev.published_version).first()).doc), log = r.log || [], end = log.length ? (r.state && r.state.live ? Date.now() : log[log.length - 1].t) : 0, rows = [];
           log.forEach((x, i) => { if (x.k !== 'cue') return; const nx = log.slice(i + 1).find(y => y.k === 'cue' || y.k === 'off'), c = d.cues.find(q => q.id === x.id); rows.push({ title: c ? c.title : x.id, type: c ? c.type : '', at: x.t, ms: (nx ? nx.t : end) - x.t, planned: c ? (+c.dur || 0) * 60000 : 0 }); });

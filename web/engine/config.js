@@ -54,7 +54,16 @@ export const isStations = ev => !!ev && ev.mode === 'stations';
 export const IDLE = [0, 30, 60, 90, 120, 180, 300];   // seconds without a touch before a station goes back to its first page (0: never)
 export const stationOf = (ev, id) => (ev.stations || []).find(s => s.id === id) || null;
 // what a station shows by default: its settings, with the defaults filled in
-export const stationCfg = st => ({ idle: 90, dir: 'rtl', zoom: true, links: true, qr: false, thumbs: true, ...st });
+export const stationCfg = st => ({ idle: 90, dir: 'rtl', zoom: true, links: true, qr: false, thumbs: true, search: true, ...st });
+// what a station shows: a PDF browsed as a book, a gallery of pictures browsed the same way (kind 'slides': pictures s-1.jpg …), a film;
+// what it shows to nobody while it waits: a picture or a film of the organisation
+export const STATION_KINDS = ['pdf', 'slides', 'video'], ATTRACT_KINDS = ['image', 'video', 'slides'];
+// the time of day in the event's own time zone (the studio keeps the organiser's), minutes since midnight
+export function minutesIn(now, tz) { const d = new Date(now); try { if (tz) { const [h, m] = new Intl.DateTimeFormat('en-GB', { timeZone: tz, hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(d).split(':').map(Number); return h * 60 + m; } } catch {} return d.getHours() * 60 + d.getMinutes(); }
+const HM = /^([01]\d|2[0-3]):[0-5]\d$/, hm = t => +t.slice(0, 2) * 60 + +t.slice(3);
+// the file a schedule gives a station at a moment, and since when (ms): the latest time of the day already passed. Before the first time, the station's own file
+export function scheduled(ev, st, now) { const list = (st && Array.isArray(st.schedule) ? st.schedule : []).filter(x => x && HM.test(x.at || '') && ev.media && ev.media[x.media]).sort((a, b) => hm(a.at) - hm(b.at)); if (!list.length) return null;
+  const m = minutesIn(now, ev.tz), cur = list.filter(x => hm(x.at) <= m).pop(); if (!cur) return null; const since = now - ((m - hm(cur.at)) * 60000) - (new Date(now).getSeconds() * 1000 + new Date(now).getMilliseconds()); return { media: cur.media, since }; }
 export const MODES = {
   ceremony: { label: 'حفل تدشين', about: 'فقرات متتابعة يقودها المشغّل، وشاشات القاعة تتبعه حتى لحظة الكشف.', feats: ['برنامج فقرات وأشخاص وعروض', 'لحظة تدشين بأنماط متعددة', 'لوحة مشغّل ومدير جلسة', 'صفحة الحضور والأسئلة'] },
   stations: { label: 'المحطات التفاعلية', about: 'شاشات لمس مستقلة، لكل شاشة ملف PDF يتصفحه الزائر بيده، وتبدّل الملفات من لوحة واحدة.', feats: ['ملف مختلف لكل شاشة', 'تصفح باللمس: سحب وتكبير ومصغرات', 'شاشة مقفلة لا يخرج منها الزائر', 'رمز QR يكمل به الزائر القراءة على جواله', 'لوحة تعرض كل الشاشات مباشرة وتبدّل ملفاتها'] },
@@ -65,7 +74,9 @@ function stationProblems(ev) { const out = [], seen = new Set(), list = ev.stati
   for (const st of list) { const where = `«${st.name || st.id}»`;
     if (!ID.test(st.id || '')) out.push(`معرّف المحطة ${where} غير صالح`); if (seen.has(st.id)) out.push(`معرّف مكرر: ${st.id}`); seen.add(st.id);
     if (!st.name || !String(st.name).trim()) out.push('محطة بلا اسم');
-    if (!st.media) out.push(`${where}: ينقصها الملف`); else if (!(ev.media || {})[st.media]) out.push(`${where}: الملف غير موجود في مكتبة اللقاء`); else if (ev.media[st.media].kind !== 'pdf') out.push(`${where}: ملف المحطة يكون بصيغة PDF`); }
+    if (!st.media) out.push(`${where}: ينقصها الملف`); else if (!(ev.media || {})[st.media]) out.push(`${where}: الملف غير موجود في مكتبة اللقاء`); else if (!STATION_KINDS.includes(ev.media[st.media].kind)) out.push(`${where}: ملف المحطة يكون PDF أو معرض صور أو فيديو`);
+    for (const x of st.schedule || []) { if (!HM.test(x.at || '')) out.push(`${where}: وقت في الجدولة غير صالح`); else if (!(ev.media || {})[x.media] || !STATION_KINDS.includes(ev.media[x.media].kind)) out.push(`${where}: ملف الساعة ${x.at} غير موجود`); }
+    if (st.attract && (!(ev.media || {})[st.attract] || !ATTRACT_KINDS.includes(ev.media[st.attract].kind))) out.push(`${where}: صورة الانتظار أو فيلمه غير موجود`); }
   return out; }
 
 // problems of an event document, as sentences for the studio ([] when it can be published)
@@ -110,7 +121,10 @@ export function shape(ev) { const obj = x => x && typeof x === 'object' && !Arra
   if (ev.stations != null) { if (!Array.isArray(ev.stations) || ev.stations.length > 40) return 'عدد المحطات أكبر من الحد (40)';
     for (const st of ev.stations) { if (!obj(st) || !KEY.test(st.id || '')) return 'في اللقاء محطة غير صالحة'; for (const k of ['name', 'place']) if (st[k] != null && (typeof st[k] !== 'string' || st[k].length > 80)) return 'في اللقاء محطة غير صالحة';
       if (st.media != null && st.media !== '' && !KEY.test(st.media)) return 'في اللقاء محطة غير صالحة'; if (st.dir != null && !['rtl', 'ltr'].includes(st.dir)) return 'في اللقاء محطة غير صالحة'; if (st.idle != null && !(Number.isFinite(+st.idle) && +st.idle >= 0 && +st.idle <= 3600)) return 'في اللقاء محطة غير صالحة';
-      for (const k of ['zoom', 'links', 'qr', 'thumbs']) if (st[k] != null && typeof st[k] !== 'boolean') return 'في اللقاء محطة غير صالحة'; } }
+      for (const k of ['zoom', 'links', 'qr', 'thumbs', 'search']) if (st[k] != null && typeof st[k] !== 'boolean') return 'في اللقاء محطة غير صالحة';
+      if (st.attract != null && st.attract !== '' && !KEY.test(st.attract)) return 'في اللقاء محطة غير صالحة';
+      if (st.schedule != null && (!Array.isArray(st.schedule) || st.schedule.length > 24 || st.schedule.some(x => !obj(x) || typeof x.at !== 'string' || x.at.length > 5 || !KEY.test(x.media || '')))) return 'جدولة محطة غير صالحة'; } }
+  if (ev.tz != null && (typeof ev.tz !== 'string' || ev.tz.length > 64)) return 'المنطقة الزمنية غير صالحة';
   for (const k of ['before', 'after']) { const I = ev.identity[k]; if (I == null) continue; if (!obj(I)) return 'هوية اللقاء غير صالحة'; if (I.logo && !FILE.test(I.logo)) return 'شعار الهوية غير صالح'; if (I.colors != null) { if (!obj(I.colors)) return 'ألوان الهوية غير صالحة'; for (const v of Object.values(I.colors)) if (v && !HEX.test(v)) return 'ألوان الهوية غير صالحة'; } }
   return ''; }
 export const cueOf = (ev, id) => (ev.cues || []).find(c => c.id === id);

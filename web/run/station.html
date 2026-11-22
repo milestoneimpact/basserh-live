@@ -37,6 +37,17 @@ body{background:var(--bg,#F6F1E6);color:var(--ink,#14211E);font-family:var(--ft,
 #net{position:absolute;top:14px;left:14px;z-index:60;font:600 13px Plex;background:#4A1D16;color:#FFB4A4;border-radius:999px;padding:4px 12px;display:none}#net.on{display:block}
 #load{position:absolute;inset:0;display:grid;place-items:center;font:600 22px Plex;opacity:.6}
 #prep{position:fixed;inset:0;display:grid;place-items:center;text-align:center;background:#0E1114;color:#E9E2D0;font-family:Plex}#prep h1{font:900 40px Kufi;color:#E4CC97}#prep .bar{width:420px;height:6px;border-radius:3px;background:#2A3A3F;margin:20px auto}#prep .bar i{display:block;height:100%;width:0;background:#E4CC97;border-radius:3px}
+.film{position:absolute;inset:0;display:grid;place-items:center;background:#000}.film video{max-width:100%;max-height:100%}.fp{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);min-width:120px;height:120px;padding:0 34px;border-radius:60px;border:0;background:rgba(0,0,0,.55);color:#fff;font:700 24px var(--ft);display:none;align-items:center;justify-content:center;gap:12px;backdrop-filter:blur(4px)}.fp.on{display:flex}.fp svg{width:44px;height:44px}
+/* the waiting screen with a picture or a film of the organisation: the words sit on a band at the bottom */
+#aM{position:absolute;inset:0;z-index:0;background:#000;display:none}#att.media #aM{display:block}#aM img,#aM video{position:absolute;inset:0;width:100%;height:100%;max-width:none!important;max-height:none!important;object-fit:cover;transition:opacity 1.2s}#aM img.off{opacity:0}
+#att>div:last-child{position:relative;z-index:1}#att.media{place-items:end center;background:none;backdrop-filter:none}#att.media>div:last-child{width:100%;padding:3vh 4vw 5vh;background:linear-gradient(transparent,color-mix(in srgb,var(--bg) 92%,transparent) 35%)}#att.media img#aL{max-height:10vh}#att.media h1{margin-top:1vh}#att.media .tap{margin-top:2vh;width:clamp(80px,7vw,120px)}
+/* searching the book: a panel with its own keyboard (the screen has none) */
+#sp{position:absolute;inset:0 0 104px 0;z-index:8;background:rgba(10,12,14,.45);display:none;justify-content:flex-end}#sp.on{display:flex}
+#sp .sb{width:min(720px,100%);height:100%;background:var(--bg);display:grid;grid-template-rows:auto 1fr auto;box-shadow:0 0 60px rgba(0,0,0,.35)}
+#sp .sh{display:flex;gap:12px;padding:18px;border-bottom:1px solid color-mix(in srgb,var(--ink) 12%,transparent)}#sq{flex:1;height:64px;border-radius:16px;border:2px solid color-mix(in srgb,var(--ink) 20%,transparent);background:#fff;color:#111;font:600 24px var(--ft);padding:0 18px}
+#sp .sh button{height:64px;padding:0 22px;border-radius:16px;border:0;background:color-mix(in srgb,var(--ink) 10%,transparent);color:var(--ink);font:700 18px var(--ft)}
+#sr{overflow-y:auto;padding:10px 18px;touch-action:pan-y}#sr button{display:block;width:100%;text-align:start;border:0;border-bottom:1px solid color-mix(in srgb,var(--ink) 10%,transparent);background:none;padding:14px 6px;color:var(--ink);font:400 18px/1.7 Plex}#sr button b{display:block;font:700 19px var(--ft);color:var(--accent)}#sr p{font:400 18px Plex;opacity:.65;text-align:center;margin-top:30px}
+#kb{display:grid;gap:8px;padding:14px;background:color-mix(in srgb,var(--ink) 6%,var(--bg))}#kb div{display:flex;gap:6px;justify-content:center}#kb button{flex:1;max-width:64px;height:58px;border-radius:12px;border:0;background:#fff;color:#111;font:600 22px var(--ft);box-shadow:0 2px 0 rgba(0,0,0,.12)}#kb button.w{max-width:none;flex:3}#kb button.m{max-width:110px;flex:1.6;font-size:16px;background:color-mix(in srgb,var(--ink) 12%,#fff)}
 @media (max-width:900px){#bar{grid-template-columns:84px 1fr auto 84px;gap:10px;padding:0 10px}.ar{width:78px}.tb{padding:0 14px;font-size:16px}.tb span{display:none}.mid img{display:none}}
 </style></head><body>
 <div id="room"><div id="load">يفتح الملف…</div></div>
@@ -44,10 +55,12 @@ body{background:var(--bg,#F6F1E6);color:var(--ink,#14211E);font-family:var(--ft,
 <div id="bar"><button class="ar" id="bF" aria-label="الصفحة التالية"></button>
   <div class="mid"><img id="lg" alt=""><div class="cnt"><span id="pc"></span><small id="ttl"></small></div><div class="prog"><i id="pg"></i></div></div>
   <div class="tools"><button class="tb" id="bT"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="7" height="7" rx="1"/><rect x="14" y="4" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg><span>الصفحات</span></button>
+  <button class="tb" id="bS" hidden><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></svg><span>بحث</span></button>
   <button class="tb" id="bH"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 11l9-7 9 7v9a1 1 0 0 1-1 1h-5v-6h-6v6H4a1 1 0 0 1-1-1z"/></svg><span>البداية</span></button>
   <button class="tb" id="bQ" hidden><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="6" y="2" width="12" height="20" rx="2"/><path d="M11 18h2"/></svg><span>أكمل على جوالك</span></button></div>
   <button class="ar" id="bB" aria-label="الصفحة السابقة"></button></div>
-<div id="att" class="off"><div><img id="aL" alt=""><h1 id="aT"></h1><p id="aP"></p><div class="tap"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M9 11V5a2 2 0 0 1 4 0v6m0-1a2 2 0 0 1 4 0v1m0 0a2 2 0 0 1 4 0v4a7 7 0 0 1-7 7h-1a7 7 0 0 1-6-3l-2.5-4a2 2 0 0 1 3.4-2L9 15"/></svg></div><div class="go">المس الشاشة للتصفح</div></div></div>
+<div id="att" class="off"><div id="aM"></div><div><img id="aL" alt=""><h1 id="aT"></h1><p id="aP"></p><div class="tap"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M9 11V5a2 2 0 0 1 4 0v6m0-1a2 2 0 0 1 4 0v1m0 0a2 2 0 0 1 4 0v4a7 7 0 0 1-7 7h-1a7 7 0 0 1-6-3l-2.5-4a2 2 0 0 1 3.4-2L9 15"/></svg></div><div class="go">المس الشاشة للتصفح</div></div></div>
+<div id="sp"><div class="sb"><div class="sh"><input id="sq" inputmode="none" autocomplete="off" spellcheck="false" placeholder="اكتب كلمة للبحث في الكتاب"><button id="sX">إغلاق</button></div><div id="sr"></div><div id="kb"></div></div></div>
 <div id="dark"><img id="dL" alt=""></div>
 <div id="qrm"><div class="box"><h2 id="qT"></h2><p id="qP"></p><canvas id="qC"></canvas><br><button id="qX">إغلاق</button></div></div>
 <div id="id"><div><b id="iN"></b><span id="iP"></span></div></div><div id="net">لا اتصال · يعمل من نسخته المحفوظة</div>
@@ -55,7 +68,7 @@ body{background:var(--bg,#F6F1E6);color:var(--ink,#14211E);font-family:var(--ft,
 <script type="module">
 import { connect, $, paint, deviceId } from './run.js';
 import { keep, url } from './store.js';
-import { Book, openPdf, draw, qr } from './book.js';
+import { Book, openPdf, draw, qr, imageDoc, search } from './book.js';
 import { stationOf, stationCfg } from '../engine/config.js';
 import { stationMedia } from '../engine/state.js';
 
@@ -64,7 +77,7 @@ import { stationMedia } from '../engine/state.js';
 const stop = e => { e.preventDefault(); e.stopPropagation(); return false; };
 for (const t of ['contextmenu', 'selectstart', 'dragstart', 'gesturestart', 'gesturechange', 'dblclick']) addEventListener(t, stop, { capture: true, passive: false });
 addEventListener('keydown', e => { const k = e.key; if (e.ctrlKey || e.metaKey || e.altKey || /^F\d+$/.test(k) || k === 'Escape' || k === 'Tab' || k === 'BrowserBack' || k === 'ContextMenu') return stop(e); }, { capture: true });
-addEventListener('touchmove', e => { if (e.touches.length > 1 || !e.target.closest('#thl')) e.preventDefault(); }, { passive: false });
+addEventListener('touchmove', e => { if (e.touches.length > 1 || !e.target.closest('#thl, #sr')) e.preventDefault(); }, { passive: false });
 history.pushState({ k: 1 }, '', location.href); addEventListener('popstate', () => history.pushState({ k: 1 }, '', location.href));
 addEventListener('beforeunload', e => { if (window.leaving) return; e.preventDefault(); e.returnValue = ''; });
 const full = () => { const d = document.documentElement; if (!document.fullscreenElement && d.requestFullscreen) d.requestFullscreen({ navigationUI: 'hide' }).catch(() => {}); };
@@ -103,8 +116,8 @@ left.onclick = () => { touch(); goLeft(); }; right.onclick = () => { touch(); go
 if (!S.thumbs) $('#bT').hidden = true;
 const readKey = S.qr ? link.read[sid] || null : null; if (readKey) $('#bQ').hidden = false;
 
-let book = null, host = null, pdf = null, cur = null, want = null, loading = false, last = 0, attract = false, seenReset = null, err = '', view = { z: 1, x: .5, y: .5 };
-const touch = () => { last = Date.now(); if (!sess && book) begin(); if (attract) { attract = false; $('#att').classList.add('off'); } report(); };
+let kind = '', book = null, host = null, pdf = null, cur = null, want = null, loading = false, last = 0, attract = false, seenReset = null, err = '', view = { z: 1, x: .5, y: .5 };
+const touch = () => { last = Date.now(); if (!sess && book) begin(); if (attract) { attract = false; $('#att').classList.add('off'); waitMedia(false); } report(); };
 addEventListener('pointerdown', touch, { capture: true });
 // ----- the measure: one session per visitor, from the first touch to the screen's rest. The pages seen and how long on each, the pages
 // brought closer, the links followed, the phone code asked for. Kept on this device until the server has it, so a cut network loses nothing
@@ -125,10 +138,12 @@ async function show(mk) { if (!mk || !D.media[mk]) { err = 'لا ملف لهذه
   try { // a visitor turning pages now: the new file waits for a pause of five seconds (thirty at most)
     const t0 = Date.now(); while (book && !attract && Date.now() - last < 5000 && Date.now() - t0 < 30000) await new Promise(r => setTimeout(r, 500));
     end();   // the visitor's session belongs to the file being left
-    const u = link.base + D.media[mk].src; await keep([u]); const doc = await openPdf(await url(u)), h = document.createElement('div'); h.className = 'bh out'; $('#room').appendChild(h);
-    const b = Book(h, { dir: S.dir, zoom: S.zoom, links: S.links, onPage: setPage, onTouch: touch, onView: v => { view = v; if (sess && v.z > 1.05 && sess.zpg !== book?.page) { sess.zpg = book.page; sess.zooms[book.page] = (sess.zooms[book.page] || 0) + 1; } if (sess && v.z <= 1.05) sess.zpg = 0; report(); }, onLink });
-    await b.load(doc, 1); requestAnimationFrame(() => h.classList.remove('out')); const old = host, ob = book; host = h; book = b; pdf = doc; cur = mk; err = ''; $('#load')?.remove();
-    $('#ttl').textContent = D.media[mk].name || ''; $('#aT').textContent = D.media[mk].name || S.name; thumbs(); if (old) { old.classList.add('out'); setTimeout(() => { ob.destroy(); old.remove(); }, 700); }
+    const m = D.media[mk], u = link.base + m.src, h = document.createElement('div'); h.className = 'bh out'; let doc = null, b;
+    if (m.kind === 'video') { await keep([u]); $('#room').appendChild(h); b = Film(h, await url(u)); }
+    else { if (m.kind === 'slides') { const pics = Array.from({ length: m.count || 0 }, (_, i) => u + 's-' + (i + 1) + '.jpg'); await keep(pics); doc = imageDoc(m.count || 0, n => url(pics[n - 1])); } else { await keep([u]); doc = await openPdf(await url(u)); }
+    $('#room').appendChild(h); b = Book(h, { dir: S.dir, zoom: S.zoom, links: S.links, onPage: setPage, onTouch: touch, onView: v => { view = v; if (sess && v.z > 1.05 && sess.zpg !== book?.page) { sess.zpg = book.page; sess.zooms[book.page] = (sess.zooms[book.page] || 0) + 1; } if (sess && v.z <= 1.05) sess.zpg = 0; report(); }, onLink }); await b.load(doc, 1); }
+    requestAnimationFrame(() => h.classList.remove('out')); const old = host, ob = book; host = h; book = b; pdf = doc; cur = mk; err = ''; $('#load')?.remove();
+    $('#ttl').textContent = D.media[mk].name || ''; $('#aT').textContent = D.media[mk].name || S.name; kind = m.kind; tools(); thumbs(); if (old) { old.classList.add('out'); setTimeout(() => { ob.destroy(); old.remove(); }, 700); }
   } catch (x) { err = 'تعذّر فتح الملف'; console.log(x); }
   loading = false; report(); if (want !== cur) show(want); }
 function onLink(l) { if (sess) sess[l.page ? 'li' : 'lo']++; if (!l.url) return; if (!S.links) return; showQr('رابط خارجي', 'امسح الرمز بكاميرا جوالك لتفتح الرابط عليه.', l.url); }
@@ -138,20 +153,50 @@ $('#bQ').onclick = () => { if (!readKey || !book) return; if (sess) sess.qr++; c
 $('#bH').onclick = () => { $('#th').classList.remove('on'); book && book.home(); };
 $('#bT').onclick = () => $('#th').classList.toggle('on');
 // the pages, small, drawn only when they come into the strip
-let io = null; function thumbs() { const l = $('#thl'); l.innerHTML = ''; l.dir = rtl ? 'rtl' : 'ltr'; io && io.disconnect(); if (!S.thumbs) return; io = new IntersectionObserver(es => es.forEach(async e => { if (!e.isIntersecting || e.target.dataset.done) return; e.target.dataset.done = 1; io.unobserve(e.target); const r = await draw(pdf, +e.target.dataset.n, 120, 154); e.target.querySelector('span').replaceChildren(r.cv); }), { root: l, rootMargin: '0px 400px' });
+let io = null; function thumbs() { const l = $('#thl'); l.innerHTML = ''; l.dir = rtl ? 'rtl' : 'ltr'; io && io.disconnect(); if (!S.thumbs || !pdf) return; io = new IntersectionObserver(es => es.forEach(async e => { if (!e.isIntersecting || e.target.dataset.done) return; e.target.dataset.done = 1; io.unobserve(e.target); const r = await draw(pdf, +e.target.dataset.n, 120, 154); e.target.querySelector('span').replaceChildren(r.cv); }), { root: l, rootMargin: '0px 400px' });
   for (let i = 1; i <= pdf.numPages; i++) { const t = document.createElement('div'); t.className = 't' + (i === (book ? book.page : 1) ? ' on' : ''); t.dataset.n = i; t.innerHTML = `<span></span><b>${i.toLocaleString('ar')}</b>`; t.onclick = () => { book.go(i, 'fade'); $('#th').classList.remove('on'); }; l.appendChild(t); io.observe(t); } }
 // nobody has touched it for a while: back to the first page, and the invitation to touch
-function rest() { end(); attract = true; $('#att').classList.remove('off'); $('#th').classList.remove('on'); $('#qrm').classList.remove('on'); book && book.home(); report(); }
+function rest() { end(); attract = true; $('#att').classList.remove('off'); $('#sp').classList.remove('on'); waitMedia(true); $('#th').classList.remove('on'); $('#qrm').classList.remove('on'); book && book.home(); report(); }
 setInterval(() => { if (!attract && S.idle > 0 && Date.now() - last > S.idle * 1000) rest(); }, 1000);
 // what the board sees of this station
 let rt = 0, rAt = 0; function report() { clearTimeout(rt); rt = setTimeout(() => { rAt = Date.now(); link.raw({ report: { kind: 'station', id: me, sid, media: cur || '', page: book ? book.page : 0, pages: book ? book.pages : 0, z: view.z, x: view.x, y: view.y, touch: last, idle: attract, w: innerWidth, h: innerHeight, ready: !!book, err, ver: link.version } }); }, Date.now() - rAt > 400 ? 30 : 400); }
 setInterval(report, 10000);
+// ----- a film at a station: it plays silently while nobody is there; a touch brings its sound; a tap pauses it; the arrows move ten seconds
+function Film(h, src) { h.innerHTML = `<div class="film"><video playsinline loop muted preload="auto"></video><button class="fp"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg><span>تشغيل بالصوت</span></button></div>`;
+  const v = h.querySelector('video'), fp = h.querySelector('.fp'), mm = t => { t = Math.max(0, Math.round(t || 0)); return `${Math.floor(t / 60)}:${String(t % 60).padStart(2, '0')}`; };
+  const paint = () => { fp.classList.toggle('on', v.paused || v.muted); fp.querySelector('span').textContent = v.muted ? 'تشغيل بالصوت' : 'متابعة'; $('#pc').textContent = `${mm(v.currentTime)} من ${mm(v.duration)}`; $('#pg').style.width = (v.duration ? v.currentTime / v.duration * 100 : 0) + '%'; left.disabled = right.disabled = false; };
+  v.src = src; v.play().catch(() => {}); ['timeupdate', 'play', 'pause', 'volumechange', 'loadedmetadata'].forEach(e => v.addEventListener(e, paint));
+  h.addEventListener('click', () => { if (v.muted) { v.muted = false; v.play().catch(() => {}); } else if (v.paused) v.play().catch(() => {}); else v.pause(); });
+  const seek = d => { v.currentTime = Math.max(0, Math.min((v.duration || 0) - .5, v.currentTime + d)); };
+  return { film: true, page: 1, pages: 1, zoomed: false, el: h, fwd: () => seek(10), back: () => seek(-10), go() {}, unzoom() {},
+    home: async () => { v.muted = true; v.currentTime = 0; v.play().catch(() => {}); }, destroy() { v.pause(); v.removeAttribute('src'); v.load(); h.innerHTML = ''; } }; }
+// the tools a file allows: a film has no pages to show small nor text to search
+function tools() { $('#bT').hidden = !S.thumbs || kind === 'video'; $('#bS').hidden = !(S.search && kind === 'pdf'); }
+// ----- the waiting screen: the organisation's picture, film, or pictures one after another, behind the invitation to touch
+let wv = null, wt = 0; (async () => { const k = S.attract, m = k && D.media[k]; if (!m) return; const box = $('#aM'), u = link.base + m.src;
+  if (m.kind === 'video') { await keep([u]); box.innerHTML = '<video muted loop playsinline autoplay></video>'; wv = box.firstChild; wv.src = await url(u); }
+  else { const pics = m.kind === 'slides' ? Array.from({ length: m.count || 0 }, (_, i) => u + 's-' + (i + 1) + '.jpg') : [u]; await keep(pics); for (const [i, p] of pics.entries()) { const im = document.createElement('img'); im.src = await url(p); if (i) im.className = 'off'; box.appendChild(im); }
+    if (pics.length > 1) { let i = 0; wt = setInterval(() => { if (!attract) return; const all = box.querySelectorAll('img'); all[i].classList.add('off'); i = (i + 1) % all.length; all[i].classList.remove('off'); }, 6000); } }
+  $('#att').classList.add('media'); waitMedia(attract); })();
+function waitMedia(on) { if (wv) { if (on) wv.play().catch(() => {}); else wv.pause(); } }
+// ----- searching the book, with the screen's own keyboard (Arabic, and English on a key)
+const KB = { ar: ['١٢٣٤٥٦٧٨٩٠', 'ضصثقفغعهخحج', 'شسيبلاتنمكط', 'ذءؤرىةوزظد'], en: ['1234567890', 'qwertyuiop', 'asdfghjkl', 'zxcvbnm'] }; let lang = 'ar', sT = 0;
+function keys() { $('#kb').innerHTML = KB[lang].map(r => `<div>${[...r].map(c => `<button data-k="${c}">${c}</button>`).join('')}</div>`).join('') + `<div><button class="m" data-k="lang">${lang === 'ar' ? 'English' : 'عربي'}</button><button class="w" data-k=" ">مسافة</button><button class="m" data-k="del">حذف</button><button class="m" data-k="clear">مسح</button></div>`; }
+$('#kb').addEventListener('click', e => { const b = e.target.closest('button'); if (!b) return; const k = b.dataset.k, q = $('#sq'); if (k === 'lang') { lang = lang === 'ar' ? 'en' : 'ar'; keys(); return; } q.value = k === 'del' ? q.value.slice(0, -1) : k === 'clear' ? '' : q.value + k; find(); });
+$('#sq').addEventListener('input', find);
+function find() { clearTimeout(sT); const q = $('#sq').value.trim(), out = $('#sr'); if (q.length < 2) { out.innerHTML = '<p>اكتب كلمتين أو حرفين على الأقل</p>'; return; } out.innerHTML = '<p>يبحث…</p>';
+  sT = setTimeout(async () => { const hits = pdf ? await search(pdf, q) : []; if ($('#sq').value.trim() !== q) return; out.innerHTML = hits.length ? '' : '<p>لا نتائج لهذه الكلمة</p>';
+    for (const x of hits.slice(0, 60)) { const b = document.createElement('button'); b.innerHTML = `<b>صفحة ${x.page.toLocaleString('ar')}${x.count > 1 ? ` · ${x.count.toLocaleString('ar')} مرات` : ''}</b>`; b.append(x.around); b.onclick = () => { $('#sp').classList.remove('on'); book && book.go(x.page, 'fade'); }; out.appendChild(b); } }, 300); }
+$('#bS').onclick = () => { $('#th').classList.remove('on'); keys(); $('#sp').classList.add('on'); find(); };
+$('#sX').onclick = () => $('#sp').classList.remove('on'); $('#sp').addEventListener('click', e => { if (e.target.id === 'sp') $('#sp').classList.remove('on'); });
+// ----- the schedule: the station looks at the clock every half minute, and takes the file of the hour when its time comes
+setInterval(() => show(stationMedia(D, link.state || {}, sid)), 30000);
 let idT = 0;
 link.on((s, info) => { if (info.online) flush(); $('#net').classList.toggle('on', !info.online && !link.draft); const x = (s.st || {})[sid] || {};
   $('#dark').classList.toggle('on', !!x.dark);
   if (seenReset === null) seenReset = x.reset || 0; else if (x.reset && x.reset > seenReset) { seenReset = x.reset; rest(); }   // a reset older than this page is not replayed
   if (s.identAt && link.now() - s.identAt < 6000) { $('#iN').textContent = S.name; $('#iP').textContent = S.place || ''; $('#id').classList.add('on'); clearTimeout(idT); idT = setTimeout(() => $('#id').classList.remove('on'), Math.max(500, 6000 - (link.now() - s.identAt))); }
   show(stationMedia(D, s, sid)); if (info.online) report(); });
-if (!link.state) show(S.media);
+if (!link.state) show(stationMedia(D, {}, sid));
 rest();
 </script></body></html>

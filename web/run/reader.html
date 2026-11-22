@@ -17,7 +17,7 @@ footer button{height:52px;border-radius:14px;border:0;background:var(--accent);c
 <footer><button id="bR"></button><div class="c"><span id="pc"></span><i><b id="pg"></b></i></div><button id="bL"></button></footer>
 <div id="msg">يفتح الملف…</div>
 <script type="module">
-import { Book, openPdf } from './book.js';
+import { Book, openPdf, imageDoc } from './book.js';
 const $ = s => document.querySelector(s), H = new URLSearchParams(location.hash.slice(1)), e = H.get('e'), s = H.get('s'), k = H.get('k'), m = H.get('m') === 'd' ? 'd' : 'l', start = +H.get('p') || 1;
 const api = `/api/read/${e}/${s}/${m}/${k}`; history.replaceState(null, '', location.pathname + '#' + new URLSearchParams({ e, s, m, k }));   // the page number is not kept in the address: a reload opens where the reader is (below)
 const fail = t => { $('#msg').textContent = t; $('#msg').style.display = 'grid'; };
@@ -33,7 +33,10 @@ try { const r = await fetch(api), d = await r.json(); if (!r.ok) throw new Error
   const book = Book($('#room'), { dir: d.dir, zoom: true, links: true, pad: 8, padY: 8, onLink: l => { vs[l.page ? 'li' : 'lo']++; if (l.url) window.open(l.url, '_blank', 'noopener'); },
     onPage: (n, N) => { const t = Date.now(); vs.pages[vs.pg] = (vs.pages[vs.pg] || 0) + (t - vs.pgAt); vs.pg = n; vs.pgAt = t; $('#pc').textContent = `صفحة ${n.toLocaleString('ar')} من ${N.toLocaleString('ar')}`; $('#pg').style.width = n / N * 100 + '%'; (rtl ? $('#bR') : $('#bL')).disabled = n <= 1; (rtl ? $('#bL') : $('#bR')).disabled = n >= N; try { sessionStorage.setItem(K, n); } catch {} } });
   $('#bL').onclick = () => (rtl ? book.fwd() : book.back()); $('#bR').onclick = () => (rtl ? book.back() : book.fwd());
-  const pdf = await openPdf(api + '/file', { whole: true }); let p = start; if (!H.has('p')) try { p = +sessionStorage.getItem(K) || 1; } catch {}
+  // a film plays here with its own controls; a gallery is read like a book, picture by picture
+  if (d.kind === 'video') { $('#room').innerHTML = `<video controls playsinline preload="metadata" style="width:100%;height:100%;background:#000"></video>`; $('#room video').src = api + '/file'; document.querySelector('footer').style.display = 'none'; $('#room').style.bottom = '0'; $('#msg').style.display = 'none'; } else {
+  const pdf = d.kind === 'slides' ? imageDoc(d.pages, n => api + '/file?n=' + n) : await openPdf(api + '/file', { whole: true }); let p = start; if (!H.has('p')) try { p = +sessionStorage.getItem(K) || 1; } catch {}
   await book.load(pdf, p); $('#msg').style.display = 'none';
+  }
 } catch (x) { fail(x.message || 'تعذّر فتح الملف'); }
 </script></body></html>

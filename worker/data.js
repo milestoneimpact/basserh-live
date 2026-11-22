@@ -74,17 +74,21 @@ export async function takeSessions(T, evId, draft, list, ok, kind = 'screen') {
       params: [x.id, evId, draft ? 1 : 0, String(x.station), kind, String(x.media || '').slice(0, 40), new Date(start).toISOString(), ms, JSON.stringify(pages), n.length, n.length ? Math.max(...n) : 0, JSON.stringify(zooms), Math.max(0, Math.min(999, +x.li || 0)), Math.max(0, Math.min(999, +x.lo || 0)), Math.max(0, Math.min(999, +x.qr || 0)), now()] }); }
   if (rows.length) { if ((await T.prepare('SELECT COUNT(*) AS n FROM sessions WHERE event_id = ?').bind(evId).first()).n > 300000) return 0; await T.batch(rows); } return rows.length; }
 // the report of an exhibition: by station, by file (how many reached each page, how long on it, how often brought closer), by hour
-export async function visits(T, evId, doc, draft, tz = 0) {   // tz: the browser's getTimezoneOffset(), so the hours are the hall's own
+export async function visits(T, evId, doc, draft, tz = 0, day = '') {   // day: one day of the event (YYYY-MM-DD in the hall's time), or all of them   // tz: the browser's getTimezoneOffset(), so the hours are the hall's own
   const { results } = await T.prepare('SELECT station, kind, media, started_at, ms, pages, max_page, zooms, links_in, links_out, qr FROM sessions WHERE event_id = ? AND draft = ? ORDER BY started_at').bind(evId, draft ? 1 : 0).all();
-  const st = {}, md = {}, hours = Array(24).fill(0); let phone = 0, phonePages = 0, qr = 0, lin = 0, lout = 0;
-  for (const r of results) { const pages = JSON.parse(r.pages || '{}'), zooms = JSON.parse(r.zooms || '{}');
+  const st = {}, md = {}, hours = Array(24).fill(0), days = {}; let phone = 0, phonePages = 0, qr = 0, lin = 0, lout = 0;
+  const dayOf = r => new Date(Date.parse(r.started_at) - tz * 60000).toISOString().slice(0, 10);
+  // the days, always all of them, so they can be compared; then the rest for the day chosen
+  for (const r of results) { const d = days[dayOf(r)] || (days[dayOf(r)] = { day: dayOf(r), n: 0, ms: 0, phone: 0, by: {} }); if (r.kind === 'phone') d.phone++; else { d.n++; d.ms += r.ms; d.by[r.station] = (d.by[r.station] || 0) + 1; } }
+  const rows = day ? results.filter(r => dayOf(r) === day) : results;
+  for (const r of rows) { const pages = JSON.parse(r.pages || '{}'), zooms = JSON.parse(r.zooms || '{}');
     if (r.kind === 'phone') { phone++; phonePages += Object.keys(pages).length; continue; }
     const s = st[r.station] || (st[r.station] = { station: r.station, n: 0, ms: 0, pages: 0 }); s.n++; s.ms += r.ms; s.pages += Object.keys(pages).length; qr += r.qr; lin += r.links_in; lout += r.links_out;
     hours[new Date(Date.parse(r.started_at) - tz * 60000).getUTCHours()]++;
     if (r.media && doc.media && doc.media[r.media]) { const m = md[r.media] || (md[r.media] = { media: r.media, name: doc.media[r.media].name, count: doc.media[r.media].count || 0, n: 0, reach: {}, dwell: {}, zoom: {} });
       m.n++; for (let p = 1; p <= (r.max_page || 0); p++) m.reach[p] = (m.reach[p] || 0) + 1; for (const [p, v] of Object.entries(pages)) { m.dwell[p] = (m.dwell[p] || 0) + v; } for (const [p, v] of Object.entries(zooms)) m.zoom[p] = (m.zoom[p] || 0) + v; } }
   const names = Object.fromEntries((doc.stations || []).map(s => [s.id, s.name]));
-  return { total: results.filter(r => r.kind !== 'phone').length, ms: results.filter(r => r.kind !== 'phone').reduce((a, r) => a + r.ms, 0), phone, phonePages, qr, linksIn: lin, linksOut: lout, hours,
+  return { day, days: Object.values(days).sort((a, b) => (a.day < b.day ? -1 : 1)), total: rows.filter(r => r.kind !== 'phone').length, ms: rows.filter(r => r.kind !== 'phone').reduce((a, r) => a + r.ms, 0), phone, phonePages, qr, linksIn: lin, linksOut: lout, hours,
     stations: (doc.stations || []).map(s => ({ ...(st[s.id] || { station: s.id, n: 0, ms: 0, pages: 0 }), name: names[s.id] })).sort((a, b) => b.n - a.n),
-    files: Object.values(md).map(m => ({ ...m, pagesSeen: Object.keys(m.dwell).length })), from: results[0] ? results[0].started_at : null, to: results.length ? results[results.length - 1].started_at : null };
+    files: Object.values(md).map(m => ({ ...m, pagesSeen: Object.keys(m.dwell).length })), from: rows[0] ? rows[0].started_at : null, to: rows.length ? rows[rows.length - 1].started_at : null };
 }
