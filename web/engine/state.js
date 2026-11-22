@@ -72,6 +72,7 @@ export function reduce(ev, s, cmd, now = Date.now(), trusted = false) {
   else if (cmd.type === 'sreload') { const list = cmd.sid ? [cmd.sid] : (ev.stations || []).map(x => x.id); if (list.every(x => stationOf(ev, x))) { const st = { ...(s.st || {}) }; for (const x of list) st[x] = { ...(st[x] || {}), reload: now }; o = { ...s, st }; } }
   else if (cmd.type === 'vol') { const v = Math.round(Math.max(0, Math.min(1, +cmd.level || 0)) * 100) / 100; o = { ...s, vol: v }; }
   else if (cmd.type === 'msg') { const t = String(cmd.text || '').trim().slice(0, 140), m = Math.max(1, Math.min(240, Math.round(+cmd.minutes || 15))); o = t ? { ...s, msg: { text: t, at: now, until: now + m * 60000 } } : (s.msg ? { ...s, msg: null } : s); }
+  else if (cmd.type === 'smaint') { if (stationOf(ev, cmd.sid)) { const st = { ...(s.st || {}) }; st[cmd.sid] = { ...(st[cmd.sid] || {}), maint: !!cmd.on }; o = { ...s, st }; } }   // a station under repair: a calm page, no visits counted
   else if (cmd.type === 'sdark') { const list = cmd.sid ? [cmd.sid] : (ev.stations || []).map(x => x.id); if (list.every(x => stationOf(ev, x))) { const st = { ...(s.st || {}) }; for (const x of list) st[x] = { ...(st[x] || {}), dark: !!cmd.on }; o = { ...s, st }; } }
   else if (cmd.type === 'reset') o = { ...initial(ev), order: s.order, orderAt: s.orderAt, off: s.off, hide: s.hide, live: s.live, dim: s.dim };
   return o === s ? s : { ...o, ver: (s.ver || 0) + 1 };

@@ -28,5 +28,12 @@ const tidy = async () => { for (const o of MADE.splice(0)) await adm('DELETE', {
   await A.api(`/api/run/${A.ev}/pair`, { code: await s2.textContent('#code'), station: 's1' }); await s.close(); await s2.waitForURL(/\/run\/station/, { timeout: 15000 });
   await bd.waitForFunction(() => /مساحة الحفظ/.test(document.querySelector('#alerts').textContent), null, { timeout: 20000 }).catch(() => {});
   ok(/مساحة الحفظ في المتصفح ممتلئة (95|٩٥)٪/.test(await bd.textContent('#alerts')), 'storage nearly full is named too: ' + await bd.textContent('#alerts'));
+  // maintenance: the board puts a station under repair; the screen shows a calm page and counts no visits; the board ends it
+  await bd.click('.card[data-s="s1"] [data-m]'); await s2.waitForFunction(() => document.querySelector('#mnt').classList.contains('on'), null, { timeout: 10000 }).catch(() => {});
+  ok(await s2.evaluate(() => document.querySelector('#mnt').classList.contains('on') && /قيد التجهيز/.test(document.querySelector('#mnt').textContent)), 'under repair: the screen shows «قيد التجهيز»');
+  ok(/إنهاء التجهيز/.test(await bd.textContent('.card[data-s="s1"] [data-m]')) && await bd.$('.card[data-s="s1"] .mt.on') !== null, 'and the board shows it on the card, with the button to end it');
+  await s2.mouse.click(300, 300); await s2.waitForTimeout(400); const q = await s2.evaluate(() => Object.keys(localStorage).filter(k => /sess|queue/i.test(k)).map(k => localStorage.getItem(k)).join(''));
+  await bd.click('.card[data-s="s1"] [data-m]'); await s2.waitForFunction(() => !document.querySelector('#mnt').classList.contains('on'), null, { timeout: 10000 }).catch(() => {});
+  ok(!(await s2.evaluate(() => document.querySelector('#mnt').classList.contains('on'))), 'ended from the board: the station is back for visitors'); ok(!/"ms":/.test(q), 'a touch under repair was not counted as a visit');
   ok(!errs.length, 'no page errors' + (errs.length ? ': ' + errs.join(' | ') : '')); await b.close(); await tidy();
 })().catch(async e => { console.log('✗ ' + (e.stack || e)); await tidy(); process.exit(1); });
