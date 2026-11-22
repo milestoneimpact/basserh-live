@@ -32,7 +32,7 @@ const adm = (method, body) => fetch(B + '/api/admin/org', { method, headers: { '
   await p.click('#pub'); await p.waitForFunction(() => /النسخة 1/.test(document.body.textContent), null, { timeout: 15000 }); ok(true, 'published');
   const api = (path, body, method = 'POST') => p.evaluate(async ([path, body, method]) => { const r = await fetch(path, { method, headers: { 'x-org-slug': location.pathname.slice(1), 'content-type': 'application/json' }, body: body ? JSON.stringify(body) : undefined }); return r.json(); }, [path, body, method]);
   await api(`/api/events/${evId}/activate`, { from: new Date(new Date().toDateString()).toISOString() });
-  await p.click('[data-t="run"]'); await p.waitForSelector('#laAll'); ok(await p.locator('#lr option').count() === 2 && await p.locator('#ll option').count() === 3, 'the links of a stations event: a screen per station, and the board');
+  await p.click('[data-t="run"]'); await p.waitForSelector('#laAll'); ok(await p.locator('#lr option').count() === 3 && await p.locator('#ll option').count() === 3, 'the links of a stations event: a screen per station, the hall\'s one link, and the board');
   const L = await api(`/api/events/${evId}/links`, { role: 'station', label: 's1' }), L2 = await api(`/api/events/${evId}/links`, { role: 'station', label: 's2' });
   // ----- a station, on a touch screen
   const sc = await b.newContext({ viewport: { width: 1920, height: 1080 }, hasTouch: true }), s = await sc.newPage(); s.on('pageerror', e => errs.push('station: ' + e.message));
@@ -81,6 +81,27 @@ const adm = (method, body) => fetch(B + '/api/admin/org', { method, headers: { '
   await r.goto(`${B}/run/reader.html#${new URLSearchParams({ e: evId, s: 's1', m: 'l', k: cfg.read.s1, p: 2 })}`); await r.waitForFunction(() => /صفحة/.test(document.querySelector('#pc')?.textContent || ''), null, { timeout: 30000 });
   ok(/من ٣|من 3/.test(await r.textContent('#pc')), 'the phone opens the file the station shows now: ' + await r.textContent('#pc')); await r.screenshot({ path: OUT + '10_phone.jpg', type: 'jpeg', quality: 80 });
   ok((await fetch(`${B}/api/read/${evId}/s1/l/${'0'.repeat(24)}`)).status === 403 && (await fetch(`${B}/api/read/${evId}/s2/l/${cfg.read.s1}`)).status === 403, 'a wrong key, or another station\'s, is refused');
+  // ----- a screen paired by its code: /screen shows six digits, the board types them and picks the station; at the next start it goes there by itself
+  const kc = await b.newContext({ viewport: { width: 1280, height: 800 }, hasTouch: true }), k = await kc.newPage(); k.on('pageerror', e => errs.push('screen: ' + e.message));
+  await k.goto(B + '/screen'); await k.waitForFunction(() => /^\d{6}$/.test(document.querySelector('#code').textContent), null, { timeout: 15000 }); const code = await k.textContent('#code');
+  ok(true, 'a new screen at /screen shows a code: ' + code); await k.screenshot({ path: OUT + '11_pair_code.jpg', type: 'jpeg', quality: 80 });
+  await bd.click('#pair'); await bd.fill('#pmC', '123'); await bd.click('#pmGo'); ok(/ستة أرقام/.test(await bd.textContent('#pmE')), 'a short code is refused on the board');
+  await bd.fill('#pmC', code); await bd.selectOption('#pmS', 's3'); await bd.screenshot({ path: OUT + '12_pair_board.jpg', type: 'jpeg', quality: 80 }); await bd.click('#pmGo');
+  await k.waitForURL(/\/run\/station/, { timeout: 15000 }); await k.waitForFunction(() => /صفحة/.test(document.querySelector('#pc')?.textContent || ''), null, { timeout: 30000 }); ok(/من ٥|من 5/.test(await k.textContent('#pc')), 'the screen became station 3, with its file');
+  await k.goto(B + '/screen'); await k.waitForURL(/\/run\/station/, { timeout: 15000 }); ok(true, 'started again at /screen, it goes straight to its station');
+  const reused = await (await fetch(`${B}/api/run/${evId}/pair`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ code, station: 's1' }) })).status; ok(reused === 401, 'pairing needs the operator (no link, no session): ' + reused);
+  // ----- the hall's one link: each screen asks once which station it is
+  const H = await api(`/api/events/${evId}/links`, { role: 'hall' }), hc = await b.newContext({ viewport: { width: 1280, height: 800 }, hasTouch: true }), h = await hc.newPage(); h.on('pageerror', e => errs.push('hall: ' + e.message));
+  await h.goto(B + H.url); await h.waitForSelector('#pk button'); ok(await h.locator('#pk button').count() === 3, 'the hall link asks which station this screen is'); await h.screenshot({ path: OUT + '13_hall_pick.jpg', type: 'jpeg', quality: 80 });
+  await h.click('#pk button >> nth=1'); await h.waitForFunction(() => /صفحة/.test(document.querySelector('#pc')?.textContent || ''), null, { timeout: 30000 }); ok(/من ٣|من 3/.test(await h.textContent('#pc')), 'the choice made, it is station 2 with its file');
+  await h.reload(); await h.waitForFunction(() => /صفحة/.test(document.querySelector('#pc')?.textContent || ''), null, { timeout: 30000 }); ok(!(await h.locator('#pk').count()), 'the choice is kept: no question at the next start');
+  // ----- the studio: more stations at once, a copy, the files given in order, a cover dragged onto a station
+  await p.reload(); await p.click('.ev:has-text("معرض الإنجازات")'); await p.waitForSelector('.tabs');   // the activation above went by the API, behind this page's back
+  await p.click('[data-t="stations"]'); await p.waitForSelector('#stN'); await p.fill('#stN', '3'); await p.click('#stAdd'); await p.waitForFunction(() => document.querySelectorAll('[data-del]').length === 6); ok(true, 'three stations added in one move');
+  await p.click('[data-cp="s1"]'); await p.waitForFunction(() => document.querySelectorAll('[data-del]').length === 7); ok(await p.locator('[data-k="name"]').nth(1).inputValue() === 'بوابة الإنجازات (نسخة)', 'a station copied, next to it');
+  await p.click('#stDist'); await p.waitForTimeout(300); const ms = await p.$$eval('select[data-k="media"]', l => l.map(x => x.value)); ok(ms.every(Boolean) && ms[0] !== ms[1] && ms[0] === ms[2], 'the files given to the stations in order: ' + ms.join(','));
+  const target = p.locator('[data-drop]').nth(0), want = await p.locator('[data-lib]').nth(1).getAttribute('data-lib'); await p.locator('[data-lib]').nth(1).dragTo(target); await p.waitForTimeout(400);
+  ok(await p.locator('select[data-k="media"]').nth(0).inputValue() === want, 'a cover dragged from the library onto a station gives it that file'); await p.screenshot({ path: OUT + '14_library.jpg', type: 'jpeg', quality: 80, fullPage: true });
   ok(!errs.length, 'no page errors' + (errs.length ? ': ' + errs.join(' | ') : ''));
   await b.close();
 })().catch(e => { console.log('✗ ' + (e.stack || e)); process.exitCode = 1; process.exit(1); });
