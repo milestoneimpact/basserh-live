@@ -42,6 +42,8 @@ main{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:
 .qd{position:fixed;inset:0;z-index:80;background:rgba(5,7,8,.75);display:grid;place-items:center;padding:16px}.qb{background:#171D21;border:1px solid rgba(228,204,151,.3);border-radius:18px;padding:22px;width:min(440px,100%)}.qb p{font:600 16px/1.8 Plex;margin:0 0 16px}.qb div{display:flex;gap:8px;justify-content:flex-end}
 #drb{display:none;gap:14px;align-items:center;flex-wrap:wrap;padding:14px 26px;background:linear-gradient(120deg,#3A2E14,#1F2A2E);border-bottom:1px solid #C9A45A;font:600 14px/1.8 Plex}#drb.on{display:flex}#drb b{color:#E4CC97;font:800 16px Kufi}#drb span{flex:1;min-width:260px;color:#E9E2D0}#drb a{text-decoration:none}#drb .lv{color:#8FE3B5}
 #toast{position:fixed;bottom:22px;left:50%;transform:translateX(-50%);background:#E4CC97;color:#0E1114;font:600 15px Plex;padding:10px 20px;border-radius:12px;opacity:0;transition:.3s;pointer-events:none;z-index:99}#toast.on{opacity:1}
+#pmH{font-size:14px;margin:18px 0 6px;color:#C9A45A}#pmL{max-height:240px;overflow:auto;text-align:right}#pmL .pr{display:flex;align-items:center;gap:8px;padding:7px 0;border-top:1px solid rgba(255,255,255,.08);font-size:13px}#pmL .pr span{flex:1}#pmL .pr small{display:block;opacity:.6;font-size:11px}#pmL .pr button{font-size:12px;padding:4px 10px}#pmL .no{opacity:.6;font-size:13px}
+#alerts .al.low{background:#6b4e12;border-color:#C9A45A}
 </style></head><body>
 <header><a class="b" id="back" hidden title="العودة إلى المعرض في الاستوديو">→ الاستوديو</a><div class="wm">بصيرة<i></i><span>BASSERH</span></div><h1 id="ttl">لوحة المحطات</h1><span class="pill" id="mode"></span><span class="pill" id="cnt"></span><span class="pill" id="vis" title="الجلسات المكتملة: من أول لمسة حتى عودة الشاشة إلى البداية"></span><span class="sp"></span>
   <button class="b" id="vw" hidden>الخريطة</button><button class="b on" id="rdy" title="يفحص كل شاشة: الاتصال، والملف، والحفظ على الجهاز، والنسخة، والمقاس، ورمز الجوال">فحص الجاهزية</button><button class="b" id="alOn" title="صوت وإشعار حين تنقطع شاشة أو يتعذر فتح ملفها"></button><button class="b on" id="pair" title="شاشة تعرض رمز الربط: اكتبوا رمزها واختاروا محطتها">ربط شاشة</button><button class="b" id="ident" title="تظهر على كل شاشة اسمها ست ثوانٍ، فتطابق القائمة مع المكان">تعريف الشاشات</button><button class="b" id="home">كل المحطات إلى البداية</button></header>
@@ -53,7 +55,7 @@ main{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:
 <div class="lib"><span>اسحب غلافاً إلى أي شاشة لتبديل ملفها:</span><div id="lib"></div></div>
 <div id="mapv"><div class="mvt"><button class="b" data-zm="-1">−</button><button class="b" data-zm="1">+</button><span id="mvL"></span></div><div class="mvs"><div class="mvb" id="mvB"></div></div></div>
 <main id="grid"></main>
-<div id="pm"><div class="box"><h2>ربط شاشة</h2><p>افتحوا على الشاشة العنوان <code dir="ltr" id="pmU"></code> فيظهر عليها رمز من ستة أرقام.</p><input id="pmC" inputmode="numeric" maxlength="7" placeholder="000000" dir="ltr"><select id="pmS"></select><div id="pmE"></div><div class="row"><button class="b on" id="pmGo">ربط</button><button class="b" id="pmX">إغلاق</button></div></div></div>
+<div id="pm"><div class="box"><h2>ربط شاشة</h2><p>افتحوا على الشاشة العنوان <code dir="ltr" id="pmU"></code> فيظهر عليها رمز من ستة أرقام.</p><input id="pmC" inputmode="numeric" maxlength="7" placeholder="000000" dir="ltr"><select id="pmS"></select><div id="pmE"></div><div class="row"><button class="b on" id="pmGo">ربط</button><button class="b" id="pmX">إغلاق</button></div><h3 id="pmH">الشاشات المربوطة</h3><div id="pmL"></div></div></div>
 <div id="big"><header><h1 id="bN"></h1><span class="pill" id="bS"></span><span class="sp"></span><button class="b" id="bX">إغلاق</button></header><div class="scr" id="bScr"><div class="pv"></div><span class="zm"></span><div class="dk">المحطة مطفأة</div></div>
   <div class="ft"><select id="bF"></select><button class="b" id="bH">إلى البداية</button><button class="b" id="bD"></button><button class="b" id="bR">إعادة تشغيل الشاشة</button><button class="b" id="bO">فتح المحطة للتجربة</button><span class="sp"></span><span id="bI" style="font:600 14px Plex;color:#A9B2B4"></span></div></div>
 <div id="rm"><div class="box"><div style="display:flex;justify-content:space-between;align-items:center;gap:10px"><h2>فحص الجاهزية</h2><span><button class="b" id="rmP">طباعة</button> <button class="b" id="rmX">إغلاق</button></span></div><p id="rmS"></p><div id="rmT"></div></div></div>
@@ -112,6 +114,8 @@ function alerts() { const now2 = Date.now(), list = [];
   for (const st of ST) { const i = info(st.id), r = i.r; let a = null;
     if (r && !i.on && now2 - r.at > 20000) a = { k: 'off', t: `${st.name}: انقطعت ${ago(r.at)}` };
     else if (r && i.on && r.err) a = { k: 'err', t: `${st.name}: ${r.err}` };
+    else if (r && i.on && r.bat != null && r.bat <= 20 && !r.chg) a = { k: 'low', t: `${st.name}: البطارية ${r.bat.toLocaleString('ar')}٪ وليست على الشاحن` };
+    else if (r && i.on && r.disk != null && r.disk >= 90) a = { k: 'low', t: `${st.name}: مساحة الحفظ في المتصفح ممتلئة ${r.disk.toLocaleString('ar')}٪` };
     else if (r && i.on && !i.dark && (now2 - (i.touch || r.at)) > 36e5 && !link.draft) a = { k: 'idle', t: `${st.name}: لم يلمسها أحد منذ ساعة` };
     const was = AL.get(st.id); if (a) { list.push({ ...a, sid: st.id }); if (!was || was.k !== a.k) { AL.set(st.id, a); if (alertOn && a.k !== 'idle') ping(a.t); } } else AL.delete(st.id); }
   $('#alerts').innerHTML = list.map(a => `<button class="al ${a.k}" data-s="${a.sid}">${esc(a.t)}</button>`).join(''); $('#alerts').classList.toggle('on', list.length > 0);
@@ -148,10 +152,16 @@ document.querySelectorAll('.card').forEach(c => dropOn(c, () => c.dataset.s)); d
 // pairing a screen by its code (the published event only)
 $('#pmU').textContent = location.host + (link.slug ? '/' + link.slug : '') + '/screen'; $('#pmS').innerHTML = ST.map(s => `<option value="${s.id}">${esc(s.name)}</option>`).join('');
 if (link.draft) $('#pair').style.display = 'none';
-$('#pair').onclick = () => { $('#pm').classList.add('on'); $('#pmE').textContent = ''; $('#pmC').value = ''; setTimeout(() => $('#pmC').focus(), 50); }; $('#pmX').onclick = () => $('#pm').classList.remove('on');
+$('#pair').onclick = () => { $('#pm').classList.add('on'); $('#pmE').textContent = ''; $('#pmC').value = ''; setTimeout(() => $('#pmC').focus(), 50); pairs(); }; $('#pmX').onclick = () => $('#pm').classList.remove('on');
 $('#pmGo').onclick = async () => { const code = $('#pmC').value.replace(/\D/g, ''); if (code.length !== 6) return $('#pmE').textContent = 'الرمز ستة أرقام كما يظهر على الشاشة';
   const r = await fetch(`/api/run/${Q.get('e')}/pair`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ code, station: $('#pmS').value }) }), j = await r.json().catch(() => ({}));
-  if (!r.ok) return $('#pmE').textContent = j.error || 'تعذّر الربط'; $('#pm').classList.remove('on'); toast(`رُبطت الشاشة بـ«${j.station}». تفتح محطتها خلال ثوانٍ`); };
+  if (!r.ok) return $('#pmE').textContent = j.error || 'تعذّر الربط'; $('#pm').classList.remove('on'); toast(`رُبطت الشاشة بـ«${j.station}». تفتح محطتها خلال ثوانٍ`); pairs(); };
+/* the pairing log: every screen tied to the show, when, last opened; undoing one cuts that screen off at once */
+const since = t => { if (!t) return 'لم تُفتح بعد'; const m = Math.round((Date.now() - Date.parse(t)) / 6e4); return m < 1 ? 'الآن' : m < 60 ? `قبل ${m.toLocaleString('ar')} دقيقة` : m < 1440 ? `قبل ${Math.round(m / 60).toLocaleString('ar')} ساعة` : new Date(t).toLocaleDateString('ar', { day: 'numeric', month: 'long' }); };
+async function pairs() { const L = $('#pmL'); try { const j = await (await fetch(`/api/run/${Q.get('e')}/pairs`)).json(); const P = j.pairs || [];
+  L.innerHTML = P.length ? P.map(x => `<div class="pr" data-id="${x.id}"><span>${esc(x.name || 'محطة محذوفة')}<small>رُبطت ${since(x.at)} · آخر فتح ${since(x.opened)}</small></span><button class="b">إلغاء الربط</button></div>`).join('') : '<div class="no">لا شاشة مربوطة بعد.</div>';
+  L.querySelectorAll('.pr button').forEach(b => b.onclick = async () => { const row = b.closest('.pr'); if (!await ask(`تنقطع هذه الشاشة عن «${row.querySelector('span').firstChild.textContent}» الآن، ولا تعود إلا بربط جديد. متابعة؟`, 'إلغاء الربط')) return;
+    const r = await fetch(`/api/run/${Q.get('e')}/pairs?id=${row.dataset.id}`, { method: 'DELETE' }), k = await r.json().catch(() => ({})); toast(r.ok ? 'أُلغي ربط الشاشة' : k.error || 'تعذّر الإلغاء'); pairs(); }); } catch { L.innerHTML = '<div class="no">تعذّر جلب القائمة.</div>'; } }
 $('#pmC').onkeydown = e => { if (e.key === 'Enter') $('#pmGo').click(); };
 $('#allBack').onclick = () => { send({ type: 'assign', ids: ST.map(s => s.id), media: null }); toast('عادت كل محطة إلى ملفها الأصلي'); };
 // the visitors, counted by the screens (each one sent when the screen goes back to rest)
