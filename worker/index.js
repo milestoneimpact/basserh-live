@@ -114,6 +114,15 @@ const main = {
         const { results: events } = await tdb(env, id).prepare("SELECT id, name, status, published_version, updated_at, json_extract(draft, '$.mode') AS mode, json_array_length(draft, '$.stations') AS stations FROM events WHERE status != 'archived' ORDER BY updated_at DESC LIMIT 30").all();
         const live = await Promise.all(events.slice(0, 12).map(e => e.published_version ? env.ROOM.get(env.ROOM.idFromName(e.id + ':live')).fetch(new Request('https://room/peers')).then(r => r.json()).catch(() => null) : null));
         return J({ members, events: events.map((e, i) => ({ ...e, room: live[i] || null })) }); }
+      if (p === '/api/admin/month' && M === 'GET') { const m = /^\d{4}-\d{2}$/.test(url.searchParams.get('m') || '') ? url.searchParams.get('m') : now().slice(0, 7);   /* the platform owner's month: each organisation's events, visitors and opinion in that month */
+        const { results: orgs } = await env.DB.prepare('SELECT o.id, o.name, o.slug, o.kind, o.plan, o.created_at, (SELECT GROUP_CONCAT(u.email) FROM members mm JOIN users u ON u.id = mm.user_id WHERE mm.org_id = o.id) AS em FROM orgs o ORDER BY o.created_at').all(), out = [];
+        for (const o of orgs) { if (isTestOrg(o, o.em) && url.searchParams.get('tests') !== '1') continue; const T = tdb(env, o.id); let ev = { n: 0, st: 0 }, vs = { n: 0, ph: 0 }, fb = { yes: 0, n: 0 }, b = 0;
+          try { ev = await T.prepare("SELECT COUNT(*) AS n, SUM(CASE WHEN json_extract(draft, '$.mode') = 'stations' THEN 1 ELSE 0 END) AS st FROM events WHERE status != 'archived'").first();
+            vs = await T.prepare("SELECT SUM(CASE WHEN kind != 'phone' THEN 1 ELSE 0 END) AS n, SUM(CASE WHEN kind = 'phone' THEN 1 ELSE 0 END) AS ph FROM sessions WHERE draft = 0 AND substr(started_at, 1, 7) = ?").bind(m).first();
+            fb = await T.prepare("SELECT SUM(CASE WHEN answer = 'yes' THEN 1 ELSE 0 END) AS yes, COUNT(*) AS n FROM feedback WHERE substr(at, 1, 7) = ?").bind(m).first();
+            b = (await T.prepare('SELECT COALESCE(SUM(bytes),0) AS b FROM media').first()).b; } catch {}
+          out.push({ name: o.name, slug: o.slug, kind: o.kind, off: o.plan === 'off', isNew: o.created_at.slice(0, 7) === m, events: ev.n || 0, exhibitions: ev.st || 0, visits: vs.n || 0, phone: vs.ph || 0, fbYes: fb.yes || 0, fbN: fb.n || 0, bytes: b }); }
+        return J({ month: m, orgs: out }); }
       if (p === '/api/admin/orgs' && M === 'GET') {
         const { results } = await env.DB.prepare('SELECT o.*, (SELECT GROUP_CONCAT(u.email) FROM members m JOIN users u ON u.id = m.user_id WHERE m.org_id = o.id AND m.role = ?) AS owners FROM orgs o ORDER BY created_at DESC').bind('owner').all();
         // usage comes from each organisation's own database
