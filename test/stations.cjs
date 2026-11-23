@@ -79,7 +79,7 @@ const tidy = async () => { for (const o of MADE.splice(0)) await adm('DELETE', {
   // ----- the phone, from the QR code
   const cfg = await s.evaluate(async e => (await fetch(`/api/run/${e}/config`)).json(), evId); ok(cfg.read && cfg.read.s1 && !cfg.read.s2 && !cfg.read.s3, 'a station is given the key of its own code only');
   ok((await s.evaluate(async e => (await fetch(`/api/run/${e}/pub`)).status, evId)) === 403, 'a station link reads nothing else of the event');
-  const ph = await b.newContext({ ...devices['iPhone 13'] }), r = await ph.newPage(); r.on('pageerror', e => errs.push('phone: ' + e.message));
+  const ph = await b.newContext({ ...devices['iPhone 13'], locale: 'ar-SA' }), r = await ph.newPage(); r.on('pageerror', e => errs.push('phone: ' + e.message));
   await r.goto(`${B}/run/reader.html#${new URLSearchParams({ e: evId, s: 's1', m: 'l', k: cfg.read.s1, p: 2 })}`); await r.waitForFunction(() => /صفحة/.test(document.querySelector('#pc')?.textContent || ''), null, { timeout: 30000 });
   ok(/من ٣|من 3/.test(await r.textContent('#pc')), 'the phone opens the file the station shows now: ' + await r.textContent('#pc')); await r.screenshot({ path: OUT + '10_phone.jpg', type: 'jpeg', quality: 80 });
   ok((await fetch(`${B}/api/read/${evId}/s1/l/${'0'.repeat(24)}`)).status === 403 && (await fetch(`${B}/api/read/${evId}/s2/l/${cfg.read.s1}`)).status === 403, 'a wrong key, or another station\'s, is refused');
