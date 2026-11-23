@@ -5,7 +5,7 @@ import { reduce, stationMedia } from '../web/engine/state.js';
 import { DUMMY, KEEP, failed, invite, locked, me, newPw, orgOf, platform, pwHash, pwOk, session, userFor } from './auth.js';
 import { readBrand } from './brand.js';
 import { dayMail, mailOn } from './report.js';
-import { countUse, pressure, DAY_LIMIT, takeSessions, visits, BLANK, STATION_STARTER, FEATURES, ORGS, PUB, STARTER, audit, backup, exportOrg, hasFeat, kickOrg, listAll, orgExists, padd, readKey, site, sweep } from './data.js';
+import { copyEvent, countUse, pressure, DAY_LIMIT, takeSessions, visits, BLANK, STATION_STARTER, FEATURES, ORGS, PUB, STARTER, audit, backup, exportOrg, hasFeat, kickOrg, listAll, orgExists, padd, readKey, site, sweep } from './data.js';
 import { mail, mailJoin } from './mail.js';
 import { b64u, clientData, newChallenge, unb64u, verify } from './passkey.js';
 import { orgOfEvent, tdb } from './tenant.js';
@@ -88,6 +88,8 @@ const main = {
       if (p === '/api/admin/leads' && M === 'GET') return J({ leads: (await env.DB.prepare('SELECT id, name, org, phone, email, kind, event_date, message, created_at, handled_at, mailed FROM leads ORDER BY id DESC LIMIT 200').all()).results, mail: !!((env.EMAIL || env.RESEND_KEY) && env.CONTACT_TO) });
       if (p === '/api/admin/leads' && M === 'PATCH') { const b = await req.json(); await env.DB.prepare('UPDATE leads SET handled_at = ? WHERE id = ?').bind(b.handled ? now() : null, b.id).run(); return J({ ok: true }); }
       if (p === '/api/admin/site' && M === 'PUT') { const f = url.searchParams.get('path') || ''; if (!/^[\w./-]+$/.test(f) || f.includes('..')) return err('مسار غير صالح'); await env.MEDIA.put('_site/' + f, req.body, { httpMetadata: { contentType: req.headers.get('Content-Type') || 'application/octet-stream' } }); return J({ ok: true }); }
+      if (p === '/api/admin/copy-event' && M === 'POST') { const b = await req.json().catch(() => ({})), r = await copyEvent(env, String(b.from || ''), String(b.event || ''), String(b.to || ''), b.name);   /* the same exhibition for another organisation */
+        if (r.error) return err(r.error, r.status); await padd(env, 'copied', `${b.event} → ${b.to} · ${r.files} ملف`); return J(r); }
       if (p === '/api/admin/org' && M === 'PATCH') {   // the plan of an organisation: limits, the paid period, activation days added
         const b = await req.json(), o = await env.DB.prepare('SELECT * FROM orgs WHERE id = ?').bind(b.id).first(); if (!o) return err('لا يوجد', 404);
         const feats = Array.isArray(b.features) ? b.features.filter(f => FEATURES[f]).join(' ') : (o.features || '');
@@ -351,6 +353,8 @@ const main = {
           const rev = req.headers.get('x-rev'); if (rev && rev !== ev.updated_at && !req.headers.get('x-force')) return J({ error: 'عدّل زميل هذا اللقاء أثناء عملك', conflict: true, rev: ev.updated_at }, 409);
           const at = now(); await T.prepare('UPDATE events SET draft = ?, name = ?, updated_at = ? WHERE id = ?').bind(JSON.stringify(doc), doc.name || ev.name, at, id).run(); return J({ ok: true, rev: at, problems: problems(doc) }); }
         // the published versions of the event, and a version brought back as the draft (the versions themselves never change)
+        if (sub === 'duplicate' && M === 'POST') { if (!can('editor')) return err('لا تملك الصلاحية', 403); const b = await req.json().catch(() => ({})), r = await copyEvent(env, org.id, id, org.id, b.name);   /* a whole copy, its files with it */
+          if (r.error) return err(r.error, r.status); await audit(env, org.id, r.id, who.user.id, 'duplicate', id); return J(r); }
         if (sub === 'reportmail') { if (M === 'POST') { if (!can('operator')) return err('لا تملك الصلاحية', 403); const b = await req.json().catch(() => ({}));
             await T.prepare(b.on ? "DELETE FROM report_mail WHERE event_id = ? AND day = 'off'" : "INSERT OR IGNORE INTO report_mail (event_id, day, at) VALUES (?, 'off', ?)").bind(...(b.on ? [id] : [id, now()])).run(); await audit(env, org.id, id, who.user.id, b.on ? 'reportmail_on' : 'reportmail_off', ''); }
           const last = await T.prepare("SELECT day, at FROM report_mail WHERE event_id = ? AND day != 'off' ORDER BY day DESC LIMIT 1").bind(id).first(); return J({ on: await mailOn(T, id), last: last ? last.day : null }); }

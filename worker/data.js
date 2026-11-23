@@ -1,7 +1,7 @@
 // Data of the platform: audit trails, the starter event, the pages from the bucket, files, the sweep, export and the daily copy.
 import { platform } from './auth.js';
 import { tdb } from './tenant.js';
-import { now } from './util.js';
+import { now, rid } from './util.js';
 
 // the features the platform owner opened for an organisation (a list of words in orgs.features): 'stations' for now.
 // The column and the pairing table come from db/migrations/0005_stations.sql
@@ -113,3 +113,21 @@ export function countUse(env, ctx, req) { try {
   ctx.waitUntil(env.DB.batch([...rows.map(([org, n]) => env.DB.prepare('INSERT INTO usage (day, org, n) VALUES (?,?,?) ON CONFLICT (day, org) DO UPDATE SET n = n + excluded.n').bind(day, org, n)),
     env.DB.prepare('SELECT COALESCE(SUM(n),0) AS t FROM usage WHERE day = ?').bind(day)]).then(r => { const t = r[r.length - 1].results[0].t; if (t > USE.today) USE.today = t; }).catch(() => {}));
 } catch {} }
+
+// a whole event copied, its files with it: within the organisation (a second exhibition from the first) or, by the platform owner,
+// to another organisation (the same exhibition in another city). Files are copied in the bucket; nothing passes through a browser.
+export async function copyEvent(env, fromOrg, evId, toOrg, name) {
+  const S = tdb(env, fromOrg), D = tdb(env, toOrg), ev = await S.prepare('SELECT name, draft FROM events WHERE id = ? AND org_id = ?').bind(evId, fromOrg).first(); if (!ev) return { error: 'لا يوجد', status: 404 };
+  const to = await env.DB.prepare('SELECT id, kind, storage_limit_mb FROM orgs WHERE id = ?').bind(toOrg).first(), doc = JSON.parse(ev.draft); if (!to) return { error: 'لا توجد الجهة', status: 404 };
+  if (to.kind && to.kind !== (doc.mode === 'stations' ? 'stations' : 'ceremony')) return { error: to.kind === 'stations' ? 'الجهة المقصودة للمعارض وحدها' : 'الجهة المقصودة للقاءات وحدها', status: 409 };
+  const from = `${fromOrg}/${evId}/`, objs = await listAll(env, from), size = objs.reduce((a, o) => a + o.size, 0), used = (await D.prepare('SELECT COALESCE(SUM(bytes),0) AS b FROM media WHERE org_id = ?').bind(toOrg).first()).b;
+  if (used + size > to.storage_limit_mb * 1048576) return { error: 'لا تتسع مساحة الجهة لملفات هذا المعرض', status: 402 };
+  const id = 'e_' + toOrg.slice(2) + rid(8), dest = `${toOrg}/${id}/`;
+  for (const o of objs) { const g = await env.MEDIA.get(o.key); if (!g) continue; let body;
+    if (typeof FixedLengthStream !== 'undefined' && g.size > 64 * 1048576) { const f = new FixedLengthStream(g.size); g.body.pipeTo(f.writable); body = f.readable; } else body = await g.arrayBuffer();
+    await env.MEDIA.put(dest + o.key.slice(from.length), body, { httpMetadata: g.httpMetadata }); }
+  const { results: media } = await S.prepare('SELECT * FROM media WHERE event_id = ?').bind(evId).all(), re = k => (k && k.startsWith(from) ? dest + k.slice(from.length) : k);
+  const stmts = media.map(m => ({ sql: 'INSERT INTO media (id, org_id, event_id, kind, name, r2_key, preview_key, bytes, length, count, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)', params: ['m_' + rid(), toOrg, id, m.kind, m.name, re(m.r2_key), re(m.preview_key), m.bytes, m.length, m.count, now()] }));
+  doc.name = String(name || ev.name).slice(0, 120); stmts.push({ sql: 'INSERT INTO events (id, org_id, slug, name, status, draft, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?)', params: [id, toOrg, 'copy-' + rid(6), doc.name, 'draft', JSON.stringify(doc), now(), now()] });
+  await D.batch(stmts); return { id, files: objs.length, bytes: size };
+}
