@@ -8,6 +8,7 @@
     "dev": "wrangler dev --port 8790 --var ADMIN_KEY:dev --var LOCAL:1",
     "test": "node --test test/engine.test.mjs",
     "test:e2e": "node test/e2e.cjs",
+    "test:all": "node tools/test_all.mjs",
     "seed": "node tools/seed_tenant.mjs tenants/wamy",
     "promo": "node promo/build.mjs",
     "profile": "THEME=basserh node profile/build.mjs",

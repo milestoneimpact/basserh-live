@@ -29,11 +29,11 @@ const wait = ms => new Promise(r => setTimeout(r, ms));
   await bd.waitForFunction(() => /متصلة (٢|2) من (٣|3)/.test(document.querySelector('#cnt').textContent), null, { timeout: 20000 }).catch(() => {});
   await bd.click('#rdy'); await bd.waitForSelector('#rm.on table'); await wait(1500);
   const row = n => bd.$$eval(`#rmT tr:nth-child(${n + 1}) td`, l => l.map(x => x.className + ':' + x.textContent));
-  const r1 = await row(1), r2 = await row(2), r3 = await row(3);
+  const r1 = await row(1), r2 = await row(2), r3 = await row(3), head = await bd.$$eval('#rmT tr:first-child th', l => l.map(x => x.textContent.trim())), col = (r, name) => r[head.indexOf(name)] || '';   /* the columns read by their titles, not their places */
   ok(/جاهزة (٢|2) من (٣|3)/.test(await bd.textContent('#rmS')) || /جاهزة (١|1) من (٣|3)/.test(await bd.textContent('#rmS')), 'the check counts the screens ready: ' + await bd.textContent('#rmS'));
-  ok(r1.slice(1).every(x => /^ok:/.test(x)) && /أوقات|وقت/.test(r1[8]) && /✓/.test(r1[7]) && /✓/.test(r1[4]), 'station 1: connected, open, kept, visits sent, latest version, size, phone code, its schedule: ' + r1.slice(1).join(' | '));
-  ok(/^wa:.*صغيرة/.test(r2[6]) && /غير مطلوب/.test(r2[7]), 'station 2: its screen is small (800×500), no phone code asked: ' + r2[6]);
-  ok(/^no:لم تُفتح بعد/.test(r3[1]), 'station 3: never opened, said so in red');
+  ok(r1.slice(1).every(x => /^ok:/.test(x)) && /أوقات|وقت/.test(col(r1, 'الجدولة')) && /✓/.test(col(r1, 'رمز الجوال')) && /✓/.test(col(r1, 'الزيارات أُرسلت')), 'station 1: connected, open, kept, visits sent, latest version, size, phone code, its schedule: ' + r1.slice(1).join(' | '));
+  ok(/^wa:.*صغيرة/.test(col(r2, 'المقاس')) && /غير مطلوب/.test(col(r2, 'رمز الجوال')), 'station 2: its screen is small (800×500), no phone code asked: ' + col(r2, 'المقاس'));
+  ok(/^no:لم تُفتح بعد/.test(col(r3, 'متصلة')), 'station 3: never opened, said so in red');
   await bd.screenshot({ path: OUT + '1_readiness.jpg', type: 'jpeg', quality: 80 }); await bd.click('#rmX');
   // ----- a screen restarted from the board
   await s1.evaluate(() => { window.__mark = 1; }); await bd.click('.card[data-s="s1"] [data-r]'); await bd.click('.qd .b.on');
