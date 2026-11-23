@@ -63,7 +63,8 @@ export async function backup(env) { const day = now().slice(0, 10), orgs = (awai
   for (const t of ['orgs', 'users', 'members', 'passkeys', 'leads']) ctl[t] = (await env.DB.prepare(`SELECT * FROM ${t}`).all()).results;
   await env.MEDIA.put(`_backup/${day}/control.json`, JSON.stringify(ctl)); for (const o of orgs) await env.MEDIA.put(`_backup/${day}/${o.id}.json`, JSON.stringify(await exportOrg(env, o.id, true)));
   const keep = new Date(Date.now() - 14 * 864e5).toISOString().slice(0, 10), old = [...(await listAll(env, '_backup/')).filter(o => o.key.split('/')[1] < keep), ...(await listAll(env, '_trash/')).filter(o => o.uploaded.toISOString().slice(0, 10) < keep)].map(o => o.key);   // the files taken out by the sweep wait in _trash/ as long as the copies that may still need them for (let i = 0; i < old.length; i += 500) await env.MEDIA.delete(old.slice(i, i + 500));
-  return { day, orgs: orgs.length, removed: old.length }; }
+  const vault = await vaultAll(env, 20000).catch(e => ({ error: String(e.message || e) }));   // the files themselves, into the vault
+  return { day, orgs: orgs.length, removed: old.length, vault }; }
 
 // ----- the measure of browsing at the stations: a session is one visitor (from the first touch to the screen's rest), sent by the screen
 // when it ends, or later in one batch when the network returns. Kept once whatever the retries (its id); nothing about the visitor.
@@ -131,3 +132,38 @@ export async function copyEvent(env, fromOrg, evId, toOrg, name) {
   doc.name = String(name || ev.name).slice(0, 120); stmts.push({ sql: 'INSERT INTO events (id, org_id, slug, name, status, draft, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?)', params: [id, toOrg, 'copy-' + rid(6), doc.name, 'draft', JSON.stringify(doc), now(), now()] });
   await D.batch(stmts); return { id, files: objs.length, bytes: size };
 }
+// ----- the files' vault: a second copy of every organisation's files (pictures, videos, PDFs, slides).
+// In its own bucket when one is bound (VAULT); until then under _vault/ in the same bucket, which already guards against a deletion by mistake.
+// A file is copied after each upload and by the daily copy; a file whose source is gone is kept thirty days (vault_gone), so a deleted
+// organisation or a removed file can be brought back within that time. Each run works within a time budget and the next one carries on.
+const vaultOf = env => env.VAULT ? { b: env.VAULT, p: '' } : { b: env.MEDIA, p: '_vault/' };
+const listIn = async (bucket, prefix) => { const out = []; let cursor; do { const r = await bucket.list({ prefix, cursor, limit: 1000 }); out.push(...r.objects); cursor = r.truncated ? r.cursor : null; } while (cursor); return out; };
+export async function vaultSync(env, prefix, budget = 20000) {
+  const t0 = Date.now(), V = vaultOf(env), src = await listIn(env.MEDIA, prefix), have = new Map((await listIn(V.b, V.p + prefix)).map(o => [o.key.slice(V.p.length), o.size]));
+  let copied = 0, bytes = 0, left = 0;
+  for (const o of src) { if (have.get(o.key) === o.size) continue; if (Date.now() - t0 > budget) { left++; continue; }
+    const g = await env.MEDIA.get(o.key); if (!g) continue; await V.b.put(V.p + o.key, g.body, { httpMetadata: g.httpMetadata }); copied++; bytes += o.size; }
+  return { copied, bytes, left };
+}
+// every organisation's files, then the vault's own care: what lost its source is counted from that day, and leaves after thirty days
+export async function vaultAll(env, budget = 20000) {
+  const t0 = Date.now(), orgs = (await env.DB.prepare('SELECT id FROM orgs').all()).results; let copied = 0, left = 0;
+  for (const o of orgs) { const r = await vaultSync(env, o.id + '/', Math.max(0, budget - (Date.now() - t0))); copied += r.copied; left += r.left; }
+  const V = vaultOf(env), kept = (await listIn(V.b, V.p + 'o_')).map(o => o.key.slice(V.p.length)), live = new Set((await listIn(env.MEDIA, 'o_')).map(o => o.key));
+  const gone = new Map((await env.DB.prepare('SELECT key, since FROM vault_gone').all()).results.map(r => [r.key, r.since])), day = now(), old = new Date(Date.now() - 30 * 864e5).toISOString(), st = [], out = [];
+  for (const k of kept) { if (live.has(k)) { if (gone.has(k)) st.push(env.DB.prepare('DELETE FROM vault_gone WHERE key = ?').bind(k)); continue; }
+    if (!gone.has(k)) st.push(env.DB.prepare('INSERT INTO vault_gone (key, since) VALUES (?, ?)').bind(k, day)); else if (gone.get(k) < old) { out.push(V.p + k); st.push(env.DB.prepare('DELETE FROM vault_gone WHERE key = ?').bind(k)); } }
+  for (let i = 0; i < out.length; i += 500) await V.b.delete(out.slice(i, i + 500)); for (let i = 0; i < st.length; i += 50) await env.DB.batch(st.slice(i, i + 50));
+  return { copied, left, removed: out.length };
+}
+// an organisation's files brought back from the vault: whatever is missing from the bucket (a file removed, a folder lost)
+export async function vaultRestore(env, orgId, budget = 25000) {
+  const t0 = Date.now(), V = vaultOf(env), kept = await listIn(V.b, V.p + orgId + '/'), live = new Set((await listIn(env.MEDIA, orgId + '/')).map(o => o.key)); let back = 0, left = 0;
+  for (const o of kept) { const k = o.key.slice(V.p.length); if (live.has(k)) continue; if (Date.now() - t0 > budget) { left++; continue; } const g = await V.b.get(o.key); if (!g) continue; await env.MEDIA.put(k, g.body, { httpMetadata: g.httpMetadata }); back++; }
+  return { back, left };
+}
+// how much the vault holds, for the owner page
+export async function vaultSummary(env) { const V = vaultOf(env), kept = await listIn(V.b, V.p + 'o_'), src = await listIn(env.MEDIA, 'o_'), have = new Set(kept.map(o => o.key.slice(V.p.length)));
+  return { separate: !!env.VAULT, files: kept.length, bytes: kept.reduce((a, o) => a + o.size, 0), waiting: src.filter(o => !have.has(o.key)).length, gone: (await env.DB.prepare('SELECT COUNT(*) AS n FROM vault_gone').first()).n }; }
+// a test organisation's copies, removed with it (a real organisation's stay thirty days)
+export async function vaultDrop(env, orgId) { const V = vaultOf(env), keys = (await listIn(V.b, V.p + orgId + '/')).map(o => o.key); for (let i = 0; i < keys.length; i += 500) await V.b.delete(keys.slice(i, i + 500)); await env.DB.prepare("DELETE FROM vault_gone WHERE key LIKE ?").bind(orgId + '/%').run(); return keys.length; }

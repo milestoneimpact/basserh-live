@@ -22,3 +22,4 @@ CREATE TABLE IF NOT EXISTS platform_audit (id INTEGER PRIMARY KEY AUTOINCREMENT,
 -- a screen waiting to be paired by its code (the operator types it on the stations' board); ten minutes, then gone. No content of any organisation
 CREATE TABLE IF NOT EXISTS pairs (code TEXT PRIMARY KEY, secret_hash TEXT NOT NULL, ip TEXT, go TEXT, created_at TEXT NOT NULL, org TEXT);   -- org: the organisation whose address the screen opened (its code is for it alone)
 CREATE TABLE IF NOT EXISTS usage (day TEXT NOT NULL, org TEXT NOT NULL, n INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (day, org));
+CREATE TABLE IF NOT EXISTS vault_gone (key TEXT PRIMARY KEY, since TEXT NOT NULL);

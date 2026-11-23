@@ -5,7 +5,7 @@ import { reduce, stationMedia } from '../web/engine/state.js';
 import { DUMMY, KEEP, failed, invite, locked, me, newPw, orgOf, platform, pwHash, pwOk, session, userFor } from './auth.js';
 import { readBrand } from './brand.js';
 import { dayMail, mailOn } from './report.js';
-import { copyEvent, countUse, pressure, DAY_LIMIT, takeSessions, visits, BLANK, STATION_STARTER, FEATURES, ORGS, PUB, STARTER, audit, backup, exportOrg, hasFeat, kickOrg, listAll, orgExists, padd, readKey, site, sweep } from './data.js';
+import { copyEvent, vaultDrop, vaultSync, vaultRestore, vaultSummary, vaultAll, countUse, pressure, DAY_LIMIT, takeSessions, visits, BLANK, STATION_STARTER, FEATURES, ORGS, PUB, STARTER, audit, backup, exportOrg, hasFeat, kickOrg, listAll, orgExists, padd, readKey, site, sweep } from './data.js';
 import { mail, mailJoin } from './mail.js';
 import { b64u, clientData, newChallenge, unb64u, verify } from './passkey.js';
 import { orgOfEvent, tdb } from './tenant.js';
@@ -17,6 +17,7 @@ let backupDay = '';
 // an organisation made by an automatic test: its owner has a test address (…@t.test, …@basserh.invalid) or its address is a smoke check's
 const isTestOrg = (o, emails) => /@(t\.test|basserh\.invalid)\b/.test(String(emails || '')) || /^smoke-/.test(o.slug || '');
 async function dropOrg(env, o) { const keys = (await listAll(env, o.id + '/')).map(x => x.key); for (let i = 0; i < keys.length; i += 500) await env.MEDIA.delete(keys.slice(i, i + 500));
+  { const em = (await env.DB.prepare('SELECT GROUP_CONCAT(u.email) AS e FROM members m JOIN users u ON u.id = m.user_id WHERE m.org_id = ?').bind(o.id).first() || {}).e; if (isTestOrg(o, em)) await vaultDrop(env, o.id); }   /* a test organisation leaves nothing in the vault; a real one keeps its files there thirty days */
   await tdb(env, o.id).wipe(); await env.DB.batch([env.DB.prepare('DELETE FROM members WHERE org_id = ?').bind(o.id), env.DB.prepare('DELETE FROM orgs WHERE id = ?').bind(o.id)]); await padd(env, 'org_deleted', `${o.name} /${o.slug} · ${keys.length} ملف`); ORGS.delete(o.id); return keys.length; }
 const main = {
   async scheduled(event, env, ctx) { ctx.waitUntil(backup(env)); },
@@ -65,6 +66,13 @@ const main = {
         const { results } = await env.DB.prepare('SELECT o.*, (SELECT GROUP_CONCAT(u.email) FROM members m JOIN users u ON u.id = m.user_id WHERE m.org_id = o.id) AS emails FROM orgs o').all(); let n = 0, files = 0;
         for (const o of results.filter(o => isTestOrg(o, o.emails))) { files += await dropOrg(env, o); n++; } await padd(env, 'tests_purged', `${n} جهة · ${files} ملف`); return J({ ok: true, orgs: n, files }); }
       if (p === '/api/admin/backup' && M === 'POST') { const r = await backup(env); await padd(env, 'backup', r.day); return J(r); }
+      if (p === '/api/admin/vault' && M === 'GET') return J(await vaultSummary(env));   // the second copy of the files: how much it holds, what waits to be copied
+      if (p === '/api/admin/vault' && M === 'POST') return J(await vaultAll(env, 25000));   // copy now (the daily copy does it too)
+      if (p === '/api/admin/vault/drill' && M === 'POST') {   // a rehearsal of a loss: one file of a test organisation (an owner at a test address) leaves the bucket, so its return from the vault can be checked
+        const b = await req.json().catch(() => ({})), o = await env.DB.prepare("SELECT o.id, o.slug, (SELECT GROUP_CONCAT(u.email) FROM members m JOIN users u ON u.id = m.user_id WHERE m.org_id = o.id) AS emails FROM orgs o WHERE o.id = ?").bind(String(b.org || '')).first();
+        if (!o || !isTestOrg(o, o.emails)) return err('للجهات التجريبية فقط', 403); const k = String(b.key || ''); if (!k.startsWith(o.id + '/')) return err('ملف من خارج الجهة', 400); await env.MEDIA.delete(k); return J({ ok: true }); }
+      if (p === '/api/admin/vault/restore' && M === 'POST') { const b = await req.json().catch(() => ({})), o = await env.DB.prepare('SELECT id, name, slug FROM orgs WHERE id = ?').bind(String(b.org || '')).first(); if (!o) return err('لا يوجد', 404);
+        const r = await vaultRestore(env, o.id); await padd(env, 'files_restored', `${o.name} /${o.slug} · ${r.back} ملف${r.left ? ' · بقي ' + r.left : ''}`); return J(r); }
       if (p === '/api/admin/usage' && M === 'GET') {   // the day's requests against the plan's limit, by organisation, and the last two weeks
         const day = now().slice(0, 10), rows = (await env.DB.prepare('SELECT org, n FROM usage WHERE day = ? ORDER BY n DESC').bind(day).all()).results, days = (await env.DB.prepare('SELECT day, SUM(n) AS n FROM usage GROUP BY day ORDER BY day DESC LIMIT 14').all()).results;
         const orgs = (await env.DB.prepare('SELECT id, name, slug FROM orgs').all()).results, nameOf = k => { const o = orgs.find(x => x.id === k || '@' + x.slug === k); return o ? o.name : k === '-' ? 'صفحات عامة' : 'جهة محذوفة'; };
@@ -77,7 +85,7 @@ const main = {
         await env.MEDIA.put(`_backup/${now().slice(0, 10)}/${o.id}.before-restore-${Date.now()}.json`, JSON.stringify(await exportOrg(env, o.id, true)));   // the present is kept first, so a restore can itself be undone
         const T = tdb(env, o.id), st = ['sessions', 'questions', 'audit', 'links', 'media', 'event_versions', 'events'].map(t => ({ sql: `DELETE FROM ${t}`, params: [] }));
         for (const t of ['events', 'event_versions', 'media', 'links', 'audit', 'questions', 'sessions']) for (const r of d[t] || []) { if (t === 'links' && !r.token_hash) continue; const k = Object.keys(r); st.push({ sql: `INSERT INTO ${t} (${k.join(',')}) VALUES (${k.map(() => '?').join(',')})`, params: k.map(x => r[x]) }); }
-        await T.batch(st); let back = 0; for (const x of d.files || []) { if (await env.MEDIA.head(x.key)) continue; const t = await env.MEDIA.get('_trash/' + x.key); if (t) { await env.MEDIA.put(x.key, t.body, { httpMetadata: t.httpMetadata }); back++; } }
+        await T.batch(st); let back = 0; for (const x of d.files || []) { if (await env.MEDIA.head(x.key)) continue; const t = (await env.MEDIA.get('_trash/' + x.key)) || (env.VAULT ? await env.VAULT.get(x.key) : await env.MEDIA.get('_vault/' + x.key)); if (t) { await env.MEDIA.put(x.key, t.body, { httpMetadata: t.httpMetadata }); back++; } }   /* from the trash, else from the files' vault */
         await kickOrg(env, o.id); await padd(env, 'restored', `${o.name} /${o.slug} ← ${b.day} · ${(d.events || []).length} لقاء · ${back} ملف`); return J({ ok: true, events: (d.events || []).length, files: back }); }
       if (p === '/api/admin/backup/days' && M === 'GET') { const org = url.searchParams.get('org'); return J({ days: [...new Set((await listAll(env, '_backup/')).filter(x => x.key.endsWith('/' + org + '.json')).map(x => x.key.split('/')[1]))].sort().reverse() }); }
       if (p === '/api/admin/backup' && M === 'GET') { const days = [...new Set((await listAll(env, '_backup/')).map(o => o.key.split('/')[1]))].sort(); return J({ days, last: days[days.length - 1] || null }); }
@@ -347,6 +355,7 @@ const main = {
       }
       const m = p.match(/^\/api\/events\/(e_[a-z0-9]{20})(?:\/(\w+))?(?:\/(.+))?$/);
       if (m) {
+        if (['media', 'upload'].includes(m[2]) && ['PUT', 'POST'].includes(M)) ctx.waitUntil(new Promise(r => setTimeout(r, 2000)).then(() => vaultSync(env, org.id + '/' + m[1] + '/', 20000)).catch(() => {}));   /* an upload: its files into the vault right after */
         const [, id, sub, rest] = m, ev = await T.prepare('SELECT * FROM events WHERE id = ? AND org_id = ?').bind(id, org.id).first(); if (!ev) return err('لا يوجد', 404);
         if (!sub && M === 'GET') { const doc = JSON.parse(ev.draft); return J({ id, name: ev.name, status: ev.status, published_version: ev.published_version, active_from: ev.active_from, active_until: ev.active_until, credits: org.credits, rev: ev.updated_at, doc, problems: problems(doc), base: `/m/${org.id}/${id}/` }); }
         if (!sub && M === 'PUT') { if (!can('editor')) return err('لا تملك صلاحية التعديل', 403); const doc = await req.json().catch(() => null), wrong = shape(doc); if (wrong) return err(wrong);
