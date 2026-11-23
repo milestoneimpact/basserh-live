@@ -23,6 +23,7 @@ const tidy = async () => { for (const o of MADE.splice(0)) await adm('DELETE', {
   const doc = await X.api('/api/events/' + xe.events[0].id, null, 'GET'); ok((doc.doc.stations || []).length === 4, 'of four stations');
   ok((await X.api('/api/events', { name: 'حفل' })).status === 403, 'it cannot make a ceremony, even by the API');
   await X.p.click('#new'); await X.p.waitForSelector('.tpl[data-tpl="achieve"]'); ok(!(await X.p.$('[data-tpl="ceremony"]')), 'its «new» goes straight to an exhibition, with no choice of kind'); await X.p.keyboard.press('Escape');
+  await X.p.click('#help'); await X.p.waitForSelector('.hlp'); ok(/المعرض التفاعلي/.test(await X.p.textContent('.hlp')) && !/اللقاء والحفل/.test(await X.p.textContent('.hlp')) && await X.p.locator('.hlp li').count() === 8, '«كيف أبدأ»: the way of its own kind only, in eight steps'); await X.p.click('#dlgNo');
   const C = await make('ceremony', false); const ce = await C.api('/api/events', null, 'GET'); ok(ce.events.length === 0, 'an organisation made with no first draft starts empty');
   ok((await C.api('/api/events', { name: 'معرض', mode: 'stations' })).status === 403 && (await C.api('/api/events', { name: 'لقاء' })).status === 200, 'one for ceremonies makes ceremonies only');
   await a.reload(); await a.waitForSelector('#rows'); if (!(await a.isChecked('#tst'))) await a.click('#tst');
