@@ -23,15 +23,18 @@ body.lk #room{top:102px}
 import { Book, openPdf, imageDoc } from './book.js';
 const $ = s => document.querySelector(s), H = new URLSearchParams(location.hash.slice(1)), e = H.get('e'), s = H.get('s'), k = H.get('k'), m = H.get('m') === 'd' ? 'd' : 'l', start = +H.get('p') || 1;
 const api = `/api/read/${e}/${s}/${m}/${k}`; history.replaceState(null, '', location.pathname + '#' + new URLSearchParams({ e, s, m, k }));   // the page number is not kept in the address: a reload opens where the reader is (below)
+/* a phone set to another language reads the page's own words in English (the organisation's file and names stay as they are) */
+const EN = !/^ar\b/i.test(navigator.language || 'ar'), W = EN ? { open: 'Opening…', fail: 'The file could not be opened', page: (n, N) => `Page ${n} of ${N}`, q: 'Was the exhibition useful to you?', yes: 'Yes', some: 'Somewhat', no: 'No', later: 'Later', thanks: 'Thank you' } : { open: 'يفتح الملف…', fail: 'تعذّر فتح الملف', page: (n, N) => `صفحة ${n.toLocaleString('ar')} من ${N.toLocaleString('ar')}`, q: 'هل أفادك المعرض؟', yes: 'نعم', some: 'إلى حد ما', no: 'لا', later: 'لاحقًا', thanks: 'شكرًا لك' };
+if (EN) { document.documentElement.lang = 'en'; $('#msg').textContent = W.open; $('#fb b').textContent = W.q; for (const k of ['yes', 'some', 'no']) $(`#fb [data-a="${k}"]`).textContent = W[k]; $('#fb [data-x]').textContent = W.later; }
 const fail = t => { $('#msg').textContent = t; $('#msg').style.display = 'grid'; };
 try { const r = await fetch(api), d = await r.json(); if (!r.ok) throw new Error(d.error || 'تعذّر فتح الملف');
   const R = document.documentElement.style, c = d.colors || {}; for (const [n, v] of Object.entries({ bg: c.bg || '#F6F1E6', ink: c.ink || '#14211E', accent: c.accent || '#0F5A4E', gold: c.gold || '#C2A063' })) R.setProperty('--' + n, v); R.setProperty('--ft', d.font || 'Kufi');
   if (d.logo) { $('#lg').src = api + '/logo'; $('#lg').hidden = false; } $('#tt').textContent = d.title || d.station; $('#st').textContent = [d.station, d.name].filter(Boolean).join(' · '); document.title = d.title || d.station;
   /* the organisation's buttons (its site, a call, a message), and one question, asked once on this phone after a little reading */
-  if ((d.links || []).length) { $('#lk').innerHTML = d.links.map(l => `<a target="_blank" rel="noopener"></a>`).join(''); [...$('#lk').children].forEach((x, i) => { x.textContent = d.links[i].label; x.href = d.links[i].url; }); $('#lk').classList.add('on'); document.body.classList.add('lk'); }
+  if ((d.links || []).length) { $('#lk').innerHTML = d.links.map(l => `<a target="_blank" rel="noopener"></a>`).join(''); [...$('#lk').children].forEach((x, i) => { x.textContent = (EN && d.links[i].en) || d.links[i].label; x.href = d.links[i].url; }); $('#lk').classList.add('on'); document.body.classList.add('lk'); }
   const FK = 'fb:' + e; if (d.ask && !localStorage.getItem(FK)) { setTimeout(() => $('#fb').classList.add('on'), 25000);
     $('#fb').onclick = async ev => { const b = ev.target.closest('[data-a]'); if (ev.target.closest('[data-x]')) { $('#fb').classList.remove('on'); return; } if (!b) return; try { localStorage.setItem(FK, b.dataset.a); } catch {}
-      $('#fb').innerHTML = '<b>شكرًا لك</b>'; setTimeout(() => $('#fb').classList.remove('on'), 1600); fetch(api + '/feedback', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ a: b.dataset.a, id: Math.random().toString(36).slice(2, 12) + Date.now().toString(36) }) }).catch(() => {}); }; }
+      $('#fb').innerHTML = `<b>${W.thanks}</b>`; setTimeout(() => $('#fb').classList.remove('on'), 1600); fetch(api + '/feedback', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ a: b.dataset.a, id: Math.random().toString(36).slice(2, 12) + Date.now().toString(36) }) }).catch(() => {}); }; }
   const K = 'rd:' + e + ':' + s + ':' + d.media, rtl = d.dir !== 'ltr', arrow = l => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="${l ? 'M15 5l-7 7 7 7' : 'M9 5l7 7-7 7'}"/></svg>`;
   $('#bL').innerHTML = arrow(true); $('#bR').innerHTML = arrow(false);
   // what was read on the phone, sent once when the visitor leaves (pages and time on each; nothing about the visitor)
@@ -39,12 +42,12 @@ try { const r = await fetch(api), d = await r.json(); if (!r.ok) throw new Error
   const bye = () => { if (sent) return; sent = true; const t = Date.now(); vs.pages[vs.pg] = (vs.pages[vs.pg] || 0) + (t - vs.pgAt); const { pg, pgAt, ...x } = vs; x.ms = t - x.start; try { navigator.sendBeacon(api + '/session', new Blob([JSON.stringify(x)], { type: 'application/json' })); } catch {} };
   addEventListener('pagehide', bye); document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') bye(); });
   const book = Book($('#room'), { dir: d.dir, zoom: true, links: true, pad: 8, padY: 8, onLink: l => { vs[l.page ? 'li' : 'lo']++; if (l.url) window.open(l.url, '_blank', 'noopener'); },
-    onPage: (n, N) => { const t = Date.now(); vs.pages[vs.pg] = (vs.pages[vs.pg] || 0) + (t - vs.pgAt); vs.pg = n; vs.pgAt = t; $('#pc').textContent = `صفحة ${n.toLocaleString('ar')} من ${N.toLocaleString('ar')}`; $('#pg').style.width = n / N * 100 + '%'; (rtl ? $('#bR') : $('#bL')).disabled = n <= 1; (rtl ? $('#bL') : $('#bR')).disabled = n >= N; try { sessionStorage.setItem(K, n); } catch {} } });
+    onPage: (n, N) => { const t = Date.now(); vs.pages[vs.pg] = (vs.pages[vs.pg] || 0) + (t - vs.pgAt); vs.pg = n; vs.pgAt = t; $('#pc').textContent = W.page(n, N); $('#pg').style.width = n / N * 100 + '%'; (rtl ? $('#bR') : $('#bL')).disabled = n <= 1; (rtl ? $('#bL') : $('#bR')).disabled = n >= N; try { sessionStorage.setItem(K, n); } catch {} } });
   $('#bL').onclick = () => (rtl ? book.fwd() : book.back()); $('#bR').onclick = () => (rtl ? book.back() : book.fwd());
   // a film plays here with its own controls; a gallery is read like a book, picture by picture
   if (d.kind === 'video') { $('#room').innerHTML = `<video controls playsinline preload="metadata" style="width:100%;height:100%;background:#000"></video>`; $('#room video').src = api + '/file'; document.querySelector('footer').style.display = 'none'; $('#room').style.bottom = '0'; $('#msg').style.display = 'none'; } else {
   const pdf = d.kind === 'slides' ? imageDoc(d.pages, n => api + '/file?n=' + n) : await openPdf(api + '/file', { whole: true }); let p = start; if (!H.has('p')) try { p = +sessionStorage.getItem(K) || 1; } catch {}
   await book.load(pdf, p); $('#msg').style.display = 'none';
   }
-} catch (x) { fail(x.message || 'تعذّر فتح الملف'); }
+} catch (x) { fail(EN ? W.fail : x.message || W.fail); }
 </script></body></html>
