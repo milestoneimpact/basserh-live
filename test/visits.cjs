@@ -52,7 +52,7 @@ const wait = ms => new Promise(r => setTimeout(r, ms));
   const bogus = await s2.s.evaluate(async e => (await (await fetch(`/api/run/${e}/sessions`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ list: [{ id: 'bogus000001', station: 'nope', start: Date.now(), ms: 1, pages: {} }, { id: '<x>', station: 's1', start: Date.now(), ms: 1 }] }) })).json()).kept, ev);
   ok(bogus === 0, 'a visit for a station that is not there, or with a bad id, is refused');
   // ----- the phone, from the code
-  const cfg = await s1.s.evaluate(async e => (await fetch(`/api/run/${e}/config`)).json(), ev), ph = await b.newContext({ ...devices['iPhone 13'] }), r = await ph.newPage();
+  const cfg = await s1.s.evaluate(async e => (await fetch(`/api/run/${e}/config`)).json(), ev), ph = await b.newContext({ ...devices['iPhone 13'], locale: 'ar-SA' }), r = await ph.newPage();
   await r.goto(`${B}/run/reader.html#${new URLSearchParams({ e: ev, s: 's1', m: 'l', k: cfg.read.s1, p: 2 })}`); await r.waitForFunction(() => /صفحة/.test(document.querySelector('#pc')?.textContent || ''), null, { timeout: 30000 });
   await r.click('#bL'); await wait(800); await r.click('#bL'); await wait(800); await r.close({ runBeforeUnload: true }); await wait(1500);
   v = await visits(); ok(v.phone === 1 && v.phonePages === 3, `the phone's reading is counted when the visitor leaves (${v.phone} reader, ${v.phonePages} pages)`);
