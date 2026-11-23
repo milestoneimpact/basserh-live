@@ -470,7 +470,18 @@ function identity() { const b = $('#body'), has = !!doc.identity.after, C = { bg
   b.querySelectorAll('[data-i]').forEach(i => i.onchange = () => { doc.identity[i.dataset.i].colors[i.dataset.c] = i.value; save(); identity(); });
   b.querySelectorAll('[data-logo]').forEach(x => x.onclick = () => { logoFor = x.dataset.logo; $('#lf').click(); });   // which logo is being chosen is kept outside this drawing, so a redraw of the tab between the choice and the upload loses nothing
   $('#lf').onchange = async e => { const f = e.target.files[0]; if (!f) return; const which = doc.identity[logoFor] ? logoFor : 'before'; const r = await put({ kind: 'image', name: f.name }, f, f.type); doc.identity[which].logo = r.src; save(); if (tab === 'identity') identity(); };
-}
+  if (isStations(doc)) visitorPanel(b); }
+/* the visitor's phone (from a station's code): up to three buttons of the organisation (its site, a call, a message) and one question */
+function visitorPanel(b) { const V = doc.visitor || (doc.visitor = { links: [], ask: false }), L = V.links || (V.links = []); const box = document.createElement('div'); box.className = 'panel'; box.id = 'vpan'; box.style.marginTop = '18px';
+  const row = (l, i) => `<div class="grid2" style="grid-template-columns:1fr 1.4fr auto;align-items:end"><div><label>نص الزر</label><input type="text" data-vl="${i}" data-f="label" value="${esc(l.label || '')}" maxlength="40" placeholder="مثل: موقعنا"></div><div><label>الرابط</label><input type="text" dir="ltr" data-vl="${i}" data-f="url" value="${esc(l.url || '')}" placeholder="https://… أو tel:… أو mailto:…"></div><button class="btn sm" data-vx="${i}">حذف</button></div>`;
+  box.innerHTML = `<h3 style="font-size:19px;color:var(--deep)">صفحة الزائر على الجوال</h3><p style="color:var(--mute);margin:4px 0 10px;font-size:14px">حين يمسح الزائر رمز المحطة يقرأ ملفها بهوية الجهة. أضف أزرارًا للتواصل، وسؤالًا واحدًا عن فائدة المعرض.</p>
+    ${L.map(row).join('')}${L.length < 3 ? '<button class="btn sm" id="vAdd" style="margin-top:10px">إضافة زر</button>' : ''}
+    <label style="display:flex;gap:8px;align-items:center;margin-top:14px"><input type="checkbox" id="vAsk" ${V.ask ? 'checked' : ''}> سؤال الزائر: «هل أفادك المعرض؟» (نعم، إلى حد ما، لا)</label>`;
+  b.appendChild(box);
+  box.querySelectorAll('[data-vl]').forEach(x => x.onchange = () => { L[+x.dataset.vl][x.dataset.f] = x.value.trim(); save(); });
+  box.querySelectorAll('[data-vx]').forEach(x => x.onclick = () => { L.splice(+x.dataset.vx, 1); save(); box.remove(); visitorPanel(b); });
+  const ad = box.querySelector('#vAdd'); if (ad) ad.onclick = () => { L.push({ label: '', url: '' }); save(); box.remove(); visitorPanel(b); };
+  box.querySelector('#vAsk').onchange = e => { V.ask = e.target.checked; save(); }; }
 
 // ---------- approval and the links of the screens
 // ----- the installer's guide of a stations event: one sheet to print and hand over on the day of setting up

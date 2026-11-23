@@ -11,9 +11,12 @@ footer{position:absolute;inset:auto 0 0 0;height:70px;display:grid;grid-template
 footer button{height:52px;border-radius:14px;border:0;background:var(--accent);color:var(--bg);display:grid;place-items:center}footer button[disabled]{opacity:.25}footer svg{width:26px;height:26px}
 .c{text-align:center;font:600 15px Plex}.c i{display:block;height:4px;border-radius:2px;background:color-mix(in srgb,var(--ink) 12%,transparent);margin-top:6px;overflow:hidden}.c i b{display:block;height:100%;background:var(--gold);width:0;transition:width .3s}
 #msg{position:absolute;inset:0;display:grid;place-items:center;text-align:center;padding:30px;font:600 18px/1.8 Plex;color:#777}
+#lk{position:absolute;inset:58px 0 auto 0;height:44px;display:none;gap:8px;align-items:center;padding:0 12px;overflow-x:auto;background:var(--bg);border-bottom:1px solid color-mix(in srgb,var(--ink) 10%,transparent)}#lk.on{display:flex}#lk a{flex:none;font:600 13px Plex;color:var(--accent);border:1px solid color-mix(in srgb,var(--accent) 45%,transparent);border-radius:20px;padding:6px 14px;text-decoration:none;white-space:nowrap}
+body.lk #room{top:102px}
+#fb{position:absolute;inset:auto 12px 82px 12px;display:none;background:var(--bg);border:1px solid color-mix(in srgb,var(--ink) 14%,transparent);border-radius:18px;padding:14px 16px;box-shadow:0 12px 30px rgba(0,0,0,.18);text-align:center}#fb.on{display:block}#fb b{font:700 16px var(--ft);display:block;margin-bottom:10px}#fb div{display:flex;gap:8px}#fb button{flex:1;height:44px;border-radius:12px;border:1px solid color-mix(in srgb,var(--accent) 50%,transparent);background:transparent;color:var(--ink);font:600 14px Plex}#fb button:first-child{background:var(--accent);color:var(--bg);border-color:var(--accent)}#fb small{display:block;margin-top:8px;opacity:.6;font:400 12px Plex}
 </style></head><body>
 <header><img id="lg" alt="" hidden><div><b id="tt"></b><small id="st"></small></div></header>
-<div id="room"></div>
+<nav id="lk"></nav><div id="room"></div><div id="fb"><b>هل أفادك المعرض؟</b><div><button data-a="yes">نعم</button><button data-a="some">إلى حد ما</button><button data-a="no">لا</button></div><small data-x>لاحقًا</small></div>
 <footer><button id="bR"></button><div class="c"><span id="pc"></span><i><b id="pg"></b></i></div><button id="bL"></button></footer>
 <div id="msg">يفتح الملف…</div>
 <script type="module">
@@ -24,6 +27,11 @@ const fail = t => { $('#msg').textContent = t; $('#msg').style.display = 'grid';
 try { const r = await fetch(api), d = await r.json(); if (!r.ok) throw new Error(d.error || 'تعذّر فتح الملف');
   const R = document.documentElement.style, c = d.colors || {}; for (const [n, v] of Object.entries({ bg: c.bg || '#F6F1E6', ink: c.ink || '#14211E', accent: c.accent || '#0F5A4E', gold: c.gold || '#C2A063' })) R.setProperty('--' + n, v); R.setProperty('--ft', d.font || 'Kufi');
   if (d.logo) { $('#lg').src = api + '/logo'; $('#lg').hidden = false; } $('#tt').textContent = d.title || d.station; $('#st').textContent = [d.station, d.name].filter(Boolean).join(' · '); document.title = d.title || d.station;
+  /* the organisation's buttons (its site, a call, a message), and one question, asked once on this phone after a little reading */
+  if ((d.links || []).length) { $('#lk').innerHTML = d.links.map(l => `<a target="_blank" rel="noopener"></a>`).join(''); [...$('#lk').children].forEach((x, i) => { x.textContent = d.links[i].label; x.href = d.links[i].url; }); $('#lk').classList.add('on'); document.body.classList.add('lk'); }
+  const FK = 'fb:' + e; if (d.ask && !localStorage.getItem(FK)) { setTimeout(() => $('#fb').classList.add('on'), 25000);
+    $('#fb').onclick = async ev => { const b = ev.target.closest('[data-a]'); if (ev.target.closest('[data-x]')) { $('#fb').classList.remove('on'); return; } if (!b) return; try { localStorage.setItem(FK, b.dataset.a); } catch {}
+      $('#fb').innerHTML = '<b>شكرًا لك</b>'; setTimeout(() => $('#fb').classList.remove('on'), 1600); fetch(api + '/feedback', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ a: b.dataset.a, id: Math.random().toString(36).slice(2, 12) + Date.now().toString(36) }) }).catch(() => {}); }; }
   const K = 'rd:' + e + ':' + s + ':' + d.media, rtl = d.dir !== 'ltr', arrow = l => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="${l ? 'M15 5l-7 7 7 7' : 'M9 5l7 7-7 7'}"/></svg>`;
   $('#bL').innerHTML = arrow(true); $('#bR').innerHTML = arrow(false);
   // what was read on the phone, sent once when the visitor leaves (pages and time on each; nothing about the visitor)

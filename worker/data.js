@@ -90,7 +90,8 @@ export async function visits(T, evId, doc, draft, tz = 0, day = '') {   // day: 
     if (r.media && doc.media && doc.media[r.media]) { const m = md[r.media] || (md[r.media] = { media: r.media, name: doc.media[r.media].name, count: doc.media[r.media].count || 0, n: 0, reach: {}, dwell: {}, zoom: {} });
       m.n++; for (let p = 1; p <= (r.max_page || 0); p++) m.reach[p] = (m.reach[p] || 0) + 1; for (const [p, v] of Object.entries(pages)) { m.dwell[p] = (m.dwell[p] || 0) + v; } for (const [p, v] of Object.entries(zooms)) m.zoom[p] = (m.zoom[p] || 0) + v; } }
   const names = Object.fromEntries((doc.stations || []).map(s => [s.id, s.name]));
-  return { day, days: Object.values(days).sort((a, b) => (a.day < b.day ? -1 : 1)), total: rows.filter(r => r.kind !== 'phone').length, ms: rows.filter(r => r.kind !== 'phone').reduce((a, r) => a + r.ms, 0), phone, phonePages, qr, linksIn: lin, linksOut: lout, hours,
+  const fb = { yes: 0, some: 0, no: 0 }; if (!draft) { try { const { results: fr } = await T.prepare('SELECT answer, at FROM feedback WHERE event_id = ?').bind(evId).all(); for (const f of fr) if (!day || dayOf({ started_at: f.at }) === day) fb[f.answer] = (fb[f.answer] || 0) + 1; } catch {} }
+  return { fb, day, days: Object.values(days).sort((a, b) => (a.day < b.day ? -1 : 1)), total: rows.filter(r => r.kind !== 'phone').length, ms: rows.filter(r => r.kind !== 'phone').reduce((a, r) => a + r.ms, 0), phone, phonePages, qr, linksIn: lin, linksOut: lout, hours,
     stations: (doc.stations || []).map(s => ({ ...(st[s.id] || { station: s.id, n: 0, ms: 0, pages: 0 }), name: names[s.id] })).sort((a, b) => b.n - a.n),
     files: Object.values(md).map(m => ({ ...m, pagesSeen: Object.keys(m.dwell).length })), from: rows[0] ? rows[0].started_at : null, to: rows.length ? rows[rows.length - 1].started_at : null };
 }
