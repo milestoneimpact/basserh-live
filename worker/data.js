@@ -147,3 +147,5 @@ export async function vaultRestore(env, orgId, budget = 25000) {
 // how much the vault holds, for the owner page
 export async function vaultSummary(env) { const V = vaultOf(env), kept = await listIn(V.b, V.p + 'o_'), src = await listIn(env.MEDIA, 'o_'), have = new Set(kept.map(o => o.key.slice(V.p.length)));
   return { separate: !!env.VAULT, files: kept.length, bytes: kept.reduce((a, o) => a + o.size, 0), waiting: src.filter(o => !have.has(o.key)).length, gone: (await env.DB.prepare('SELECT COUNT(*) AS n FROM vault_gone').first()).n }; }
+// a test organisation's copies, removed with it (a real organisation's stay thirty days)
+export async function vaultDrop(env, orgId) { const V = vaultOf(env), keys = (await listIn(V.b, V.p + orgId + '/')).map(o => o.key); for (let i = 0; i < keys.length; i += 500) await V.b.delete(keys.slice(i, i + 500)); await env.DB.prepare("DELETE FROM vault_gone WHERE key LIKE ?").bind(orgId + '/%').run(); return keys.length; }

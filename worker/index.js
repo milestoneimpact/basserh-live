@@ -5,7 +5,7 @@ import { reduce, stationMedia } from '../web/engine/state.js';
 import { DUMMY, KEEP, failed, invite, locked, me, newPw, orgOf, platform, pwHash, pwOk, session, userFor } from './auth.js';
 import { readBrand } from './brand.js';
 import { dayMail, mailOn } from './report.js';
-import { vaultSync, vaultRestore, vaultSummary, vaultAll, countUse, pressure, DAY_LIMIT, takeSessions, visits, BLANK, STATION_STARTER, FEATURES, ORGS, PUB, STARTER, audit, backup, exportOrg, hasFeat, kickOrg, listAll, orgExists, padd, readKey, site, sweep } from './data.js';
+import { vaultDrop, vaultSync, vaultRestore, vaultSummary, vaultAll, countUse, pressure, DAY_LIMIT, takeSessions, visits, BLANK, STATION_STARTER, FEATURES, ORGS, PUB, STARTER, audit, backup, exportOrg, hasFeat, kickOrg, listAll, orgExists, padd, readKey, site, sweep } from './data.js';
 import { mail, mailJoin } from './mail.js';
 import { b64u, clientData, newChallenge, unb64u, verify } from './passkey.js';
 import { orgOfEvent, tdb } from './tenant.js';
@@ -17,6 +17,7 @@ let backupDay = '';
 // an organisation made by an automatic test: its owner has a test address (…@t.test, …@basserh.invalid) or its address is a smoke check's
 const isTestOrg = (o, emails) => /@(t\.test|basserh\.invalid)\b/.test(String(emails || '')) || /^smoke-/.test(o.slug || '');
 async function dropOrg(env, o) { const keys = (await listAll(env, o.id + '/')).map(x => x.key); for (let i = 0; i < keys.length; i += 500) await env.MEDIA.delete(keys.slice(i, i + 500));
+  { const em = (await env.DB.prepare('SELECT GROUP_CONCAT(u.email) AS e FROM members m JOIN users u ON u.id = m.user_id WHERE m.org_id = ?').bind(o.id).first() || {}).e; if (isTestOrg(o, em)) await vaultDrop(env, o.id); }   /* a test organisation leaves nothing in the vault; a real one keeps its files there thirty days */
   await tdb(env, o.id).wipe(); await env.DB.batch([env.DB.prepare('DELETE FROM members WHERE org_id = ?').bind(o.id), env.DB.prepare('DELETE FROM orgs WHERE id = ?').bind(o.id)]); await padd(env, 'org_deleted', `${o.name} /${o.slug} · ${keys.length} ملف`); ORGS.delete(o.id); return keys.length; }
 const main = {
   async scheduled(event, env, ctx) { ctx.waitUntil(backup(env)); },
