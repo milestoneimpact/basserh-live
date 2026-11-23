@@ -94,3 +94,21 @@ export async function visits(T, evId, doc, draft, tz = 0, day = '') {   // day: 
     stations: (doc.stations || []).map(s => ({ ...(st[s.id] || { station: s.id, n: 0, ms: 0, pages: 0 }), name: names[s.id] })).sort((a, b) => b.n - a.n),
     files: Object.values(md).map(m => ({ ...m, pagesSeen: Object.keys(m.dwell).length })), from: rows[0] ? rows[0].started_at : null, to: rows.length ? rows[rows.length - 1].started_at : null };
 }
+
+// ----- the day's requests against the free plan's daily limit (100 000 requests a day for the whole account, every organisation together).
+// Each request is counted in this copy of the server's memory, by organisation, and written to the control database once every 200 requests
+// or every minute: one write for hundreds of requests. The day is the plan's day (UTC). Above 85% the audience's page is kept longer in memory.
+export const DAY_LIMIT = 100000;
+const USE = { n: 0, by: new Map(), at: Date.now(), today: 0, day: '' };
+export const pressure = () => USE.today / DAY_LIMIT;
+const orgOfPath = (p, req) => { let m = p.match(/^\/(?:api\/run|run\/[a-z]+)\/(e_[a-z0-9]{20})/); if (m) return 'o_' + m[1].slice(2, 14);
+  m = p.match(/^\/m\/(o_[a-z0-9]{12})\//); if (m) return m[1]; m = p.match(/^\/go\/([a-z0-9]{12})\./); if (m) return 'o_' + m[1];
+  const s = req.headers.get('x-org-slug'); return s ? '@' + String(s).slice(0, 40) : '-'; };
+export function countUse(env, ctx, req) { try {
+  const day = new Date().toISOString().slice(0, 10); if (USE.day !== day) { USE.day = day; USE.today = 0; }
+  const o = orgOfPath(new URL(req.url).pathname, req); USE.by.set(o, (USE.by.get(o) || 0) + 1); USE.n++; USE.today++;
+  if (USE.n < 200 && Date.now() - USE.at < 60000) return;
+  const rows = [...USE.by]; USE.by = new Map(); USE.n = 0; USE.at = Date.now();
+  ctx.waitUntil(env.DB.batch([...rows.map(([org, n]) => env.DB.prepare('INSERT INTO usage (day, org, n) VALUES (?,?,?) ON CONFLICT (day, org) DO UPDATE SET n = n + excluded.n').bind(day, org, n)),
+    env.DB.prepare('SELECT COALESCE(SUM(n),0) AS t FROM usage WHERE day = ?').bind(day)]).then(r => { const t = r[r.length - 1].results[0].t; if (t > USE.today) USE.today = t; }).catch(() => {}));
+} catch {} }

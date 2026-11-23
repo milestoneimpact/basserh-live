@@ -20,18 +20,23 @@ export async function connect() {
   let state = JSON.parse(localStorage.getItem(K + ':s') || 'null'), skew = 0, peers = {}, hall = null, hands = null, online = false, ws, away = null; const subs = [], tell = () => { if (!state) return; localStorage.setItem(K + ':s', JSON.stringify(state)); subs.forEach(f => f(state, { peers, online, hall, hands })); };
   // a tap made in the moment before the connection opens is not lost: it waits (five seconds at most) and goes out first
   const wait = [], out = o => { const t = JSON.stringify(o); if (ws.readyState === 1) ws.send(t); else { wait.push({ t, at: Date.now() }); if (wait.length > 20) wait.shift(); } };
-  const open = () => { ws = new WebSocket(`${location.origin.replace(/^http/, 'ws')}/api/run/${e}/ws${draft}`);
-    ws.onopen = () => { online = true; seen = Date.now(); for (const w of wait.splice(0)) if (Date.now() - w.at < 5000) ws.send(w.t); if (away) { ws.send(JSON.stringify({ adopt: { state, base: away } })); away = null; } tell(); };
+  let reopenT = 0; const reopen = () => { clearTimeout(reopenT); reopenT = setTimeout(open, 1500); };   // one reconnection at a time, whichever way the old one ended
+  const open = () => { clearTimeout(reopenT); const me = ws = new WebSocket(`${location.origin.replace(/^http/, 'ws')}/api/run/${e}/ws${draft}`);
+    ws.onopen = () => { if (me !== ws) { try { me.close(); } catch {} return; } online = true; seen = Date.now(); for (const w of wait.splice(0)) if (Date.now() - w.at < 5000) ws.send(w.t); if (away) { ws.send(JSON.stringify({ adopt: { state, base: away } })); away = null; } tell(); };
     ws.onmessage = m => { seen = Date.now(); const d = JSON.parse(m.data); if (d.pong) { const rtt = Date.now() - d.pong; lagNow = rtt; if (rtt <= best * 1.3 || Date.now() - bestAt > 60000) { if (rtt < best || Date.now() - bestAt > 60000) { best = rtt; bestAt = Date.now(); } skew = d.now + rtt / 2 - Date.now(); synced = true; } return; }
       if (d.now && !synced) skew = d.now - Date.now(); if (d.snap) { if (window.onSnap) window.onSnap(d.snap); return; } if (d.peers) peers = d.peers; if (d.hall !== undefined) hall = d.hall; if (d.hands !== undefined) hands = d.hands; if (d.reload !== undefined && d.reload !== cfg.version) { window.leaving = true; return location.reload(); } if (d.state && !away) state = d.state; tell(); };
-    ws.onclose = async () => { online = false; tell();
+    ws.onclose = async () => { if (me !== ws) return; online = false; tell();
       // closed by the server: is this screen still allowed? A revoked link (or an ended session) blanks the page and stops
       try { const r = await fetch(`/api/run/${e}/config${draft}`); if (r.status === 401) { localStorage.removeItem(K); localStorage.removeItem(K + ':s'); document.documentElement.style.background = '#000'; document.body.innerHTML = '<p style="font:600 20px sans-serif;text-align:center;margin-top:40vh;color:#666">أُلغي رابط هذه الشاشة</p>'; if (localStorage.getItem('screen:go')) { localStorage.removeItem('screen:go'); setTimeout(() => { window.leaving = true; location.replace('/screen'); }, 2500); } document.body.className = ''; subs.length = 0; for (let i = setTimeout(() => {}, 0); i > 0; i--) { clearTimeout(i); clearInterval(i); } return; } } catch {}
-      setTimeout(open, 1500); }; };
-  // a heartbeat: a connection that stays open but silent for ten seconds (a dead network) counts as down, and is opened again
+      if (me === ws) reopen(); }; };
   // the clock: a question to the room, its answer, half the trip taken off. Three quick ones at the start, then one every four seconds; the answer that came back fastest is the one trusted
   let seen = Date.now(), best = Infinity, bestAt = 0, lagNow = 0, synced = false; const ping = () => { if (ws.readyState === 1) ws.send(JSON.stringify({ ping: Date.now() })); };
-  open(); [300, 900, 1700].forEach(t => setTimeout(ping, t)); setInterval(() => { if (ws.readyState === 1) { ping(); if (Date.now() - seen > 10000) ws.close(); } }, 4000);
+  open(); [300, 900, 1700].forEach(t => setTimeout(ping, t)); // a dead network: the socket is left behind at once (on a dead line its close never finishes, so the page would never learn it is offline),
+  // the screen counts itself offline within about six seconds, so the hall's own keyboard takes over, and a fresh connection is tried every few seconds
+  const drop = () => { const d = ws; d.onopen = d.onmessage = d.onclose = null; try { d.close(); } catch {} if (online) { online = false; tell(); } reopen(); };
+  let stuckAt = 0; setInterval(() => { if (ws.readyState === 1) { stuckAt = 0; ping(); if (Date.now() - seen > 6000) drop(); return; }
+    if (online) { online = false; tell(); }   // closing, closed or still connecting: this screen is on its own until a socket opens
+    if (!stuckAt) stuckAt = Date.now(); if (Date.now() - stuckAt > (ws.readyState === 0 ? 8000 : 3000)) { stuckAt = 0; drop(); } }, 2000);
   return { doc: cfg.doc, base: cfg.base, role: cfg.role, label: cfg.label || '', read: cfg.read || {}, slug: cfg.slug || '', version: cfg.version, draft: !!draft, get lag() { return lagNow; }, get synced() { return synced; }, get state() { return state; }, now: () => Date.now() + skew,
     on: f => { subs.push(f); if (state) f(state, { peers, online, hall, hands }); }, poke: tell, send: cmd => out({ cmd }), raw: o => out(o),
     get online() { return online; },

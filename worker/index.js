@@ -5,7 +5,7 @@ import { reduce, stationMedia } from '../web/engine/state.js';
 import { DUMMY, KEEP, failed, invite, locked, me, newPw, orgOf, platform, pwHash, pwOk, session, userFor } from './auth.js';
 import { readBrand } from './brand.js';
 import { dayMail, mailOn } from './report.js';
-import { takeSessions, visits, BLANK, STATION_STARTER, FEATURES, ORGS, PUB, STARTER, audit, backup, exportOrg, hasFeat, kickOrg, listAll, orgExists, padd, readKey, site, sweep } from './data.js';
+import { countUse, pressure, DAY_LIMIT, takeSessions, visits, BLANK, STATION_STARTER, FEATURES, ORGS, PUB, STARTER, audit, backup, exportOrg, hasFeat, kickOrg, listAll, orgExists, padd, readKey, site, sweep } from './data.js';
 import { mail, mailJoin } from './mail.js';
 import { b64u, clientData, newChallenge, unb64u, verify } from './passkey.js';
 import { orgOfEvent, tdb } from './tenant.js';
@@ -65,6 +65,11 @@ const main = {
         const { results } = await env.DB.prepare('SELECT o.*, (SELECT GROUP_CONCAT(u.email) FROM members m JOIN users u ON u.id = m.user_id WHERE m.org_id = o.id) AS emails FROM orgs o').all(); let n = 0, files = 0;
         for (const o of results.filter(o => isTestOrg(o, o.emails))) { files += await dropOrg(env, o); n++; } await padd(env, 'tests_purged', `${n} جهة · ${files} ملف`); return J({ ok: true, orgs: n, files }); }
       if (p === '/api/admin/backup' && M === 'POST') { const r = await backup(env); await padd(env, 'backup', r.day); return J(r); }
+      if (p === '/api/admin/usage' && M === 'GET') {   // the day's requests against the plan's limit, by organisation, and the last two weeks
+        const day = now().slice(0, 10), rows = (await env.DB.prepare('SELECT org, n FROM usage WHERE day = ? ORDER BY n DESC').bind(day).all()).results, days = (await env.DB.prepare('SELECT day, SUM(n) AS n FROM usage GROUP BY day ORDER BY day DESC LIMIT 14').all()).results;
+        const orgs = (await env.DB.prepare('SELECT id, name, slug FROM orgs').all()).results, nameOf = k => { const o = orgs.find(x => x.id === k || '@' + x.slug === k); return o ? o.name : k === '-' ? 'صفحات عامة' : 'جهة محذوفة'; };
+        const by = {}; for (const r of rows) { const nm = nameOf(r.org); by[nm] = (by[nm] || 0) + r.n; }
+        return J({ day, limit: DAY_LIMIT, total: rows.reduce((a, r) => a + r.n, 0), by: Object.entries(by).map(([name, n]) => ({ name, n })).sort((a, b) => b.n - a.n), days }); }
       if (p === '/api/admin/audit' && M === 'GET') return J({ audit: (await env.DB.prepare('SELECT action, detail, at FROM platform_audit ORDER BY id DESC LIMIT 200').all()).results });
       if (p === '/api/admin/restore' && M === 'POST') {   // an organisation's database as it was on a day of the copies; its files come back from the trash. The address is typed to confirm
         const b = await req.json().catch(() => ({})), o = await env.DB.prepare('SELECT * FROM orgs WHERE id = ?').bind(String(b.org || '')).first(); if (!o) return err('لا يوجد', 404); if (b.confirm !== o.slug) return err('اكتب عنوان الجهة للتأكيد');
@@ -244,7 +249,7 @@ const main = {
         if (role === 'audience' && !['pub', 'ask', 'ws'].includes(seg[4])) return err('لا صلاحية', 403); /* ws: a bare signal that something changed, never the state itself */
         if ((role === 'station' || role === 'hall') && !['config', 'ws', 'state'].includes(seg[4])) return err('لا صلاحية', 403);   // a station reads its event and its room, nothing else
         const theRoom = () => env.ROOM.get(env.ROOM.idFromName(evId + (rehearse ? ':draft' : ':live')));
-        if (seg[4] === 'pub') { const pk = evId + (rehearse ? ':d' : ':l') + ver, hit = PUB.get(pk); if (hit && Date.now() - hit.at < 3000) return new Response(hit.body, { headers: { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' } });
+        if (seg[4] === 'pub') { const pk = evId + (rehearse ? ':d' : ':l') + ver, hit = PUB.get(pk); if (hit && Date.now() - hit.at < (pressure() > .85 ? 20000 : 3000)) return new Response(hit.body, { headers: { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' } });
           const st = ((await (await theRoom().fetch(new Request('https://room/log'))).json().catch(() => ({}))).state) || {}, launched = !!st.launchedAt && Date.now() >= st.launchedAt + launchTimes(doc).reveal * 1000, hasL = doc.cues.some(c => c.type === 'launch');
           const I = launched && doc.identity.after ? doc.identity.after : doc.identity.before, off = Array.isArray(st.off) ? st.off : doc.cues.filter(c => c.off).map(c => c.id), ord = Array.isArray(st.order) && st.order.length === doc.cues.length ? st.order.map(i => doc.cues.find(c => c.id === i)).filter(Boolean) : doc.cues;
           const shownCues = ord.filter(c => !off.includes(c.id) && ['title', 'speaker', 'video', 'slides', 'launch'].includes(c.type) && (launched || !hasL || !c.after)).map(c => ({ id: c.id, title: c.title, who: c.person && doc.people[c.person] ? [doc.people[c.person].honorific, doc.people[c.person].name].filter(Boolean).join(' · ') : '' }));
@@ -411,7 +416,7 @@ const GUARD = { 'X-Content-Type-Options': 'nosniff', 'X-Frame-Options': 'SAMEORI
 const KINDS = ['ceremony', 'stations'];   // the kinds of organisation the platform owner chooses from
 export default {
   scheduled: (e, env, ctx) => main.scheduled(e, env, ctx),
-  async fetch(req, env, ctx) { const r = await main.fetch(req, env, ctx); if (r.status === 101 || r.webSocket) return r;
+  async fetch(req, env, ctx) { countUse(env, ctx, req); const r = await main.fetch(req, env, ctx); if (r.status === 101 || r.webSocket) return r;
     const h = new Headers(r.headers); for (const [k, v] of Object.entries(GUARD)) h.set(k, v); if (/^\/(m|api\/read)\//.test(new URL(req.url).pathname)) h.set('Content-Security-Policy', "default-src 'none'; style-src 'unsafe-inline'; sandbox");
     return new Response(r.body, { status: r.status, statusText: r.statusText, headers: h }); },
 };
