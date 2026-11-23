@@ -152,7 +152,7 @@ function paint() { alerts(); sparePaint(); opsPaint(); paintMap(); volPaint(); m
     card.classList.toggle('live', i.busy); tag.className = 'tag ' + k; tag.querySelector('em').textContent = t;
     card.querySelector('.pg').textContent = i.pages ? `صفحة ${i.page.toLocaleString('ar')} من ${i.pages.toLocaleString('ar')}` : '';
     card.querySelector('.tc').textContent = (i.touch ? 'آخر لمسة ' + ago(i.touch) : '') + (i.on && i.r ? ` · الاتصال ${qual(i.r.lag)}` : ''); const nx = nextOf(sid), scd = card.querySelector('.sc'); if (scd) scd.textContent = nx ? `الجدولة: ${nx.at} «${(D.media[nx.media] || {}).name || ''}»` : ''; const f = card.querySelector('[data-f]'); if (document.activeElement !== f) f.value = ((S.st || {})[sid] || {}).media || '';
-    card.querySelector('[data-d]').textContent = i.dark ? 'تشغيل' : 'إطفاء'; card.querySelector('[data-m]').textContent = i.maint ? 'إنهاء التجهيز' : 'قيد التجهيز'; card.querySelector('[data-m]').classList.toggle('on', i.maint); card.querySelector('.mt').classList.toggle('on', i.maint); const sc = card.querySelector('.scr'); paintScr(sc, i, Math.round(sc.clientWidth * .94), Math.round(sc.clientHeight * .94)); }
+    card.querySelector('[data-d]').textContent = i.dark ? 'تشغيل' : 'إطفاء'; { const r0 = i.r, el = card.querySelector('.sc'); if (el && r0 && r0.q) el.textContent = `${r0.q.toLocaleString('ar')} زيارة محفوظة على الشاشة تنتظر الإرسال`; } card.querySelector('[data-m]').textContent = i.maint ? 'إنهاء التجهيز' : 'قيد التجهيز'; card.querySelector('[data-m]').classList.toggle('on', i.maint); card.querySelector('.mt').classList.toggle('on', i.maint); const sc = card.querySelector('.scr'); paintScr(sc, i, Math.round(sc.clientWidth * .94), Math.round(sc.clientHeight * .94)); }
   if (big) { const i = info(big), s = ST.find(x => x.id === big), [, t] = status(i); $('#bS').textContent = t; $('#bI').textContent = (i.pages ? `صفحة ${i.page} من ${i.pages} · ` : '') + (i.touch ? 'آخر لمسة ' + ago(i.touch) : '');
     if (document.activeElement !== $('#bF')) $('#bF').value = ((S.st || {})[big] || {}).media || ''; $('#bD').textContent = i.dark ? 'تشغيل المحطة' : 'إطفاء المحطة'; $('#big .mt')?.classList.toggle('on', i.maint); const sc = $('#bScr'); paintScr(sc, i, Math.round(sc.clientWidth * .96), Math.round(sc.clientHeight * .96)); $('#bN').textContent = s ? s.name + (s.place ? ' · ' + s.place : '') : ''; } }
 // the commands
@@ -216,12 +216,13 @@ $('#mGo').onclick = () => { const t = $('#mTxt').value.trim(); if (!t) return to
 $('#mOff').onclick = () => send({ type: 'msg', text: '' });
 const msgPaint = () => { const m = S.msg && link.now() < S.msg.until ? S.msg : null; $('#mNow').textContent = m ? `معروضة حتى ${new Date(m.until).toLocaleTimeString('ar', { hour: 'numeric', minute: '2-digit' })}` : ''; };
 // ----- the readiness check before the doors open: every screen, one line each, what is ready and what is missing
-const CH = [['on', 'متصلة'], ['open', 'الملف مفتوح'], ['kept', 'محفوظ على الجهاز'], ['ver', 'آخر نسخة'], ['size', 'المقاس'], ['qr', 'رمز الجوال'], ['sched', 'الجدولة']];
+const CH = [['on', 'متصلة'], ['open', 'الملف مفتوح'], ['kept', 'محفوظ على الجهاز'], ['q', 'الزيارات أُرسلت'], ['ver', 'آخر نسخة'], ['size', 'المقاس'], ['qr', 'رمز الجوال'], ['sched', 'الجدولة']];
 function readiness() { const rows = [], now2 = Date.now(); let ready = 0;
   for (const st of ST) { const i = info(st.id), r = liveOf(st.id), c = {};
     c.on = r && i.on ? ['ok', '✓'] : ['no', i.r ? 'انقطعت ' + ago(i.r.at) : 'لم تُفتح بعد'];
     c.open = !r ? ['no', '·'] : r.err ? ['no', r.err] : r.ready ? ['ok', '✓'] : ['no', 'لم يُفتح'];
     c.kept = !r ? ['no', '·'] : r.kept ? ['ok', '✓'] : ['wa', 'يحفظ الآن'];
+    c.q = !r ? ['no', '·'] : r.q ? ['wa', `${r.q} زيارة تنتظر الإرسال`] : ['ok', '✓'];
     c.ver = !r ? ['no', '·'] : r.ver === link.version ? ['ok', '✓'] : ['no', 'نسخة قديمة: أعيدوا تشغيلها'];
     c.size = !r ? ['no', '·'] : Math.min(r.w, r.h) >= 600 ? ['ok', `${r.w}×${r.h}`] : ['wa', `${r.w}×${r.h} صغيرة`];
     c.qr = !st.qr ? ['ok', 'غير مطلوب'] : !r ? ['no', '·'] : r.qr ? ['ok', '✓'] : ['no', 'لا يعمل'];
