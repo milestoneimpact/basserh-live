@@ -5,7 +5,7 @@ import { reduce, stationMedia } from '../web/engine/state.js';
 import { DUMMY, KEEP, failed, invite, locked, me, newPw, orgOf, platform, pwHash, pwOk, session, userFor } from './auth.js';
 import { readBrand } from './brand.js';
 import { dayMail, mailOn } from './report.js';
-import { vaultDrop, vaultSync, vaultRestore, vaultSummary, vaultAll, countUse, pressure, DAY_LIMIT, takeSessions, visits, BLANK, STATION_STARTER, FEATURES, ORGS, PUB, STARTER, audit, backup, exportOrg, hasFeat, kickOrg, listAll, orgExists, padd, readKey, site, sweep } from './data.js';
+import { copyEvent, vaultDrop, vaultSync, vaultRestore, vaultSummary, vaultAll, countUse, pressure, DAY_LIMIT, takeSessions, visits, BLANK, STATION_STARTER, FEATURES, ORGS, PUB, STARTER, audit, backup, exportOrg, hasFeat, kickOrg, listAll, orgExists, padd, readKey, site, sweep } from './data.js';
 import { mail, mailJoin } from './mail.js';
 import { b64u, clientData, newChallenge, unb64u, verify } from './passkey.js';
 import { orgOfEvent, tdb } from './tenant.js';
@@ -96,6 +96,8 @@ const main = {
       if (p === '/api/admin/leads' && M === 'GET') return J({ leads: (await env.DB.prepare('SELECT id, name, org, phone, email, kind, event_date, message, created_at, handled_at, mailed FROM leads ORDER BY id DESC LIMIT 200').all()).results, mail: !!((env.EMAIL || env.RESEND_KEY) && env.CONTACT_TO) });
       if (p === '/api/admin/leads' && M === 'PATCH') { const b = await req.json(); await env.DB.prepare('UPDATE leads SET handled_at = ? WHERE id = ?').bind(b.handled ? now() : null, b.id).run(); return J({ ok: true }); }
       if (p === '/api/admin/site' && M === 'PUT') { const f = url.searchParams.get('path') || ''; if (!/^[\w./-]+$/.test(f) || f.includes('..')) return err('مسار غير صالح'); await env.MEDIA.put('_site/' + f, req.body, { httpMetadata: { contentType: req.headers.get('Content-Type') || 'application/octet-stream' } }); return J({ ok: true }); }
+      if (p === '/api/admin/copy-event' && M === 'POST') { const b = await req.json().catch(() => ({})), r = await copyEvent(env, String(b.from || ''), String(b.event || ''), String(b.to || ''), b.name);   /* the same exhibition for another organisation */
+        if (r.error) return err(r.error, r.status); await padd(env, 'copied', `${b.event} → ${b.to} · ${r.files} ملف`); return J(r); }
       if (p === '/api/admin/org' && M === 'PATCH') {   // the plan of an organisation: limits, the paid period, activation days added
         const b = await req.json(), o = await env.DB.prepare('SELECT * FROM orgs WHERE id = ?').bind(b.id).first(); if (!o) return err('لا يوجد', 404);
         const feats = Array.isArray(b.features) ? b.features.filter(f => FEATURES[f]).join(' ') : (o.features || '');
@@ -206,7 +208,7 @@ const main = {
         return new Response(null, { status: 302, headers: { Location: `/run/${['side', 'logo'].includes(l.role) ? 'stage' : l.role === 'hall' ? 'station' : l.role}.html?e=${l.event_id}${['side', 'logo'].includes(l.role) ? '&' + l.role : ''}`, 'Set-Cookie': setCookie('lk_' + l.event_id, tok, 30) } });
       }
       // ----- a visitor's phone, from a station's QR code: that station's file only, by a key only the station's screen was given; on the event's day (or in its rehearsal)
-      if (p.startsWith('/api/read/')) { const mm = p.match(/^\/api\/read\/(e_[a-z0-9]{20})\/([A-Za-z0-9][A-Za-z0-9_-]{0,39})\/([ld])\/([0-9a-f]{24})(?:\/(file|logo|session))?$/); if (!mm || (M !== 'GET' && !(M === 'POST' && mm[5] === 'session'))) return err('لا يوجد', 404);
+      if (p.startsWith('/api/read/')) { const mm = p.match(/^\/api\/read\/(e_[a-z0-9]{20})\/([A-Za-z0-9][A-Za-z0-9_-]{0,39})\/([ld])\/([0-9a-f]{24})(?:\/(file|logo|session|feedback))?$/); if (!mm || (M !== 'GET' && !(M === 'POST' && (mm[5] === 'session' || mm[5] === 'feedback')))) return err('لا يوجد', 404);
         const [, evId, sid, mode, key, what] = mm; if (!(await orgExists(env, orgOfEvent(evId)))) return err('لا يوجد', 404); if (key !== await readKey(env, evId, sid, mode === 'd')) return err('رمز غير صالح', 403);
         const T = tdb(env, orgOfEvent(evId)), ev = await T.prepare('SELECT id, org_id, draft, published_version, active_from, active_until FROM events WHERE id = ?').bind(evId).first(); if (!ev) return err('لا يوجد', 404);
         if (mode === 'l' && !ev.published_version) return err('لم يُعتمد العرض بعد.', 410);   // an organisation uses its links freely while it is switched on
@@ -214,7 +216,10 @@ const main = {
         if (!isStations(doc) || !st || !stationCfg(st).qr) return err('القراءة من الجوال غير متاحة لهذه المحطة', 403);
         const room = await (await env.ROOM.get(env.ROOM.idFromName(evId + (mode === 'd' ? ':draft' : ':live'))).fetch(new Request('https://room/log'))).json().catch(() => ({})), mk = stationMedia(doc, room.state, sid), m = mk && doc.media[mk], I = doc.identity.before || {};
         if (what === 'session') { const b = await req.json().catch(() => ({})); return J({ ok: true, kept: await takeSessions(T, evId, mode === 'd', [b], x => x === sid, 'phone') }); }   // what the visitor read on the phone
-        if (!what) return J({ name: doc.name, station: st.name, place: st.place || '', title: m ? m.name : '', kind: m ? m.kind : '', pages: m ? m.count || 0 : 0, dir: stationCfg(st).dir, media: mk || '', colors: I.colors || {}, font: fontCss(I), logo: !!I.logo });
+        if (what === 'feedback') { if (mode !== 'l') return J({ ok: true }); const b = await req.json().catch(() => ({})), ans = ['yes', 'some', 'no'].includes(b.a) ? b.a : null, id = String(b.id || '').replace(/[^a-z0-9]/g, '').slice(0, 24); if (!ans || id.length < 8 || !(doc.visitor && doc.visitor.ask)) return err('لا يوجد', 404);
+          await T.prepare('INSERT OR IGNORE INTO feedback (id, event_id, station, answer, at) VALUES (?,?,?,?,?)').bind(id, evId, sid, ans, now()).run(); return J({ ok: true }); }   /* one answer per visitor (its id) */
+        const V = doc.visitor || {}, links = (V.links || []).filter(l => l && /^(https:\/\/|tel:|mailto:)/i.test(l.url || '') && String(l.label || '').trim()).slice(0, 3).map(l => ({ label: String(l.label).slice(0, 40), url: String(l.url).slice(0, 300) }));
+        if (!what) return J({ links, ask: !!V.ask, name: doc.name, station: st.name, place: st.place || '', title: m ? m.name : '', kind: m ? m.kind : '', pages: m ? m.count || 0 : 0, dir: stationCfg(st).dir, media: mk || '', colors: I.colors || {}, font: fontCss(I), logo: !!I.logo });
         // the file: a picture of a gallery by its number (?n=), a film in ranges (a phone plays it while it comes)
         const n = Math.max(1, Math.min(5000, Math.round(+url.searchParams.get('n') || 1))), file = what === 'logo' ? I.logo : m && (m.kind === 'slides' ? m.src + 's-' + n + '.jpg' : m.src); if (!file) return err('لا يوجد', 404);
         const range = req.headers.get('Range'), o = await env.MEDIA.get(`${ev.org_id}/${ev.id}/${file}`, range ? { range: req.headers } : {}); if (!o) return err('لا يوجد', 404);
@@ -357,6 +362,8 @@ const main = {
           const rev = req.headers.get('x-rev'); if (rev && rev !== ev.updated_at && !req.headers.get('x-force')) return J({ error: 'عدّل زميل هذا اللقاء أثناء عملك', conflict: true, rev: ev.updated_at }, 409);
           const at = now(); await T.prepare('UPDATE events SET draft = ?, name = ?, updated_at = ? WHERE id = ?').bind(JSON.stringify(doc), doc.name || ev.name, at, id).run(); return J({ ok: true, rev: at, problems: problems(doc) }); }
         // the published versions of the event, and a version brought back as the draft (the versions themselves never change)
+        if (sub === 'duplicate' && M === 'POST') { if (!can('editor')) return err('لا تملك الصلاحية', 403); const b = await req.json().catch(() => ({})), r = await copyEvent(env, org.id, id, org.id, b.name);   /* a whole copy, its files with it */
+          if (r.error) return err(r.error, r.status); await audit(env, org.id, r.id, who.user.id, 'duplicate', id); return J(r); }
         if (sub === 'reportmail') { if (M === 'POST') { if (!can('operator')) return err('لا تملك الصلاحية', 403); const b = await req.json().catch(() => ({}));
             await T.prepare(b.on ? "DELETE FROM report_mail WHERE event_id = ? AND day = 'off'" : "INSERT OR IGNORE INTO report_mail (event_id, day, at) VALUES (?, 'off', ?)").bind(...(b.on ? [id] : [id, now()])).run(); await audit(env, org.id, id, who.user.id, b.on ? 'reportmail_on' : 'reportmail_off', ''); }
           const last = await T.prepare("SELECT day, at FROM report_mail WHERE event_id = ? AND day != 'off' ORDER BY day DESC LIMIT 1").bind(id).first(); return J({ on: await mailOn(T, id), last: last ? last.day : null }); }

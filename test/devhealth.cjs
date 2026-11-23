@@ -35,5 +35,10 @@ const tidy = async () => { for (const o of MADE.splice(0)) await adm('DELETE', {
   await s2.mouse.click(300, 300); await s2.waitForTimeout(400); const q = await s2.evaluate(() => Object.keys(localStorage).filter(k => /sess|queue/i.test(k)).map(k => localStorage.getItem(k)).join(''));
   await bd.click('.card[data-s="s1"] [data-m]'); await s2.waitForFunction(() => !document.querySelector('#mnt').classList.contains('on'), null, { timeout: 10000 }).catch(() => {});
   ok(!(await s2.evaluate(() => document.querySelector('#mnt').classList.contains('on'))), 'ended from the board: the station is back for visitors'); ok(!/"ms":/.test(q), 'a touch under repair was not counted as a visit');
+  // a whole day with no network: the visit is kept on the screen, and sent when the network returns; the board's readiness says so
+  await s2.context().setOffline(true); await s2.mouse.click(300, 300); await s2.waitForTimeout(700); await s2.evaluate(() => dispatchEvent(new Event('pagehide'))); await s2.waitForTimeout(800);
+  const kept = await s2.evaluate(() => Object.keys(localStorage).filter(k => /^q:|visits|sess/i.test(k)).map(k => (JSON.parse(localStorage.getItem(k) || '[]') || []).length).reduce((a, b) => a + b, 0)); ok(kept >= 1, 'no network: the visit is kept on the screen (' + kept + ')');
+  await s2.context().setOffline(false); let v = 0; for (let i = 0; i < 30 && !v; i++) { await s2.waitForTimeout(1000); v = (await A.api(`/api/events/${A.ev}/visits`, null, 'GET')).total || 0; } ok(v >= 1, 'the network back: it reaches the server by itself (' + v + ')');
+  await bd.click('#rdy'); await bd.waitForSelector('#rmT table'); ok(/الزيارات أُرسلت/.test(await bd.textContent('#rmT')), 'the readiness check has a column for visits still waiting on a screen');
   ok(!errs.length, 'no page errors' + (errs.length ? ': ' + errs.join(' | ') : '')); await b.close(); await tidy();
 })().catch(async e => { console.log('✗ ' + (e.stack || e)); await tidy(); process.exit(1); });

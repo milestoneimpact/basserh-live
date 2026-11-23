@@ -31,8 +31,8 @@ const wait = ms => new Promise(r => setTimeout(r, ms));
   const row = n => bd.$$eval(`#rmT tr:nth-child(${n + 1}) td`, l => l.map(x => x.className + ':' + x.textContent));
   const r1 = await row(1), r2 = await row(2), r3 = await row(3);
   ok(/جاهزة (٢|2) من (٣|3)/.test(await bd.textContent('#rmS')) || /جاهزة (١|1) من (٣|3)/.test(await bd.textContent('#rmS')), 'the check counts the screens ready: ' + await bd.textContent('#rmS'));
-  ok(r1.slice(1).every(x => /^ok:/.test(x)) && /أوقات|وقت/.test(r1[7]) && /✓/.test(r1[6]), 'station 1: connected, open, kept, latest version, size, phone code, its schedule: ' + r1.slice(1).join(' | '));
-  ok(/^wa:.*صغيرة/.test(r2[5]) && /غير مطلوب/.test(r2[6]), 'station 2: its screen is small (800×500), no phone code asked: ' + r2[5]);
+  ok(r1.slice(1).every(x => /^ok:/.test(x)) && /أوقات|وقت/.test(r1[8]) && /✓/.test(r1[7]) && /✓/.test(r1[4]), 'station 1: connected, open, kept, visits sent, latest version, size, phone code, its schedule: ' + r1.slice(1).join(' | '));
+  ok(/^wa:.*صغيرة/.test(r2[6]) && /غير مطلوب/.test(r2[7]), 'station 2: its screen is small (800×500), no phone code asked: ' + r2[6]);
   ok(/^no:لم تُفتح بعد/.test(r3[1]), 'station 3: never opened, said so in red');
   await bd.screenshot({ path: OUT + '1_readiness.jpg', type: 'jpeg', quality: 80 }); await bd.click('#rmX');
   // ----- a screen restarted from the board

@@ -1,7 +1,7 @@
 // Data of the platform: audit trails, the starter event, the pages from the bucket, files, the sweep, export and the daily copy.
 import { platform } from './auth.js';
 import { tdb } from './tenant.js';
-import { now } from './util.js';
+import { now, rid } from './util.js';
 
 // the features the platform owner opened for an organisation (a list of words in orgs.features): 'stations' for now.
 // The column and the pairing table come from db/migrations/0005_stations.sql
@@ -91,7 +91,8 @@ export async function visits(T, evId, doc, draft, tz = 0, day = '') {   // day: 
     if (r.media && doc.media && doc.media[r.media]) { const m = md[r.media] || (md[r.media] = { media: r.media, name: doc.media[r.media].name, count: doc.media[r.media].count || 0, n: 0, reach: {}, dwell: {}, zoom: {} });
       m.n++; for (let p = 1; p <= (r.max_page || 0); p++) m.reach[p] = (m.reach[p] || 0) + 1; for (const [p, v] of Object.entries(pages)) { m.dwell[p] = (m.dwell[p] || 0) + v; } for (const [p, v] of Object.entries(zooms)) m.zoom[p] = (m.zoom[p] || 0) + v; } }
   const names = Object.fromEntries((doc.stations || []).map(s => [s.id, s.name]));
-  return { day, days: Object.values(days).sort((a, b) => (a.day < b.day ? -1 : 1)), total: rows.filter(r => r.kind !== 'phone').length, ms: rows.filter(r => r.kind !== 'phone').reduce((a, r) => a + r.ms, 0), phone, phonePages, qr, linksIn: lin, linksOut: lout, hours,
+  const fb = { yes: 0, some: 0, no: 0 }; if (!draft) { try { const { results: fr } = await T.prepare('SELECT answer, at FROM feedback WHERE event_id = ?').bind(evId).all(); for (const f of fr) if (!day || dayOf({ started_at: f.at }) === day) fb[f.answer] = (fb[f.answer] || 0) + 1; } catch {} }
+  return { fb, day, days: Object.values(days).sort((a, b) => (a.day < b.day ? -1 : 1)), total: rows.filter(r => r.kind !== 'phone').length, ms: rows.filter(r => r.kind !== 'phone').reduce((a, r) => a + r.ms, 0), phone, phonePages, qr, linksIn: lin, linksOut: lout, hours,
     stations: (doc.stations || []).map(s => ({ ...(st[s.id] || { station: s.id, n: 0, ms: 0, pages: 0 }), name: names[s.id] })).sort((a, b) => b.n - a.n),
     files: Object.values(md).map(m => ({ ...m, pagesSeen: Object.keys(m.dwell).length })), from: rows[0] ? rows[0].started_at : null, to: rows.length ? rows[rows.length - 1].started_at : null };
 }
@@ -114,6 +115,23 @@ export function countUse(env, ctx, req) { try {
     env.DB.prepare('SELECT COALESCE(SUM(n),0) AS t FROM usage WHERE day = ?').bind(day)]).then(r => { const t = r[r.length - 1].results[0].t; if (t > USE.today) USE.today = t; }).catch(() => {}));
 } catch {} }
 
+// a whole event copied, its files with it: within the organisation (a second exhibition from the first) or, by the platform owner,
+// to another organisation (the same exhibition in another city). Files are copied in the bucket; nothing passes through a browser.
+export async function copyEvent(env, fromOrg, evId, toOrg, name) {
+  const S = tdb(env, fromOrg), D = tdb(env, toOrg), ev = await S.prepare('SELECT name, draft FROM events WHERE id = ? AND org_id = ?').bind(evId, fromOrg).first(); if (!ev) return { error: 'لا يوجد', status: 404 };
+  const to = await env.DB.prepare('SELECT id, kind, storage_limit_mb FROM orgs WHERE id = ?').bind(toOrg).first(), doc = JSON.parse(ev.draft); if (!to) return { error: 'لا توجد الجهة', status: 404 };
+  if (to.kind && to.kind !== (doc.mode === 'stations' ? 'stations' : 'ceremony')) return { error: to.kind === 'stations' ? 'الجهة المقصودة للمعارض وحدها' : 'الجهة المقصودة للقاءات وحدها', status: 409 };
+  const from = `${fromOrg}/${evId}/`, objs = await listAll(env, from), size = objs.reduce((a, o) => a + o.size, 0), used = (await D.prepare('SELECT COALESCE(SUM(bytes),0) AS b FROM media WHERE org_id = ?').bind(toOrg).first()).b;
+  if (used + size > to.storage_limit_mb * 1048576) return { error: 'لا تتسع مساحة الجهة لملفات هذا المعرض', status: 402 };
+  const id = 'e_' + toOrg.slice(2) + rid(8), dest = `${toOrg}/${id}/`;
+  for (const o of objs) { const g = await env.MEDIA.get(o.key); if (!g) continue; let body;
+    if (typeof FixedLengthStream !== 'undefined' && g.size > 64 * 1048576) { const f = new FixedLengthStream(g.size); g.body.pipeTo(f.writable); body = f.readable; } else body = await g.arrayBuffer();
+    await env.MEDIA.put(dest + o.key.slice(from.length), body, { httpMetadata: g.httpMetadata }); }
+  const { results: media } = await S.prepare('SELECT * FROM media WHERE event_id = ?').bind(evId).all(), re = k => (k && k.startsWith(from) ? dest + k.slice(from.length) : k);
+  const stmts = media.map(m => ({ sql: 'INSERT INTO media (id, org_id, event_id, kind, name, r2_key, preview_key, bytes, length, count, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)', params: ['m_' + rid(), toOrg, id, m.kind, m.name, re(m.r2_key), re(m.preview_key), m.bytes, m.length, m.count, now()] }));
+  doc.name = String(name || ev.name).slice(0, 120); stmts.push({ sql: 'INSERT INTO events (id, org_id, slug, name, status, draft, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?)', params: [id, toOrg, 'copy-' + rid(6), doc.name, 'draft', JSON.stringify(doc), now(), now()] });
+  await D.batch(stmts); return { id, files: objs.length, bytes: size };
+}
 // ----- the files' vault: a second copy of every organisation's files (pictures, videos, PDFs, slides).
 // In its own bucket when one is bound (VAULT); until then under _vault/ in the same bucket, which already guards against a deletion by mistake.
 // A file is copied after each upload and by the daily copy; a file whose source is gone is kept thirty days (vault_gone), so a deleted
