@@ -73,13 +73,14 @@ html,body{overflow-x:clip}.prob:hover{filter:brightness(.97)}
 @media(max-width:800px){.vr-k{grid-template-columns:1fr 1fr}.vr>*{margin-inline:16px}.vr-hd{padding:18px 16px}}
 .sto{margin-bottom:18px;border-color:#E2B866;background:#FFF8EA}.sto.full{border-color:var(--bad);background:#FBEFEC}.sto-h{display:flex;gap:16px;align-items:center;justify-content:space-between;flex-wrap:wrap}.sto-h b{display:block;font:900 18px Kufi;color:var(--deep)}.sto-h span{color:#555;font-size:14px}.sto-b{flex:0 0 220px;height:10px;border-radius:6px;background:#EFE6D2;overflow:hidden}.sto-b i{display:block;height:100%;background:linear-gradient(90deg,#D9B878,#A8402F)}.sto summary{cursor:pointer;margin-top:10px;color:var(--gold);font:700 13px Plex}.sto-r{display:flex;justify-content:space-between;gap:12px;padding:7px 0;border-top:1px solid var(--line);cursor:pointer;font-size:14px}.sto-r small{display:block;color:var(--mute);font-size:12px}
 #gate .ownL{max-height:120px;max-width:300px;margin-bottom:16px;object-fit:contain}#gate.own{border-top:5px solid var(--own);padding-top:34px}#gate.own .btn.pri{background:var(--own);border-color:var(--own)}
+.stmiss{flex-basis:100%;display:flex;flex-wrap:wrap;gap:6px 10px;align-items:center;background:#FFF8EA;border:1px solid #E2B866;border-radius:12px;padding:10px 14px;font-size:13px}.stmiss b{font:900 14px Kufi;color:var(--deep);margin-inline-end:4px}.stmiss span{background:#fff;border:1px solid var(--line);border-radius:20px;padding:3px 10px;color:#6B4E12}
 </style></head><body>
 <header><div class="wm">بصيرة<i></i><span>BASSERH</span></div><span style="font:600 14px Plex;color:var(--gold2);margin-inline-start:6px">استوديو اللقاءات</span><span class="org" id="orgName"></span><span class="sp"></span><span id="saved" style="font-size:13px;color:var(--gold2)"></span><a href="#" id="pwSet" style="color:var(--gold2);font:600 13px Plex;text-decoration:none;margin-inline-end:14px;display:none">كلمة المرور</a><a href="#" id="pk" title="الدخول لاحقاً ببصمة هذا الجهاز أو رمزه، بلا رابط دعوة">إضافة مفتاح مرور</a><a href="#" id="home">لقاءاتي</a><a href="/api/logout">خروج</a></header>
 <main id="app"></main><div id="toast"></div><script src="vendor/qrcode.js"></script>
 <script type="module">
 import { SCENES, problems, LAUNCH, TRANSITIONS, launchStyle, GESTURES, AMBIENT, TEXTIN, FONTS, fontCss, isStations, MODES, IDLE, stationCfg, STATION_KINDS, ATTRACT_KINDS } from './engine/config.js';
 import { TEMPLATES } from './engine/templates.js';
-import { Library } from './library.js';
+import { Library, warnings as fileWarn } from './library.js';
 import { visRead as visRead0 } from './engine/report.js';
 const visRead = v => visRead0(v, esc);
 import * as SFX from './run/sfx.js';
@@ -202,10 +203,16 @@ function stSteps(el) { const L = doc.stations || [], pdfs = Object.values(doc.me
   const S = [['media', 'الملفات', pdfs.length ? cnt(pdfs.length, 'ملف واحد', 'ملفان', 'ملفات', 'ملفاً') : 'ارفع الكتب والصور والأفلام', pdfs.length > 0],
     ['stations', 'المحطات', L.length ? cnt(L.length, 'محطة واحدة', 'محطتان', 'محطات', 'محطة') + (L.some(x => !x.media) ? ' · بعضها بلا ملف' : '') : 'أضف المحطات', L.length > 0 && L.every(x => x.media && doc.media[x.media])],
     ['identity', 'الهوية', I.before.logo ? 'الشعار والألوان' : 'ارفع شعار الجهة', !!I.before.logo],
+    ['attract', 'شاشة الانتظار', L.some(x => x.attract) ? cnt(L.filter(x => x.attract).length, 'محطة واحدة لها صورة', 'محطتان لهما صورة', 'محطات لها صورة', 'محطة لها صورة') : 'صورة أو فيلم يجذب الزائر (اختياري)', L.length > 0 && (L.some(x => x.attract) || !!localStorage.getItem('noatt:' + E.id))],
+    ['guide', 'دليل التركيب', localStorage.getItem('guide:' + E.id) ? 'طُبع للفريق' : 'اطبع ورقة التركيب للفنيين', !!localStorage.getItem('guide:' + E.id)],
     ['reh', 'التجربة', localStorage.getItem('reh:' + E.id) ? 'جُرّبت على المسودة' : 'جرّب المحطات قبل الاعتماد', !!localStorage.getItem('reh:' + E.id)],
     ['run', 'الاعتماد والروابط', E.published_version ? 'النسخة ' + E.published_version : probs.length ? cnt(probs.length, 'بقي نقص واحد', 'بقي نقصان', 'نواقص', 'نقصاً') : 'جاهز للاعتماد', !!E.published_version]];
   const next = S.find(s => !s[3]); el.innerHTML = S.map((s, i) => `<button class="stp${s[3] ? ' ok' : ''}${s === next ? ' now' : ''}" data-go="${s[0]}"><i>${s[3] ? '✓' : i + 1}</i><span><b>${s[1]}</b><small>${esc(s[2])}</small></span></button>`).join('');
-  el.querySelectorAll('.stp').forEach(b => b.onclick = () => { if (b.dataset.go === 'reh') return $('#reh').click(); tab = b.dataset.go; draw(); }); }
+  /* what is still missing before the exhibition is approved: the problems, and the files that may be slow on the screens */
+  const heavy = Object.values(doc.media).filter(m => STATION_KINDS.includes(m.kind) && L.some(x => x.media && doc.media[x.media] === m)).flatMap(m => fileWarn(m).map(w => `«${m.name}»: ${w}`)), miss = [...probs.map(p => typeof p === 'string' ? p : p.text || ''), ...heavy].filter(Boolean);
+  if (!E.published_version && miss.length) el.insertAdjacentHTML('beforeend', `<div class="stmiss"><b>قبل الاعتماد</b>${miss.slice(0, 6).map(x => `<span>${esc(x)}</span>`).join('')}${miss.length > 6 ? `<span>و${miss.length - 6} غيرها</span>` : ''}</div>`);
+  el.querySelectorAll('.stp').forEach(b => b.onclick = () => { const g = b.dataset.go; if (g === 'reh') return $('#reh').click(); if (g === 'guide') { localStorage.setItem('guide:' + E.id, '1'); guide(); return steps(); }
+    if (g === 'attract') { if (!L.some(x => x.attract)) localStorage.setItem('noatt:' + E.id, '1'); tab = 'stations'; draw(); return toast('اختر لكل محطة صورة أو فيلمًا يظهر حين لا يلمسها أحد، أو اتركها على شاشة الاسم والمكان'); } tab = g; draw(); }); }
 // ---------- the stations: a touch screen each, its file and how the visitor browses it
 // ----- the library of a stations event (web/library.js): the files tab, and the picker wherever a file is chosen
 const usedBy = k => { const out = []; for (const [i, s] of (doc.stations || []).entries()) { if (s.media === k) out.push(s.name || 'المحطة ' + (i + 1)); if (s.attract === k) out.push('انتظار ' + (s.name || i + 1)); for (const x of s.schedule || []) if (x.media === k) out.push(`${s.name} ${x.at}`); } return out; };
@@ -589,7 +596,7 @@ async function run() { const ST = isStations(doc), stName = id => ((doc.stations
   const act = $('#act'); if (act) act.onclick = async () => { const d = $('#actDay').value; if (!d) return toast('اختر يوم اللقاء'); if (!(await ask({ title: 'تفعيل يوم اللقاء', text: 'يُخصم يوم واحد من رصيدكم، وتفتح شاشات القاعة في ' + d + ' ومن مساء اليوم السابق للتجهيز. اليوم المفعّل لا يُستردّ.', ok: 'تفعيل اليوم' }))) return; const r = await api(`/api/events/${E.id}/activate`, { method: 'POST', body: JSON.stringify({ from: new Date(d + 'T00:00:00').toISOString() }) }); Object.assign(E, r); toast('فُعّل يوم اللقاء'); run(); };
   if (!$('#la')) return;   // the tab was left while its data was on the way
   if (ST) { const sync = () => { $('#ll').style.visibility = $('#lr').value === 'station' ? '' : 'hidden'; }; $('#lr').onchange = sync; sync();
-    const gd = $('#guide'); if (gd) gd.onclick = () => guide(); const lb = $('#liveB'); if (lb) lb.onclick = () => window.open(`/run/stations.html?e=${E.id}`, '_blank');
+    const gd = $('#guide'); if (gd) gd.onclick = () => { localStorage.setItem('guide:' + E.id, '1'); guide(); steps(); }; const lb = $('#liveB'); if (lb) lb.onclick = () => window.open(`/run/stations.html?e=${E.id}`, '_blank');
     const all = $('#laAll'); if (all) all.onclick = async () => { const have = new Set(links.filter(l => l.role === 'station').map(l => l.label)), todo = (doc.stations || []).filter(x => !have.has(x.id)); if (!todo.length) return toast('لكل محطة رابط. لرابط جديد استعملوا «رابط بديل»');
       made = made.filter(m => m.ev === E.id); for (const x of todo) { const r = await api(`/api/events/${E.id}/links`, { method: 'POST', body: JSON.stringify({ role: 'station', label: x.id }) }); made.push({ ev: E.id, role: 'station', label: x.name, url: location.origin + r.url }); }
       await run(); toast('أُنشئت ' + todo.length + ' روابط. اطبعوا ورقتها الآن، فالروابط لا تظهر مرة أخرى'); $('#prL')?.click(); }; }
