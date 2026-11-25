@@ -29,8 +29,11 @@ const main = {
       // ----- the platform owner signs in with the password once, then with a passkey; five wrong passwords lock the address for 15 minutes
       if (p === '/api/admin/login' && M === 'POST') { const ip = req.headers.get('CF-Connecting-IP') || 'local', f = await env.DB.prepare('SELECT n, until FROM login_fail WHERE ip = ?').bind(ip).first();
         if (f && f.until && f.until > now()) return err('محاولات كثيرة. أعد المحاولة بعد ربع ساعة.', 429);
-        const b = await req.json().catch(() => ({})); if (!env.ADMIN_KEY || b.password !== env.ADMIN_KEY) { const n = (f && (!f.until || f.until > now()) ? f.n : 0) + 1; await env.DB.prepare('INSERT INTO login_fail (ip, n, until) VALUES (?,?,?) ON CONFLICT (ip) DO UPDATE SET n = excluded.n, until = excluded.until').bind(ip, n, n >= 5 ? new Date(Date.now() + 9e5).toISOString() : null).run(); return err('كلمة المرور غير صحيحة', 403); }
-        await env.DB.prepare('DELETE FROM login_fail WHERE ip = ?').bind(ip).run(); await padd(env, 'owner_login', req.headers.get('CF-Connecting-IP') || ''); return new Response('{"ok":true}', { headers: { 'Content-Type': 'application/json', 'Set-Cookie': await session(env, await platform(env)) } }); }
+        const all = await locked(env, '*|owner'); if (!all) return err('محاولات كثيرة على باب الإدارة. ادخل بمفتاح المرور، أو أعد المحاولة بعد ربع ساعة.', 429);   /* twenty wrong passwords from anywhere close the owner's door for a quarter of an hour: guessing from many addresses gains nothing */
+        const b = await req.json().catch(() => ({})), same = env.ADMIN_KEY && (await sha(String(b.password || ''))) === (await sha(env.ADMIN_KEY));   /* compared through their hashes: the time taken says nothing of how much was right */
+        if (!same) await failed(env, '*|owner', all.n, 20);
+        if (!same) { const n = (f && (!f.until || f.until > now()) ? f.n : 0) + 1; await env.DB.prepare('INSERT INTO login_fail (ip, n, until) VALUES (?,?,?) ON CONFLICT (ip) DO UPDATE SET n = excluded.n, until = excluded.until').bind(ip, n, n >= 5 ? new Date(Date.now() + 9e5).toISOString() : null).run(); return err('كلمة المرور غير صحيحة', 403); }
+        await env.DB.prepare('DELETE FROM login_fail WHERE ip IN (?, ?)').bind(ip, '*|owner').run(); await padd(env, 'owner_login', req.headers.get('CF-Connecting-IP') || ''); return new Response('{"ok":true}', { headers: { 'Content-Type': 'application/json', 'Set-Cookie': await session(env, await platform(env)) } }); }
       // a change asked from another site's page is refused (the cookie alone is not enough)
       if (!['GET', 'HEAD', 'OPTIONS'].includes(M) && req.headers.get('Origin') && req.headers.get('Origin') !== url.origin) return err('طلب من موقع آخر', 403);
       let admin = false; if (p.startsWith('/api/admin/')) { const hk = req.headers.get('x-admin-key');
@@ -194,7 +197,7 @@ const main = {
             if (!(await verify({ spki: unb64u(k.spki), alg: k.alg, authenticatorData: unb64u(b.authenticatorData), clientDataJSON: cdj, signature: unb64u(b.signature), rpId }))) return err('توقيع غير صحيح', 403);
             await env.DB.prepare('UPDATE passkeys SET last_used_at = ? WHERE cred_id = ?').bind(now(), b.id).run();
             const first = k.user_id === 'platform' ? null : await env.DB.prepare('SELECT o.slug FROM members m JOIN orgs o ON o.id = m.org_id WHERE m.user_id = ? LIMIT 1').bind(k.user_id).first();
-            return new Response(JSON.stringify({ to: k.user_id === 'platform' ? '/admin.html' : '/' + (first ? first.slug : 'login') }), { headers: { 'Content-Type': 'application/json', 'Set-Cookie': await session(env, k.user_id) } }); }
+            return new Response(JSON.stringify({ to: k.user_id === 'platform' ? '/admin' : '/' + (first ? first.slug : 'login') }), { headers: { 'Content-Type': 'application/json', 'Set-Cookie': await session(env, k.user_id) } }); }
         } catch (e) { return err(e.message || 'تعذّر التحقق', 400); }
         return err('لا يوجد', 404); }
       if (p === '/api/logout') { const t = cookies(req).sid; if (t) await env.DB.prepare('DELETE FROM sessions WHERE token_hash = ?').bind(await sha(t)).run();   // signing out ends the session itself, not only this browser's copy of it
@@ -313,6 +316,7 @@ const main = {
       if (!p.startsWith('/api/')) {   // /<slug>: the studio of that organisation (the same page; it sends the slug with every request)
         if (p === '/screen' || p === '/screen/') return site(env, req, '/run/pair');
         { const sm = p.match(/^\/([a-z0-9][a-z0-9-]{1,39})\/screen\/?$/); if (sm && await env.DB.prepare("SELECT 1 FROM orgs WHERE slug = ? AND plan != 'off'").bind(sm[1]).first()) return site(env, req, '/run/pair'); }   // the organisation's own pairing address   // the address a screen is set to open at every start: a code to pair it, then its station
+        if (p === '/admin' || p === '/admin/') return site(env, req, '/admin.html');   // the owner's page at a plain address (admin.html still opens)
         const sl = p.match(/^\/([a-z0-9][a-z0-9-]{1,39})\/?$/); if (p === '/login' || (sl && !['run', 'fonts', 'vendor', 'engine', 'admin', 'brand', 'studio'].includes(sl[1]) && await env.DB.prepare("SELECT 1 FROM orgs WHERE slug = ? AND plan != 'off'").bind(sl[1]).first())) return site(env, req, '/studio');   // «/» is the public page; the studio opens at /login and at each organisation's address
         return site(env, req, url.pathname); }
 
