@@ -2,7 +2,8 @@
 
 
 // one way out for every message: Cloudflare Email Service when the worker has the binding (EMAIL), else Resend (RESEND_KEY). 1 = sent
-export async function mail(env, m) { const from = env.MAIL_FROM || 'noreply@basserh.com';
+export async function mail(env, m) { if (/@noemail\.basserh\.com$/i.test(String(m.to || ''))) return 0;   /* an owner made without an email: nothing is sent */
+  const from = env.MAIL_FROM || 'noreply@basserh.com';
   try { if (env.EMAIL) { await env.EMAIL.send({ from: { email: from, name: 'بصيرة · استوديو اللقاءات' }, to: m.to, replyTo: m.replyTo, subject: m.subject, text: m.text, html: m.html }); return 1; }
     if (env.RESEND_KEY) return (await fetch('https://api.resend.com/emails', { method: 'POST', headers: { Authorization: 'Bearer ' + env.RESEND_KEY, 'Content-Type': 'application/json' }, body: JSON.stringify({ from: env.CONTACT_FROM || `Basserh Live <${from}>`, to: [m.to], reply_to: m.replyTo, subject: m.subject, text: m.text, html: m.html }) })).ok ? 1 : 0;
   } catch (x) { console.log('mail', x.message); } return 0; }

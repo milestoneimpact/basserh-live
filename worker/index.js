@@ -45,7 +45,8 @@ const main = {
         if (['login', 'admin', 'studio', 'run', 'api', 'm', 'go', 'join', 'screen', 'fonts', 'vendor', 'engine', 'brand'].includes(s)) return err('هذا العنوان محجوز للنظام');
         if (await env.DB.prepare('SELECT 1 FROM orgs WHERE slug = ?').bind(s).first()) return err(`العنوان /${s} مستعمل لجهة موجودة في القائمة. اختر عنواناً آخر.`);
         const pw0 = String(b.password || '').trim(); if (pw0 && pw0.length < 8) return err('كلمة المرور ثمانية أحرف على الأقل');
-        const u = await userFor(env, b.email, b.owner); if (!u) return err('بريد المالك غير صالح');
+        const mail0 = String(b.email || '').trim(); if (mail0 && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(mail0)) return err('بريد المالك غير صالح');   /* the email is optional: without it the owner enters at the organisation's own address with the password */
+        const u = await userFor(env, mail0 || `${s}@${NOMAIL}`, b.owner); if (!u) return err('بريد المالك غير صالح');
         const kind = KINDS.includes(b.kind) ? b.kind : null, id = 'o_' + rid(); await env.DB.batch([
           env.DB.prepare('INSERT INTO orgs (id, name, slug, plan, events_limit, storage_limit_mb, paid_until, created_at, kind) VALUES (?,?,?,?,?,?,?,?,?)').bind(id, b.name, s, b.plan || 'trial', b.events_limit || 3, b.storage_limit_mb || 20000, b.paid_until || null, now(), kind),
           env.DB.prepare('INSERT INTO members (org_id, user_id, role) VALUES (?,?,?)').bind(id, u.id, 'owner')]);
@@ -54,7 +55,7 @@ const main = {
         await env.DB.prepare('UPDATE orgs SET credits = ? WHERE id = ?').bind(b.credits == null ? 1 : Math.max(0, +b.credits || 0), id).run();
         // the owner's password: the one the platform owner typed, or a generated one; shown once in the answer, kept hashed
         const password = pw0 || newPw(); await env.DB.prepare('UPDATE users SET pw = ? WHERE id = ?').bind(await pwHash(password), u.id).run();
-        await audit(env, id, null, null, 'org', b.name); await padd(env, 'org_created', `${b.name} /${s}`); const join = await invite(env, u.email); return J({ org: id, slug: s, join, email: u.email, password, mailed: await mailJoin(env, url.origin, u.email, join, b.name) });
+        await audit(env, id, null, null, 'org', b.name); await padd(env, 'org_created', `${b.name} /${s}`); const join = await invite(env, u.email); return J({ org: id, slug: s, join, email: u.email, password, mailed: u.email.endsWith('@' + NOMAIL) ? 0 : await mailJoin(env, url.origin, u.email, join, b.name) });
       }
       // ----- an organisation's data as a file; its end; the copies
       if (p === '/api/admin/export' && M === 'GET') { const d = await exportOrg(env, url.searchParams.get('org')); if (!d) return err('لا يوجد', 404); return new Response(JSON.stringify(d, null, 1), { headers: { 'Content-Type': 'application/json; charset=utf-8', 'Content-Disposition': `attachment; filename="${d.org.slug}-${now().slice(0, 10)}.json"` } }); }
@@ -438,7 +439,8 @@ const main = {
 // what the browser is told with every answer: do not guess types, do not show the site inside another site, do not pass our addresses on
 // (a screen's link carries its key), stay on https. The files of an organisation (/m/) are data: opened by themselves they run nothing.
 const GUARD = { 'X-Content-Type-Options': 'nosniff', 'X-Frame-Options': 'SAMEORIGIN', 'Referrer-Policy': 'same-origin', 'Strict-Transport-Security': 'max-age=31536000; includeSubDomains', 'Permissions-Policy': 'camera=(), microphone=(), geolocation=(), payment=()' };
-const KINDS = ['ceremony', 'stations'];   // the kinds of organisation the platform owner chooses from
+const KINDS = ['ceremony', 'stations'];
+const NOMAIL = 'noemail.basserh.com';   // the address given to an owner made without an email: never mailed, shown as «بلا بريد»   // the kinds of organisation the platform owner chooses from
 export default {
   scheduled: (e, env, ctx) => main.scheduled(e, env, ctx),
   async fetch(req, env, ctx) { countUse(env, ctx, req); const r = await main.fetch(req, env, ctx); if (r.status === 101 || r.webSocket) return r;
