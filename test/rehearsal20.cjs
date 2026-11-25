@@ -48,7 +48,7 @@ const SIZES = [[1920, 1080, 1], [1080, 1920, 1], [3840, 2160, 1], [2160, 3840, 1
   // ----- the board sees the twenty
   const bd = await ctx.newPage(); bd.on('pageerror', e => errs.push('board: ' + e.message)); bd.on('dialog', d => d.accept()); await bd.goto(`${B}/run/stations.html?e=${ev}`); await bd.waitForSelector('.card');
   await bd.waitForFunction(() => /متصلة (٢٠|20) من (٢٠|20)/.test(document.querySelector('#cnt').textContent), null, { timeout: 30000 }).catch(() => {}); ok(/متصلة (٢٠|20) من (٢٠|20)/.test(await bd.textContent('#cnt')), 'the board: ' + await bd.textContent('#cnt'));
-  await bd.waitForFunction(() => document.querySelectorAll('.card canvas').length === 20, null, { timeout: 60000 }).catch(() => {}); ok(await bd.locator('.card canvas').count() === 20, 'the board draws the page of each of the twenty');
+  await bd.waitForFunction(() => document.querySelectorAll('.card .pv canvas, .card .pv img.snap').length === 20, null, { timeout: 60000 }).catch(() => {}); { const n = await bd.locator('.card .pv canvas, .card .pv img.snap').count(); ok(n === 20, 'the board shows the page of each of the twenty (its live picture, or the page drawn): ' + n); }
   await bd.setViewportSize({ width: 1920, height: 1080 }); await bd.screenshot({ path: OUT + 'board_20.jpg', type: 'jpeg', quality: 70, fullPage: true });
   // ----- one move from the board reaches every screen: a page turned on each, then the square book to all, then back to the first page
   for (const x of screens) await x.s.click('#bF', { timeout: 3000 }).catch(() => {});
@@ -74,7 +74,7 @@ const SIZES = [[1920, 1080, 1], [1080, 1920, 1], [3840, 2160, 1], [2160, 3840, 1
   t = Date.now(); for (const x of cut) await on(x);
   const caught = await cut[0].s.waitForFunction(() => /من (٨|8)$/.test(document.querySelector('#pc').textContent.trim()), null, { timeout: 40000 }).then(() => Date.now() - t).catch(() => -1);
   ok(caught >= 0, `network back: the screen takes the change made meanwhile after ${(caught / 1000).toFixed(1)} s`);
-  await bd.waitForFunction(() => /متصلة (٢٠|20) من (٢٠|20)/.test(document.querySelector('#cnt').textContent), null, { timeout: 30000 }).catch(() => {}); ok(/متصلة (٢٠|20) من (٢٠|20)/.test(await bd.textContent('#cnt')), 'and the board counts the twenty again');
+  await bd.waitForFunction(() => /متصلة (٢٠|20) من (٢٠|20)/.test(document.querySelector('#cnt').textContent), null, { timeout: 30000 }).catch(() => {}); ok(/متصلة (٢٠|20) من (٢٠|20)/.test(await bd.textContent('#cnt')), 'and the board counts the twenty again: ' + (await bd.textContent('#cnt')).trim());
   // a screen restarted while the network is down
   await off(cut[1]); const re = await cut[1].s.reload({ timeout: 15000 }).then(() => cut[1].s.waitForFunction(() => /صفحة/.test(document.querySelector('#pc')?.textContent || ''), null, { timeout: 20000 })).then(() => true).catch(() => false);
   ok(re, 'a screen reloaded with no network opens again from what it keeps');

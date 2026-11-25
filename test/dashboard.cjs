@@ -60,7 +60,7 @@ const wait = ms => new Promise(r => setTimeout(r, ms));
   // ----- the owner's page
   const ac = await b.newContext({ viewport: { width: 1440, height: 1000 } }), a = await ac.newPage(); a.on('pageerror', e => errs.push('admin: ' + e.message)); await ac.setExtraHTTPHeaders({ 'x-admin-key': AK });
   await a.goto(B + '/admin.html'); if (await a.locator('#pw').count()) { await a.fill('#pw', AK); await a.click('#pwIn'); } await a.waitForSelector('#kpis .kpi');
-  const k = await a.$$eval('#kpis .kpi', l => l.map(x => x.textContent)); ok(k.length === 6 && k.some(t => /الشاشات المتصلة الآن/.test(t)), 'the platform\'s figures at a glance: ' + k.map(t => t.replace(/\s+/g, ' ')).join(' | '));
+  const k = await a.$$eval('#kpis .kpi', l => l.map(x => x.textContent)); ok(k.length >= 6 && k.some(t => /الشاشات المتصلة الآن/.test(t)) && k.some(t => /استهلاك اليوم/.test(t)), 'the platform\'s figures at a glance: ' + k.map(t => t.replace(/\s+/g, ' ')).join(' | '));
   const vis = await a.$$eval('#rows .oc', l => l.map(x => x.textContent)); ok(vis.some(t => /جمعية حقيقية/.test(t)) && !vis.some(t => /لوحة وخريطة/.test(t)), 'test organisations hidden; the real one shown'); await a.screenshot({ path: OUT + '5_admin.jpg', type: 'jpeg', quality: 80, fullPage: true });
   await a.check('#tst'); await a.waitForFunction(() => /لوحة وخريطة/.test(document.querySelector('#rows').textContent)); const oc = a.locator('#rows .oc:has-text("لوحة وخريطة")').first();
   ok(/(١|1)/.test(await oc.locator('.nums div:nth-child(2) b').textContent()), 'its card counts the screen connected now'); await oc.locator('[data-open]').first().click(); await a.waitForSelector('#drawer.on .drow');
