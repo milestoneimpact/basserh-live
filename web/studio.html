@@ -91,7 +91,7 @@ import * as SFX from './run/sfx.js';
 const $ = (s, r = document) => r.querySelector(s), app = $('#app'), esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
 const toast = t => { const e = $('#toast'); e.textContent = t; e.classList.add('on'); clearTimeout(toast.t); toast.t = setTimeout(() => e.classList.remove('on'), 2600); };
 // each organisation works under its own address (/<slug>); the slug goes with every request
-const SLUG = (location.pathname.match(/^\/([a-z0-9][a-z0-9-]+)\/?$/) || [])[1] || '', ORG = SLUG ? { 'x-org-slug': SLUG } : {};
+const SLUG = ((location.pathname.match(/^\/([a-z0-9][a-z0-9-]+)\/?$/) || [])[1] || '').replace(/^(login|studio|admin|join|screen)$/, ''),   /* /login is the general door (email and password), never an organisation called «login» */ ORG = SLUG ? { 'x-org-slug': SLUG } : {};
 const api = async (path, opt = {}) => { const r = await fetch(path, { ...opt, headers: { ...ORG, ...(opt.body && typeof opt.body === 'string' ? { 'Content-Type': 'application/json' } : {}), ...(opt.headers || {}) } }); const j = await r.json().catch(() => ({})); if (r.status === 401 && ME && ME.user && path !== '/api/login') { toast('انتهت جلستك. ادخل من جديد.'); setTimeout(() => location.reload(), 1200); throw new Error('session'); } if (!r.ok && !opt.soft) { toast(j.error || 'تعذّر الطلب'); throw Object.assign(new Error(j.error), { data: j }); } return j; };
 // the password field: «show» lets the person see what was typed; Arabic letters mean the keyboard is in Arabic, and the page says so at once
 function pwField(id) { const i = document.getElementById(id), h = document.getElementById(id + 'H'), e = document.querySelector(`[data-eye="${id}"]`); if (!i) return;
@@ -656,7 +656,8 @@ async function run() { const ST = isStations(doc), stName = id => ((doc.stations
 $('#help').onclick = e => { e.preventDefault(); help(); };
 $('#home').onclick = e => { e.preventDefault(); home(); };
 ME = await api('/api/me', { soft: true });
-if (!ME.user) { const door = SLUG || '', known = SLUG ? localStorage.getItem('door:' + SLUG) || '' : '';   // door: an organisation's own address; its name shows only on a device that has entered it before
+if (!ME.user) { for (const x of document.querySelectorAll('header #pk, header #help, header #home, header a[href="/api/logout"], header #pwSet')) x.style.display = 'none';   /* a visitor not signed in sees no links of the signed in */
+  const door = SLUG || '', known = SLUG ? localStorage.getItem('door:' + SLUG) || '' : '';   // door: an organisation's own address; its name shows only on a device that has entered it before
   // at an organisation's own address: its name over the door and one field, the password. At /login: email and password
   let look = null; try { look = known ? JSON.parse(localStorage.getItem('look:' + SLUG) || 'null') : null; } catch {} const acc = look && /^#[0-9a-f]{6}$/i.test(look.accent || '') ? look.accent : '';
   app.innerHTML = `<div id="gate"${acc ? ` class="own" style="--own:${acc}"` : ''}>${look && look.logo && /^data:image\//.test(look.logo) ? `<img src="${look.logo}" alt="" class="ownL">` : '<img src="brand/mark.png" alt="بصيرة" style="height:130px;margin-bottom:14px">'}<div class="k">${look && look.logo ? 'استوديو اللقاءات · بصيرة' : 'بصيرة · استوديو اللقاءات'}</div><h2 style="font:900 32px Kufi;color:var(--deep);margin:8px 0 18px">${known ? esc(known) : 'الدخول'}</h2>
